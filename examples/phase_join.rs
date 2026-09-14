@@ -25,6 +25,8 @@
 //! cargo run --release --example phase_join heap query
 //! cargo run --release --example phase_join file build
 //! cargo run --release --example phase_join file query
+//! cargo run --release --example phase_join compressed build
+//! cargo run --release --example phase_join compressed query
 //! cargo run --release --example phase_join mk2 build
 //! cargo run --release --example phase_join mk2 query
 //! cargo run --release --example phase_join ik2 build
@@ -45,6 +47,7 @@ use common::metrics::{current_rss_kb, human_bytes, peak_rss_kb, MemSize};
 use common::mk2tree::Mk2Forest;
 use common::radixtree_dfs_interleaved_varskip_unrolled::RadixTreeDfsInterleavedVarSkipUnrolled;
 use common::radixtree_dfs_interleaved_varskip_unrolled_file::RadixTreeDfsInterleavedVarSkipUnrolledFile;
+use common::radixtree_dfs_interleaved_varskip_unrolled_generic::Compressed as GenericCompressed;
 use common::rdf_gen::{graph_patterns_dataset, GP_CYC_1, GP_CYC_2, GP_CYC_3, GP_CYC_4, GP_STAR, GP_TRI_1, GP_TRI_2, GP_TRI_3};
 use common::sorted_neighbors::GraphBackend;
 
@@ -117,7 +120,7 @@ fn load_hub_probes(path: &std::path::Path) -> Vec<u32> {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let structure = args.next().unwrap_or_else(|| panic!("usage: phase_join <heap|file|mk2|ik2> <build|query> [num_hubs] [fanout]"));
+    let structure = args.next().unwrap_or_else(|| panic!("usage: phase_join <heap|file|compressed|mk2|ik2> <build|query> [num_hubs] [fanout]"));
     let phase = args.next().unwrap_or_else(|| "build".to_string());
     let num_hubs: u32 = args.next().and_then(|s| s.parse().ok()).unwrap_or(DEFAULT_NUM_HUBS);
     let fanout: u32 = args.next().and_then(|s| s.parse().ok()).unwrap_or(DEFAULT_FANOUT);
@@ -229,6 +232,32 @@ fn main() {
             }
             other => panic!("unknown phase {other:?}"),
         },
+        "compressed" => match phase.as_str() {
+            "build" => {
+                let triples = graph_patterns_dataset(num_hubs, fanout, 2026);
+                println!("=== graph_patterns(hubs={num_hubs}, fanout={fanout}) ({} triples), structure=compressed, phase=build ===", triples.len());
+                let hub_probes: Vec<u32> = (0..num_hubs).step_by((num_hubs as usize / NUM_HUB_PROBES).max(1)).collect();
+                save_hub_probes(&probes_path, &hub_probes);
+                let t0 = std::time::Instant::now();
+                let tree = GenericCompressed::build_dynamic(triples, block_capacity);
+                let build_time = t0.elapsed();
+                let bytes = tree.serialize();
+                std::fs::write(&tree_path, &bytes).unwrap_or_else(|e| panic!("failed to write {tree_path:?}: {e}"));
+                println!("  build={build_time:>10.2?} mem_size_bytes={} serialized={} height={} blocks={}", human_bytes(tree.mem_size_bytes()), human_bytes(bytes.len()), tree.height(), tree.block_count());
+                common::insertable_bench::report_rss("build");
+            }
+            "query" => {
+                let hub_probes = load_hub_probes(&probes_path);
+                let process_baseline_kb = current_rss_kb().unwrap_or(0);
+                let tree = GenericCompressed::deserialize_from_path(&tree_path);
+                println!("=== graph_patterns(hubs={num_hubs}, fanout={fanout}), structure=compressed, phase=query ===");
+                run_join_benchmarks(&tree, &hub_probes);
+                common::insertable_bench::report_rss("query");
+                let peak_kb = peak_rss_kb().unwrap_or(0);
+                println!("  process_baseline={} peak_minus_baseline={}", human_bytes(process_baseline_kb as usize * 1024), human_bytes(peak_kb.saturating_sub(process_baseline_kb) as usize * 1024));
+            }
+            other => panic!("unknown phase {other:?}"),
+        },
         "mk2" => match phase.as_str() {
             "build" => {
                 let triples = graph_patterns_dataset(num_hubs, fanout, 2026);
@@ -281,6 +310,6 @@ fn main() {
             }
             other => panic!("unknown phase {other:?}"),
         },
-        other => panic!("unknown structure {other:?}; expected \"heap\", \"file\", \"mk2\", or \"ik2\""),
+        other => panic!("unknown structure {other:?}; expected \"heap\", \"file\", \"compressed\", \"mk2\", or \"ik2\""),
     }
 }

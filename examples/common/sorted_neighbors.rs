@@ -242,6 +242,23 @@ impl GraphBackend for crate::common::radixtree_dfs_interleaved_varskip_unrolled_
     }
 }
 
+/// One impl, generic over `BlockStorage`, covering `Heap`/`File`/
+/// `Compressed` all at once -- unlike every `RadixTree` variant above
+/// (each its own concrete type, no shared generic base, hence one impl
+/// apiece), the production-recommended structure already *is* generic
+/// over its storage backend, so this is the one place closing the gap
+/// this project's own README names ("not yet wired into the shared
+/// join/BFS harness") for all three backends in a single impl instead of
+/// three duplicated ones.
+impl<S: crate::common::radixtree_dfs_interleaved_varskip_unrolled_generic::BlockStorage> GraphBackend for crate::common::radixtree_dfs_interleaved_varskip_unrolled_generic::RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
+    fn stream_row<'a>(&'a self, predicate: u32, subject: u32) -> Box<dyn SortedNeighbors + 'a> {
+        Box::new(SortedVecIter::new(self.query_two_bound([0, 1], [subject, predicate], 2)))
+    }
+    fn stream_col<'a>(&'a self, predicate: u32, object: u32) -> Box<dyn SortedNeighbors + 'a> {
+        Box::new(SortedVecIter::new(self.query_two_bound([1, 2], [predicate, object], 0)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

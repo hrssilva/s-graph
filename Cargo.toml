@@ -13,3 +13,15 @@ rayon = "1"
 # files in this project with an explicit, scoped exception to the "no
 # unsafe" rule, because real memory-mapping has no safe-Rust equivalent.
 libc = "0.2"
+# Only used by radixtree_dfs_interleaved_varskip_unrolled_generic.rs's
+# CompressedStorage backend, for LZ4 block compression. Pinned to a
+# version with `safe-encode`/`safe-decode` on by default (both are, as
+# of 0.12.1+, the version that also fixed RUSTSEC-2026-0041 / an
+# uninitialized-read issue in the unsafe path we don't use) -- compiles
+# to zero unsafe code, unlike every mainstream Zstd binding (C FFI) and
+# unlike the pure-Rust Zstd crates available at time of writing, which
+# are too new/low-adoption to depend on. LZ4 is decompression-optimized
+# by design, matching CompressedStorage's read-heavy, decompress-on-
+# every-touch workload better than a higher-ratio/slower-decode codec
+# would.
+lz4_flex = "0.14"
