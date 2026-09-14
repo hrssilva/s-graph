@@ -1,0 +1,589 @@
+dataset,structure,metric,value
+uniform,Mk2Forest,build_time,1.415543ms
+uniform,Mk2Forest,mem_size,47.38 KiB
+uniform,Ik2Tree,build_time,2.405386ms
+uniform,Ik2Tree,mem_size,46.84 KiB
+uniform,Omnitree,build_time,637.239µs
+uniform,Omnitree,mem_size,123.72 KiB
+uniform,RadixTree(static),build_time,824.732µs
+uniform,RadixTree(static),mem_size,91.14 KiB
+uniform,RadixTree(dynamic),build_time,632.691µs
+uniform,RadixTree(dynamic),mem_size,48.81 KiB
+uniform,(process),peak_rss_so_far,4616 KiB
+uniform,Mk2Forest,point_query_avg,33ns
+uniform,Ik2Tree,point_query_avg,91ns
+uniform,Omnitree,point_query_avg,61ns
+uniform,Mk2Forest,fixed_pred_point_avg,39ns
+uniform,Ik2Tree,fixed_pred_point_avg,109ns
+uniform,Mk2Forest,fixed_pred_row_avg,222ns
+uniform,Ik2Tree,fixed_pred_row_avg,658ns
+uniform,Mk2Forest,row_query_avg,313ns
+uniform,Ik2Tree,row_query_avg,827ns
+uniform,Omnitree,row_query_avg,1.188µs
+uniform,Mk2Forest,unbound_pred_seq_avg,7.603µs
+uniform,Mk2Forest,unbound_pred_parallel_avg,16.779µs
+uniform,Ik2Tree,unbound_pred_eager_avg,7.575µs
+uniform,Ik2Tree,unbound_pred_lazy_avg,5.904µs
+uniform,Omnitree,unbound_pred_scan_avg,13.591µs
+uniform,Mk2Forest,predicate_lookup_seq_avg,702ns
+uniform,Mk2Forest,predicate_lookup_parallel_avg,13.35µs
+uniform,Ik2Tree,predicate_lookup_avg,213ns
+uniform,Omnitree,predicate_lookup_avg,1.047µs
+uniform,RadixTree(static),point_query_avg,47ns
+uniform,RadixTree(static),fixed_pred_point_avg,59ns
+uniform,RadixTree(static),fixed_pred_row_avg,479ns
+uniform,RadixTree(static),row_query_avg,607ns
+uniform,RadixTree(static),unbound_pred_scan_avg,7.633µs
+uniform,RadixTree(static),predicate_lookup_avg,533ns
+uniform,RadixTree(dynamic),point_query_avg,39ns
+uniform,RadixTree(dynamic),fixed_pred_point_avg,45ns
+uniform,RadixTree(dynamic),fixed_pred_row_avg,376ns
+uniform,RadixTree(dynamic),row_query_avg,421ns
+uniform,RadixTree(dynamic),unbound_pred_scan_avg,4.72µs
+uniform,RadixTree(dynamic),predicate_lookup_avg,422ns
+uniform,RadixTree(veb),build_time,878.944µs
+uniform,RadixTree(veb),mem_size,82.45 KiB
+uniform,RadixTree(veb),point_query_avg,41ns
+uniform,RadixTree(veb),row_query_avg,381ns
+uniform,RadixTree(veb),unbound_pred_scan_avg,4.735µs
+uniform,RadixTree(veb),predicate_lookup_avg,387ns
+uniform,RadixTree(dfs),build_time,617.432µs
+uniform,RadixTree(dfs),mem_size,48.55 KiB
+uniform,RadixTree(dfs),point_query_avg,284ns
+uniform,RadixTree(dfs),row_query_avg,1.391µs
+uniform,RadixTree(dfs),unbound_pred_scan_avg,5.947µs
+uniform,RadixTree(dfs),predicate_lookup_avg,1.561µs
+uniform,RadixTree(bp),build_time,703.033µs
+uniform,RadixTree(bp),mem_size,64.31 KiB
+uniform,RadixTree(bp),point_query_avg,90ns
+uniform,RadixTree(bp),row_query_avg,604ns
+uniform,RadixTree(bp),unbound_pred_scan_avg,4.683µs
+uniform,RadixTree(bp),predicate_lookup_avg,650ns
+zipfian(1.2),Mk2Forest,build_time,1.26509ms
+zipfian(1.2),Mk2Forest,mem_size,40.89 KiB
+zipfian(1.2),Ik2Tree,build_time,2.219707ms
+zipfian(1.2),Ik2Tree,mem_size,40.38 KiB
+zipfian(1.2),Omnitree,build_time,680.12µs
+zipfian(1.2),Omnitree,mem_size,124.90 KiB
+zipfian(1.2),RadixTree(static),build_time,825.554µs
+zipfian(1.2),RadixTree(static),mem_size,82.26 KiB
+zipfian(1.2),RadixTree(dynamic),build_time,600.289µs
+zipfian(1.2),RadixTree(dynamic),mem_size,43.32 KiB
+zipfian(1.2),(process),peak_rss_so_far,5304 KiB
+zipfian(1.2),Mk2Forest,point_query_avg,33ns
+zipfian(1.2),Ik2Tree,point_query_avg,89ns
+zipfian(1.2),Omnitree,point_query_avg,64ns
+zipfian(1.2),Mk2Forest,fixed_pred_point_avg,44ns
+zipfian(1.2),Ik2Tree,fixed_pred_point_avg,124ns
+zipfian(1.2),Mk2Forest,fixed_pred_row_avg,873ns
+zipfian(1.2),Ik2Tree,fixed_pred_row_avg,2.084µs
+zipfian(1.2),Mk2Forest,row_query_avg,623ns
+zipfian(1.2),Ik2Tree,row_query_avg,1.452µs
+zipfian(1.2),Omnitree,row_query_avg,1.832µs
+zipfian(1.2),Mk2Forest,unbound_pred_seq_avg,6.909µs
+zipfian(1.2),Mk2Forest,unbound_pred_parallel_avg,14.973µs
+zipfian(1.2),Ik2Tree,unbound_pred_eager_avg,7.336µs
+zipfian(1.2),Ik2Tree,unbound_pred_lazy_avg,5.686µs
+zipfian(1.2),Omnitree,unbound_pred_scan_avg,11.649µs
+zipfian(1.2),Mk2Forest,predicate_lookup_seq_avg,659ns
+zipfian(1.2),Mk2Forest,predicate_lookup_parallel_avg,13.221µs
+zipfian(1.2),Ik2Tree,predicate_lookup_avg,202ns
+zipfian(1.2),Omnitree,predicate_lookup_avg,905ns
+zipfian(1.2),RadixTree(static),point_query_avg,47ns
+zipfian(1.2),RadixTree(static),fixed_pred_point_avg,74ns
+zipfian(1.2),RadixTree(static),fixed_pred_row_avg,1.359µs
+zipfian(1.2),RadixTree(static),row_query_avg,987ns
+zipfian(1.2),RadixTree(static),unbound_pred_scan_avg,6.481µs
+zipfian(1.2),RadixTree(static),predicate_lookup_avg,445ns
+zipfian(1.2),RadixTree(dynamic),point_query_avg,38ns
+zipfian(1.2),RadixTree(dynamic),fixed_pred_point_avg,51ns
+zipfian(1.2),RadixTree(dynamic),fixed_pred_row_avg,825ns
+zipfian(1.2),RadixTree(dynamic),row_query_avg,626ns
+zipfian(1.2),RadixTree(dynamic),unbound_pred_scan_avg,3.867µs
+zipfian(1.2),RadixTree(dynamic),predicate_lookup_avg,373ns
+zipfian(1.2),RadixTree(veb),build_time,823.449µs
+zipfian(1.2),RadixTree(veb),mem_size,72.26 KiB
+zipfian(1.2),RadixTree(veb),point_query_avg,41ns
+zipfian(1.2),RadixTree(veb),row_query_avg,593ns
+zipfian(1.2),RadixTree(veb),unbound_pred_scan_avg,3.883µs
+zipfian(1.2),RadixTree(veb),predicate_lookup_avg,336ns
+zipfian(1.2),RadixTree(dfs),build_time,545.236µs
+zipfian(1.2),RadixTree(dfs),mem_size,43.23 KiB
+zipfian(1.2),RadixTree(dfs),point_query_avg,239ns
+zipfian(1.2),RadixTree(dfs),row_query_avg,1.575µs
+zipfian(1.2),RadixTree(dfs),unbound_pred_scan_avg,4.918µs
+zipfian(1.2),RadixTree(dfs),predicate_lookup_avg,1.32µs
+zipfian(1.2),RadixTree(bp),build_time,633.803µs
+zipfian(1.2),RadixTree(bp),mem_size,57.77 KiB
+zipfian(1.2),RadixTree(bp),point_query_avg,84ns
+zipfian(1.2),RadixTree(bp),row_query_avg,824ns
+zipfian(1.2),RadixTree(bp),unbound_pred_scan_avg,3.964µs
+zipfian(1.2),RadixTree(bp),predicate_lookup_avg,550ns
+single_predicate,Mk2Forest,build_time,562.228µs
+single_predicate,Mk2Forest,mem_size,12.41 KiB
+single_predicate,Ik2Tree,build_time,1.795188ms
+single_predicate,Ik2Tree,mem_size,12.44 KiB
+single_predicate,Omnitree,build_time,754.89µs
+single_predicate,Omnitree,mem_size,126.97 KiB
+single_predicate,RadixTree(static),build_time,480.243µs
+single_predicate,RadixTree(static),mem_size,48.54 KiB
+single_predicate,RadixTree(dynamic),build_time,274.397µs
+single_predicate,RadixTree(dynamic),mem_size,11.08 KiB
+single_predicate,(process),peak_rss_so_far,5400 KiB
+single_predicate,Mk2Forest,point_query_avg,40ns
+single_predicate,Ik2Tree,point_query_avg,91ns
+single_predicate,Omnitree,point_query_avg,81ns
+single_predicate,Mk2Forest,row_query_avg,1.219µs
+single_predicate,Ik2Tree,row_query_avg,2.663µs
+single_predicate,Omnitree,row_query_avg,4.168µs
+single_predicate,Mk2Forest,unbound_pred_seq_avg,1.146µs
+single_predicate,Mk2Forest,unbound_pred_parallel_avg,1.168µs
+single_predicate,Ik2Tree,unbound_pred_eager_avg,2.683µs
+single_predicate,Ik2Tree,unbound_pred_lazy_avg,3.489µs
+single_predicate,Omnitree,unbound_pred_scan_avg,4.027µs
+single_predicate,RadixTree(static),point_query_avg,55ns
+single_predicate,RadixTree(static),row_query_avg,2.42µs
+single_predicate,RadixTree(static),unbound_pred_scan_avg,2.122µs
+single_predicate,RadixTree(dynamic),point_query_avg,31ns
+single_predicate,RadixTree(dynamic),row_query_avg,1.115µs
+single_predicate,RadixTree(dynamic),unbound_pred_scan_avg,973ns
+high_predicate_cardinality,Mk2Forest,build_time,2.483473ms
+high_predicate_cardinality,Mk2Forest,mem_size,84.70 KiB
+high_predicate_cardinality,Ik2Tree,build_time,2.86985ms
+high_predicate_cardinality,Ik2Tree,mem_size,78.10 KiB
+high_predicate_cardinality,Omnitree,build_time,644.552µs
+high_predicate_cardinality,Omnitree,mem_size,122.42 KiB
+high_predicate_cardinality,RadixTree(static),build_time,1.20622ms
+high_predicate_cardinality,RadixTree(static),mem_size,89.93 KiB
+high_predicate_cardinality,RadixTree(dynamic),build_time,1.028195ms
+high_predicate_cardinality,RadixTree(dynamic),mem_size,89.93 KiB
+high_predicate_cardinality,(process),peak_rss_so_far,5944 KiB
+high_predicate_cardinality,Mk2Forest,point_query_avg,29ns
+high_predicate_cardinality,Ik2Tree,point_query_avg,78ns
+high_predicate_cardinality,Omnitree,point_query_avg,61ns
+high_predicate_cardinality,Mk2Forest,row_query_avg,120ns
+high_predicate_cardinality,Ik2Tree,row_query_avg,344ns
+high_predicate_cardinality,Omnitree,row_query_avg,1.044µs
+high_predicate_cardinality,Mk2Forest,predicate_lookup_seq_avg,6.944µs
+high_predicate_cardinality,Mk2Forest,predicate_lookup_parallel_avg,22µs
+high_predicate_cardinality,Ik2Tree,predicate_lookup_avg,234ns
+high_predicate_cardinality,Omnitree,predicate_lookup_avg,1.067µs
+high_predicate_cardinality,RadixTree(static),point_query_avg,48ns
+high_predicate_cardinality,RadixTree(static),row_query_avg,469ns
+high_predicate_cardinality,RadixTree(static),predicate_lookup_avg,474ns
+high_predicate_cardinality,RadixTree(dynamic),point_query_avg,48ns
+high_predicate_cardinality,RadixTree(dynamic),row_query_avg,459ns
+high_predicate_cardinality,RadixTree(dynamic),predicate_lookup_avg,462ns
+large_domain_few_predicates,RadixTree(static),node_words,210741
+large_domain_few_predicates,RadixTree(static),mem_size,1.76 MiB
+large_domain_few_predicates,RadixTree(dynamic),node_words,134841
+large_domain_few_predicates,RadixTree(dynamic),mem_size,1.11 MiB
+large_domain_few_predicates,RadixTree(bp),build_time,20.520833ms
+large_domain_few_predicates,RadixTree(bp),mem_size,1.33 MiB
+large_scale_pred_skew_only,Mk2Forest,build_time,14.951533391s
+large_scale_pred_skew_only,Mk2Forest,mem_size,530.47 MiB
+large_scale_pred_skew_only,Mk2Forest,contains_avg,614ns (10000 hits)
+large_scale_pred_skew_only,Mk2Forest,row_query_avg,73.222µs (5415 total_out)
+large_scale_pred_skew_only,Ik2Tree,build_time,58.389345129s
+large_scale_pred_skew_only,Ik2Tree,mem_size,530.47 MiB
+large_scale_pred_skew_only,Ik2Tree,contains_avg,1.002µs (10000 hits)
+large_scale_pred_skew_only,Ik2Tree,row_query_avg,204.954µs (5415 total_out)
+large_scale_pred_skew_only,Omnitree,build_time,3.701516417s
+large_scale_pred_skew_only,Omnitree,mem_size,506.75 MiB
+large_scale_pred_skew_only,Omnitree,contains_avg,1.386µs (10000 hits)
+large_scale_pred_skew_only,Omnitree,row_query_avg,167.722µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(static),build_time,7.096402928s
+large_scale_pred_skew_only,RadixTree(static),mem_size,903.94 MiB
+large_scale_pred_skew_only,RadixTree(static),contains_avg,1.091µs (10000 hits)
+large_scale_pred_skew_only,RadixTree(static),row_query_avg,111.479µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(dynamic),build_time,7.885501048s
+large_scale_pred_skew_only,RadixTree(dynamic),mem_size,538.62 MiB
+large_scale_pred_skew_only,RadixTree(dynamic),contains_avg,727ns (10000 hits)
+large_scale_pred_skew_only,RadixTree(dynamic),row_query_avg,45.656µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(veb),build_time,13.668860428s
+large_scale_pred_skew_only,RadixTree(veb),mem_size,1.10 GiB
+large_scale_pred_skew_only,RadixTree(veb),contains_avg,977ns (10000 hits)
+large_scale_pred_skew_only,RadixTree(veb),row_query_avg,58.201µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(dfs),build_time,9.160707762s
+large_scale_pred_skew_only,RadixTree(dfs),mem_size,599.78 MiB
+large_scale_pred_skew_only,RadixTree(dfs),contains_avg,5.251µs (10000 hits)
+large_scale_pred_skew_only,RadixTree(dfs),row_query_avg,219.525µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(dfs_dac),build_time,8.724065324s
+large_scale_pred_skew_only,RadixTree(dfs_dac),mem_size,531.69 MiB
+large_scale_pred_skew_only,RadixTree(dfs_dac),contains_avg,6.06µs (10000 hits)
+large_scale_pred_skew_only,RadixTree(dfs_dac),row_query_avg,220.683µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(bp),build_time,10.63684656s
+large_scale_pred_skew_only,RadixTree(bp),mem_size,638.73 MiB
+large_scale_pred_skew_only,RadixTree(bp),contains_avg,3.951µs (10000 hits)
+large_scale_pred_skew_only,RadixTree(bp),row_query_avg,152.233µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(dfs_bp),build_time,9.218499352s
+large_scale_pred_skew_only,RadixTree(dfs_bp),mem_size,515.09 MiB
+large_scale_pred_skew_only,RadixTree(dfs_bp),contains_avg,681.709µs (10000 hits)
+large_scale_pred_skew_only,RadixTree(dfs_bp),row_query_avg,1.958322ms (5415 total_out)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved),build_time,8.941524054s
+large_scale_pred_skew_only,RadixTree(dfs_interleaved),mem_size,591.07 MiB
+large_scale_pred_skew_only,RadixTree(dfs_interleaved),contains_avg,4.608µs (10000 hits)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved),row_query_avg,219.528µs (5415 total_out)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved_varskip),build_time,8.742441059s
+large_scale_pred_skew_only,RadixTree(dfs_interleaved_varskip),mem_size,554.94 MiB
+large_scale_pred_skew_only,RadixTree(dfs_interleaved_varskip),contains_avg,4.481µs (10000 hits)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved_varskip),row_query_avg,230.605µs (5415 total_out)
+large_scale_pred_skew_only,(process),peak_rss_so_far,5283644 KiB
+large_scale_pred_skew_only,Mk2Forest,single_insert_avg,14.872503745s (full rebuild, 10 trials)
+large_scale_pred_skew_only,Mk2Forest,batch_insert_total,14.933640794s (10 triples, full rebuild)
+large_scale_pred_skew_only,Mk2Forest,batch_insert_per_triple,1.493364079s
+large_scale_pred_skew_only,Ik2Tree,single_insert_avg,58.805800337s (full rebuild, 10 trials)
+large_scale_pred_skew_only,Ik2Tree,batch_insert_total,58.844713867s (10 triples, full rebuild)
+large_scale_pred_skew_only,Ik2Tree,batch_insert_per_triple,5.884471386s
+large_scale_pred_skew_only,Omnitree,single_insert_avg,3.713002016s (full rebuild, 10 trials)
+large_scale_pred_skew_only,Omnitree,batch_insert_total,3.738721315s (10 triples, full rebuild)
+large_scale_pred_skew_only,Omnitree,batch_insert_per_triple,373.872131ms
+large_scale_pred_skew_only,RadixTree(static),single_insert_avg,7.182484358s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(static),batch_insert_total,7.214531951s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(static),batch_insert_per_triple,721.453195ms
+large_scale_pred_skew_only,RadixTree(dynamic),single_insert_avg,7.783913217s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(dynamic),batch_insert_total,7.778680108s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(dynamic),batch_insert_per_triple,777.86801ms
+large_scale_pred_skew_only,RadixTree(veb),single_insert_avg,13.703639152s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(veb),batch_insert_total,13.732425689s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(veb),batch_insert_per_triple,1.373242568s
+large_scale_pred_skew_only,RadixTree(dfs),single_insert_avg,9.065580872s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(dfs),batch_insert_total,9.114702562s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(dfs),batch_insert_per_triple,911.470256ms
+large_scale_pred_skew_only,RadixTree(dfs_dac),single_insert_avg,8.810144547s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(dfs_dac),batch_insert_total,8.826500248s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(dfs_dac),batch_insert_per_triple,882.650024ms
+large_scale_pred_skew_only,RadixTree(bp),single_insert_avg,10.572246545s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(bp),batch_insert_total,10.577122758s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(bp),batch_insert_per_triple,1.057712275s
+large_scale_pred_skew_only,RadixTree(dfs_bp),single_insert_avg,9.158062244s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(dfs_bp),batch_insert_total,9.159903331s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(dfs_bp),batch_insert_per_triple,915.990333ms
+large_scale_pred_skew_only,RadixTree(dfs_interleaved),single_insert_avg,8.930651905s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved),batch_insert_total,8.925856461s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved),batch_insert_per_triple,892.585646ms
+large_scale_pred_skew_only,RadixTree(dfs_interleaved_varskip),single_insert_avg,8.738815843s (full rebuild, 10 trials)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved_varskip),batch_insert_total,8.768982288s (10 triples, full rebuild)
+large_scale_pred_skew_only,RadixTree(dfs_interleaved_varskip),batch_insert_per_triple,876.898228ms
+large_scale_pred_skew_only,(process),peak_rss_so_far,7868556 KiB
+large_scale_entity_skew_1.0,Mk2Forest,build_time,6.799413815s
+large_scale_entity_skew_1.0,Mk2Forest,mem_size,187.22 MiB
+large_scale_entity_skew_1.0,Mk2Forest,contains_avg,386ns (10000 hits)
+large_scale_entity_skew_1.0,Mk2Forest,row_query_avg,1.246528ms (19710487 total_out)
+large_scale_entity_skew_1.0,Ik2Tree,build_time,19.304889925s
+large_scale_entity_skew_1.0,Ik2Tree,mem_size,187.22 MiB
+large_scale_entity_skew_1.0,Ik2Tree,contains_avg,592ns (10000 hits)
+large_scale_entity_skew_1.0,Ik2Tree,row_query_avg,3.157207ms (19710487 total_out)
+large_scale_entity_skew_1.0,Omnitree,build_time,4.286155341s
+large_scale_entity_skew_1.0,Omnitree,mem_size,444.74 MiB
+large_scale_entity_skew_1.0,Omnitree,contains_avg,1.166µs (10000 hits)
+large_scale_entity_skew_1.0,Omnitree,row_query_avg,2.712036ms (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(static),build_time,3.860191724s
+large_scale_entity_skew_1.0,RadixTree(static),mem_size,362.87 MiB
+large_scale_entity_skew_1.0,RadixTree(static),contains_avg,678ns (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(static),row_query_avg,1.95116ms (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(dynamic),build_time,3.5722168s
+large_scale_entity_skew_1.0,RadixTree(dynamic),mem_size,195.85 MiB
+large_scale_entity_skew_1.0,RadixTree(dynamic),contains_avg,387ns (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(dynamic),row_query_avg,776.45µs (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(veb),build_time,5.185479239s
+large_scale_entity_skew_1.0,RadixTree(veb),mem_size,379.51 MiB
+large_scale_entity_skew_1.0,RadixTree(veb),contains_avg,618ns (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(veb),row_query_avg,937.069µs (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(dfs),build_time,3.561373433s
+large_scale_entity_skew_1.0,RadixTree(dfs),mem_size,205.03 MiB
+large_scale_entity_skew_1.0,RadixTree(dfs),contains_avg,1.959µs (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(dfs),row_query_avg,1.016273ms (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(dfs_dac),build_time,3.441035918s
+large_scale_entity_skew_1.0,RadixTree(dfs_dac),mem_size,192.64 MiB
+large_scale_entity_skew_1.0,RadixTree(dfs_dac),contains_avg,2.138µs (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(dfs_dac),row_query_avg,1.030332ms (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(bp),build_time,3.960445386s
+large_scale_entity_skew_1.0,RadixTree(bp),mem_size,245.39 MiB
+large_scale_entity_skew_1.0,RadixTree(bp),contains_avg,2.033µs (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(bp),row_query_avg,1.04181ms (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(dfs_bp),build_time,3.586985201s
+large_scale_entity_skew_1.0,RadixTree(dfs_bp),mem_size,191.62 MiB
+large_scale_entity_skew_1.0,RadixTree(dfs_bp),contains_avg,178.635µs (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(dfs_bp),row_query_avg,2.811697ms (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved),build_time,3.498409145s
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved),mem_size,201.79 MiB
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved),contains_avg,2.102µs (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved),row_query_avg,960.794µs (19710487 total_out)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved_varskip),build_time,3.450268261s
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved_varskip),mem_size,195.27 MiB
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved_varskip),contains_avg,2.042µs (10000 hits)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved_varskip),row_query_avg,1.04579ms (19710487 total_out)
+large_scale_entity_skew_1.0,(process),peak_rss_so_far,7868556 KiB
+large_scale_entity_skew_1.0,Mk2Forest,single_insert_avg,6.809169936s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,Mk2Forest,batch_insert_total,6.843285795s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,Mk2Forest,batch_insert_per_triple,684.328579ms
+large_scale_entity_skew_1.0,Ik2Tree,single_insert_avg,19.163784629s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,Ik2Tree,batch_insert_total,19.232206687s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,Ik2Tree,batch_insert_per_triple,1.923220668s
+large_scale_entity_skew_1.0,Omnitree,single_insert_avg,4.176428655s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,Omnitree,batch_insert_total,4.21501722s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,Omnitree,batch_insert_per_triple,421.501722ms
+large_scale_entity_skew_1.0,RadixTree(static),single_insert_avg,3.871397933s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(static),batch_insert_total,3.899556442s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(static),batch_insert_per_triple,389.955644ms
+large_scale_entity_skew_1.0,RadixTree(dynamic),single_insert_avg,3.528085101s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(dynamic),batch_insert_total,3.524303894s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(dynamic),batch_insert_per_triple,352.430389ms
+large_scale_entity_skew_1.0,RadixTree(veb),single_insert_avg,5.186906742s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(veb),batch_insert_total,5.221740388s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(veb),batch_insert_per_triple,522.174038ms
+large_scale_entity_skew_1.0,RadixTree(dfs),single_insert_avg,3.540207223s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(dfs),batch_insert_total,3.559942753s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(dfs),batch_insert_per_triple,355.994275ms
+large_scale_entity_skew_1.0,RadixTree(dfs_dac),single_insert_avg,3.4856341s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(dfs_dac),batch_insert_total,3.502698354s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(dfs_dac),batch_insert_per_triple,350.269835ms
+large_scale_entity_skew_1.0,RadixTree(bp),single_insert_avg,4.127403661s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(bp),batch_insert_total,4.082231481s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(bp),batch_insert_per_triple,408.223148ms
+large_scale_entity_skew_1.0,RadixTree(dfs_bp),single_insert_avg,3.580865582s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(dfs_bp),batch_insert_total,3.592517017s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(dfs_bp),batch_insert_per_triple,359.251701ms
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved),single_insert_avg,3.492470683s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved),batch_insert_total,3.521668634s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved),batch_insert_per_triple,352.166863ms
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved_varskip),single_insert_avg,3.455264769s (full rebuild, 10 trials)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved_varskip),batch_insert_total,3.465109404s (10 triples, full rebuild)
+large_scale_entity_skew_1.0,RadixTree(dfs_interleaved_varskip),batch_insert_per_triple,346.51094ms
+large_scale_entity_skew_1.0,(process),peak_rss_so_far,7868556 KiB
+large_scale_entity_skew_1.5,Mk2Forest,build_time,2.443984662s
+large_scale_entity_skew_1.5,Mk2Forest,mem_size,5.36 MiB
+large_scale_entity_skew_1.5,Mk2Forest,contains_avg,131ns (10000 hits)
+large_scale_entity_skew_1.5,Mk2Forest,row_query_avg,553.924µs (15754395 total_out)
+large_scale_entity_skew_1.5,Ik2Tree,build_time,3.171815036s
+large_scale_entity_skew_1.5,Ik2Tree,mem_size,5.36 MiB
+large_scale_entity_skew_1.5,Ik2Tree,contains_avg,274ns (10000 hits)
+large_scale_entity_skew_1.5,Ik2Tree,row_query_avg,1.169036ms (15754395 total_out)
+large_scale_entity_skew_1.5,Omnitree,build_time,3.172642415s
+large_scale_entity_skew_1.5,Omnitree,mem_size,246.47 MiB
+large_scale_entity_skew_1.5,Omnitree,contains_avg,300ns (10000 hits)
+large_scale_entity_skew_1.5,Omnitree,row_query_avg,3.09525ms (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(static),build_time,1.737947685s
+large_scale_entity_skew_1.5,RadixTree(static),mem_size,13.63 MiB
+large_scale_entity_skew_1.5,RadixTree(static),contains_avg,200ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(static),row_query_avg,771.037µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(dynamic),build_time,1.304850238s
+large_scale_entity_skew_1.5,RadixTree(dynamic),mem_size,6.00 MiB
+large_scale_entity_skew_1.5,RadixTree(dynamic),contains_avg,133ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(dynamic),row_query_avg,349.444µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(veb),build_time,1.229659387s
+large_scale_entity_skew_1.5,RadixTree(veb),mem_size,10.79 MiB
+large_scale_entity_skew_1.5,RadixTree(veb),contains_avg,150ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(veb),row_query_avg,353.644µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(dfs),build_time,1.009057324s
+large_scale_entity_skew_1.5,RadixTree(dfs),mem_size,6.17 MiB
+large_scale_entity_skew_1.5,RadixTree(dfs),contains_avg,196ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(dfs),row_query_avg,259.125µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(dfs_dac),build_time,1.007734483s
+large_scale_entity_skew_1.5,RadixTree(dfs_dac),mem_size,5.95 MiB
+large_scale_entity_skew_1.5,RadixTree(dfs_dac),contains_avg,261ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(dfs_dac),row_query_avg,273.466µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(bp),build_time,1.026129059s
+large_scale_entity_skew_1.5,RadixTree(bp),mem_size,8.43 MiB
+large_scale_entity_skew_1.5,RadixTree(bp),contains_avg,221ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(bp),row_query_avg,262.39µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(dfs_bp),build_time,1.022170863s
+large_scale_entity_skew_1.5,RadixTree(dfs_bp),mem_size,5.99 MiB
+large_scale_entity_skew_1.5,RadixTree(dfs_bp),contains_avg,5.072µs (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(dfs_bp),row_query_avg,445.163µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved),build_time,1.008631812s
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved),mem_size,6.07 MiB
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved),contains_avg,124ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved),row_query_avg,174.831µs (15754395 total_out)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved_varskip),build_time,1.010733s
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved_varskip),mem_size,5.96 MiB
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved_varskip),contains_avg,134ns (10000 hits)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved_varskip),row_query_avg,204.203µs (15754395 total_out)
+large_scale_entity_skew_1.5,(process),peak_rss_so_far,7868556 KiB
+large_scale_entity_skew_1.5,Mk2Forest,single_insert_avg,2.441065006s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,Mk2Forest,batch_insert_total,2.455886198s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,Mk2Forest,batch_insert_per_triple,245.588619ms
+large_scale_entity_skew_1.5,Ik2Tree,single_insert_avg,3.171920516s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,Ik2Tree,batch_insert_total,3.185848639s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,Ik2Tree,batch_insert_per_triple,318.584863ms
+large_scale_entity_skew_1.5,Omnitree,single_insert_avg,3.133593839s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,Omnitree,batch_insert_total,3.153711979s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,Omnitree,batch_insert_per_triple,315.371197ms
+large_scale_entity_skew_1.5,RadixTree(static),single_insert_avg,1.745049053s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(static),batch_insert_total,1.751697192s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(static),batch_insert_per_triple,175.169719ms
+large_scale_entity_skew_1.5,RadixTree(dynamic),single_insert_avg,1.308130879s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(dynamic),batch_insert_total,1.311023024s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(dynamic),batch_insert_per_triple,131.102302ms
+large_scale_entity_skew_1.5,RadixTree(veb),single_insert_avg,1.237591658s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(veb),batch_insert_total,1.240826419s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(veb),batch_insert_per_triple,124.082641ms
+large_scale_entity_skew_1.5,RadixTree(dfs),single_insert_avg,1.021901092s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(dfs),batch_insert_total,1.023337921s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(dfs),batch_insert_per_triple,102.333792ms
+large_scale_entity_skew_1.5,RadixTree(dfs_dac),single_insert_avg,1.02057726s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(dfs_dac),batch_insert_total,1.026982336s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(dfs_dac),batch_insert_per_triple,102.698233ms
+large_scale_entity_skew_1.5,RadixTree(bp),single_insert_avg,1.037947507s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(bp),batch_insert_total,1.046539412s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(bp),batch_insert_per_triple,104.653941ms
+large_scale_entity_skew_1.5,RadixTree(dfs_bp),single_insert_avg,1.034372588s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(dfs_bp),batch_insert_total,1.04494568s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(dfs_bp),batch_insert_per_triple,104.494568ms
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved),single_insert_avg,1.019817164s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved),batch_insert_total,1.029543209s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved),batch_insert_per_triple,102.95432ms
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved_varskip),single_insert_avg,1.021077394s (full rebuild, 10 trials)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved_varskip),batch_insert_total,1.030351782s (10 triples, full rebuild)
+large_scale_entity_skew_1.5,RadixTree(dfs_interleaved_varskip),batch_insert_per_triple,103.035178ms
+large_scale_entity_skew_1.5,(process),peak_rss_so_far,7868556 KiB
+large_scale_entity_skew_2.0,Mk2Forest,build_time,2.293735358s
+large_scale_entity_skew_2.0,Mk2Forest,mem_size,304.53 KiB
+large_scale_entity_skew_2.0,Mk2Forest,contains_avg,113ns (10000 hits)
+large_scale_entity_skew_2.0,Mk2Forest,row_query_avg,46.048µs (2633913 total_out)
+large_scale_entity_skew_2.0,Ik2Tree,build_time,2.867912357s
+large_scale_entity_skew_2.0,Ik2Tree,mem_size,304.20 KiB
+large_scale_entity_skew_2.0,Ik2Tree,contains_avg,281ns (10000 hits)
+large_scale_entity_skew_2.0,Ik2Tree,row_query_avg,95.644µs (2633913 total_out)
+large_scale_entity_skew_2.0,Omnitree,build_time,2.965739384s
+large_scale_entity_skew_2.0,Omnitree,mem_size,230.72 MiB
+large_scale_entity_skew_2.0,Omnitree,contains_avg,176ns (10000 hits)
+large_scale_entity_skew_2.0,Omnitree,row_query_avg,5.311668ms (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(static),build_time,1.674683447s
+large_scale_entity_skew_2.0,RadixTree(static),mem_size,968.69 KiB
+large_scale_entity_skew_2.0,RadixTree(static),contains_avg,157ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(static),row_query_avg,74.338µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(dynamic),build_time,1.242218061s
+large_scale_entity_skew_2.0,RadixTree(dynamic),mem_size,359.92 KiB
+large_scale_entity_skew_2.0,RadixTree(dynamic),contains_avg,113ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(dynamic),row_query_avg,32.322µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(veb),build_time,1.141567967s
+large_scale_entity_skew_2.0,RadixTree(veb),mem_size,625.19 KiB
+large_scale_entity_skew_2.0,RadixTree(veb),contains_avg,120ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(veb),row_query_avg,32.003µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(dfs),build_time,962.115279ms
+large_scale_entity_skew_2.0,RadixTree(dfs),mem_size,369.06 KiB
+large_scale_entity_skew_2.0,RadixTree(dfs),contains_avg,108ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(dfs),row_query_avg,20.892µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(dfs_dac),build_time,961.001041ms
+large_scale_entity_skew_2.0,RadixTree(dfs_dac),mem_size,358.87 KiB
+large_scale_entity_skew_2.0,RadixTree(dfs_dac),contains_avg,124ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(dfs_dac),row_query_avg,22.232µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(bp),build_time,961.815274ms
+large_scale_entity_skew_2.0,RadixTree(bp),mem_size,567.85 KiB
+large_scale_entity_skew_2.0,RadixTree(bp),contains_avg,125ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(bp),row_query_avg,22.902µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(dfs_bp),build_time,969.335298ms
+large_scale_entity_skew_2.0,RadixTree(dfs_bp),mem_size,362.14 KiB
+large_scale_entity_skew_2.0,RadixTree(dfs_bp),contains_avg,581ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(dfs_bp),row_query_avg,35.345µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved),build_time,957.611155ms
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved),mem_size,362.92 KiB
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved),contains_avg,56ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved),row_query_avg,13.739µs (2633913 total_out)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved_varskip),build_time,961.985294ms
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved_varskip),mem_size,358.41 KiB
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved_varskip),contains_avg,65ns (10000 hits)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved_varskip),row_query_avg,16.375µs (2633913 total_out)
+large_scale_entity_skew_2.0,(process),peak_rss_so_far,7868556 KiB
+large_scale_entity_skew_2.0,Mk2Forest,single_insert_avg,2.286270517s (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,Mk2Forest,batch_insert_total,2.312681753s (10 triples, full rebuild)
+large_scale_entity_skew_2.0,Mk2Forest,batch_insert_per_triple,231.268175ms
+large_scale_entity_skew_2.0,Ik2Tree,single_insert_avg,2.865409169s (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,Ik2Tree,batch_insert_total,2.88334791s (10 triples, full rebuild)
+large_scale_entity_skew_2.0,Ik2Tree,batch_insert_per_triple,288.334791ms
+large_scale_entity_skew_2.0,Omnitree,single_insert_avg,2.984552985s (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,Omnitree,batch_insert_total,3.031556821s (10 triples, full rebuild)
+large_scale_entity_skew_2.0,Omnitree,batch_insert_per_triple,303.155682ms
+large_scale_entity_skew_2.0,RadixTree(static),single_insert_avg,1.667838572s (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(static),batch_insert_total,1.68085451s (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(static),batch_insert_per_triple,168.085451ms
+large_scale_entity_skew_2.0,RadixTree(dynamic),single_insert_avg,1.237592586s (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(dynamic),batch_insert_total,1.242775341s (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(dynamic),batch_insert_per_triple,124.277534ms
+large_scale_entity_skew_2.0,RadixTree(veb),single_insert_avg,1.137064434s (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(veb),batch_insert_total,1.138434716s (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(veb),batch_insert_per_triple,113.843471ms
+large_scale_entity_skew_2.0,RadixTree(dfs),single_insert_avg,957.42805ms (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(dfs),batch_insert_total,961.101279ms (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(dfs),batch_insert_per_triple,96.110127ms
+large_scale_entity_skew_2.0,RadixTree(dfs_dac),single_insert_avg,956.27771ms (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(dfs_dac),batch_insert_total,964.879184ms (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(dfs_dac),batch_insert_per_triple,96.487918ms
+large_scale_entity_skew_2.0,RadixTree(bp),single_insert_avg,959.236274ms (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(bp),batch_insert_total,961.272803ms (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(bp),batch_insert_per_triple,96.12728ms
+large_scale_entity_skew_2.0,RadixTree(dfs_bp),single_insert_avg,965.739668ms (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(dfs_bp),batch_insert_total,981.334959ms (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(dfs_bp),batch_insert_per_triple,98.133495ms
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved),single_insert_avg,957.017145ms (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved),batch_insert_total,968.222612ms (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved),batch_insert_per_triple,96.822261ms
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved_varskip),single_insert_avg,959.014215ms (full rebuild, 10 trials)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved_varskip),batch_insert_total,963.917182ms (10 triples, full rebuild)
+large_scale_entity_skew_2.0,RadixTree(dfs_interleaved_varskip),batch_insert_per_triple,96.391718ms
+large_scale_entity_skew_2.0,(process),peak_rss_so_far,7868556 KiB
+chain,Mk2Forest,build_time,196.811µs
+chain,Mk2Forest,mem_size,5.12 KiB
+chain,Ik2Tree,build_time,338.077µs
+chain,Ik2Tree,mem_size,5.07 KiB
+chain,Omnitree,build_time,151.565µs
+chain,Omnitree,mem_size,21.60 KiB
+chain,RadixTree(static),build_time,79.169µs
+chain,RadixTree(static),mem_size,8.42 KiB
+chain,RadixTree(dynamic),build_time,79.55µs
+chain,RadixTree(dynamic),mem_size,6.14 KiB
+chain,(process),peak_rss_so_far,7868556 KiB
+chain,Mk2Forest,bfs_seq,11.843µs
+chain,Mk2Forest,bfs_parallel,14.347µs
+chain,Ik2Tree,bfs_seq,17.553µs
+chain,Ik2Tree,bfs_parallel,20.178µs
+chain,Omnitree,bfs_seq,15.289µs
+chain,Omnitree,bfs_parallel,17.252µs
+chain,RadixTree(static),bfs_seq,10.971µs
+chain,RadixTree(static),bfs_parallel,12.594µs
+chain,RadixTree(dynamic),bfs_seq,6.823µs
+chain,RadixTree(dynamic),bfs_parallel,9.187µs
+chain,RadixTree(veb),bfs_seq,7.304µs
+chain,RadixTree(veb),bfs_parallel,8.576µs
+chain,RadixTree(dfs),bfs_seq,14.497µs
+chain,RadixTree(dfs),bfs_parallel,16.441µs
+chain,RadixTree(bp),bfs_seq,7.985µs
+chain,RadixTree(bp),bfs_parallel,9.689µs
+star_triangle,Mk2Forest,build_time,215.145µs
+star_triangle,Mk2Forest,mem_size,5.78 KiB
+star_triangle,Ik2Tree,build_time,445.329µs
+star_triangle,Ik2Tree,mem_size,5.77 KiB
+star_triangle,Omnitree,build_time,201.429µs
+star_triangle,Omnitree,mem_size,28.81 KiB
+star_triangle,RadixTree(static),build_time,105.128µs
+star_triangle,RadixTree(static),mem_size,9.92 KiB
+star_triangle,RadixTree(dynamic),build_time,97.624µs
+star_triangle,RadixTree(dynamic),mem_size,7.69 KiB
+star_triangle,(process),peak_rss_so_far,7868556 KiB
+star_triangle,Mk2Forest,join_2hop,6.382µs (3 matches)
+star_triangle,Ik2Tree,join_2hop,5.37µs (3 matches)
+star_triangle,Omnitree,join_2hop,4.117µs (3 matches)
+star_triangle,Mk2Forest,join_triangle,8.216µs (1 matches)
+star_triangle,Ik2Tree,join_triangle,10.53µs (1 matches)
+star_triangle,Omnitree,join_triangle,7.705µs (1 matches)
+star_triangle,Mk2Forest,join_star,1.994µs (5 matches)
+star_triangle,Ik2Tree,join_star,1.843µs (5 matches)
+star_triangle,Omnitree,join_star,1.353µs (5 matches)
+star_triangle,RadixTree(static),join_2hop,2.855µs (3 matches)
+star_triangle,RadixTree(static),join_triangle,5.2µs (1 matches)
+star_triangle,RadixTree(static),join_star,1.002µs (5 matches)
+star_triangle,RadixTree(dynamic),join_2hop,2.194µs (3 matches)
+star_triangle,RadixTree(dynamic),join_triangle,3.977µs (1 matches)
+star_triangle,RadixTree(dynamic),join_star,812ns (5 matches)
+star_triangle,RadixTree(veb),join_2hop,2.114µs (3 matches)
+star_triangle,RadixTree(veb),join_triangle,3.727µs (1 matches)
+star_triangle,RadixTree(veb),join_star,742ns (5 matches)
+star_triangle,RadixTree(dfs),join_2hop,4.017µs (3 matches)
+star_triangle,RadixTree(dfs),join_triangle,6.633µs (1 matches)
+star_triangle,RadixTree(dfs),join_star,1.102µs (5 matches)
+star_triangle,RadixTree(bp),join_2hop,2.215µs (3 matches)
+star_triangle,RadixTree(bp),join_triangle,3.607µs (1 matches)
+star_triangle,RadixTree(bp),join_star,801ns (5 matches)
+(overall),(process),final_peak_rss,7868556 KiB

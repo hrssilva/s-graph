@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+
+[dev-dependencies]
+rayon = "1"
+# Only used by radixtree_dfs_interleaved_varskip_unrolled_mmap.rs and
+# radixtree_dfs_interleaved_varskip_unrolled_file_mmap.rs, for the raw
+# mmap()/munmap()/madvise() syscalls that back their blocks -- the two
+# files in this project with an explicit, scoped exception to the "no
+# unsafe" rule, because real memory-mapping has no safe-Rust equivalent.
+libc = "0.2"
