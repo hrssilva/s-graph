@@ -391,6 +391,20 @@ impl BlockStorage for CompressedStorage {
             self.flush_pending_block(capacity);
         }
         self.shrink_to_fit();
+        // A bulk build's own skip-pointer backfilling can populate this
+        // cache as a side effect of patching an already-committed block
+        // (`write_block_at` always decompresses a window first, unlike
+        // `FileStorage`'s write-through `pwrite`, which never needs to
+        // read anything to write) -- `shrink_to_fit` above only trims
+        // each entry's capacity down to its content length, it doesn't
+        // empty them. Left as-is, that read cache is dead weight for a
+        // tree nobody has queried yet, and at small scale it can dwarf
+        // the structure's own content (measured directly: an 8 KiB
+        // cache next to ~4 KiB of actual compressed content, on a
+        // 758-triple tree). Reset it to genuinely empty here; the next
+        // real read populates it fresh, same as a freshly deserialized
+        // tree would.
+        *self.block_stack.get_mut() = CompressedBlockStack::new();
     }
     fn empty() -> Self {
         CompressedStorage { blocks: Vec::new(), block_stack: RefCell::new(CompressedBlockStack::new()), stack_cap: Cell::new(1), build_pending: None }
