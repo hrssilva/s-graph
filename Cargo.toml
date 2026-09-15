@@ -15,8 +15,8 @@ file = []
 compressed = ["dep:lz4_flex"]
 # `rayon`-based fan-out during bulk build. Off by default so a single-
 # threaded consumer isn't forced to pull rayon into their dependency tree;
-# on, it's a measured ~4x bulk-build speedup at large N (see the crate's
-# production assessment notes).
+# on, it's a measured ~4x bulk-build speedup at large N (see s-bench:
+# https://github.com/hrssilva/s-bench).
 parallel = ["dep:rayon"]
 
 [dependencies]
