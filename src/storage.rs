@@ -1,0 +1,338 @@
+//! The storage abstraction: [`BlockStorage`], the trait every backend
+//! implements, plus [`Pos`] (a logical block/offset address) and
+//! [`HeapStorage`], the always-available, zero-dependency, full-RAM-
+//! resident backend. `file`/`compressed`-feature backends live in
+//! [`crate::storage_file`]/[`crate::storage_compressed`].
+
+use crate::tree::{read_var_at, write_var_at, WORD_RECORD_BYTES};
+use std::borrow::Cow;
+
+/// A position in the block-list: which (logical) block, and the byte
+/// offset within it. Backend-agnostic -- `S::read_u64`/etc. resolve
+/// `block` to wherever that backend actually keeps it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Pos {
+    pub(crate) block: usize,
+    pub(crate) offset: usize,
+}
+
+impl Pos {
+    pub(crate) const START: Pos = Pos { block: 0, offset: 0 };
+}
+
+// ==================== the storage abstraction ====================
+
+/// Everything the shared tree algorithm needs from wherever node bytes
+/// actually live, addressed by *logical* (DFS-order) block index -- each
+/// implementation owns its own physical-block/slot bookkeeping entirely
+/// privately (no shared `slot_start`-style fields live on the outer
+/// generic struct). Reads take `&self` (both impls' caching, where they
+/// have any, is interior-mutability-based); writes take `&mut self`
+/// (`HeapStorage` genuinely needs exclusive access to mutate its `Vec`s;
+/// `FileStorage`'s writes are always called from a `&mut self` context
+/// anyway, so this costs it nothing).
+pub trait BlockStorage: Sized {
+    fn read_u64(&self, block: usize, offset: usize) -> u64;
+    fn read_var(&self, block: usize, offset: usize, width: u8) -> u64;
+
+    /// Reads a node's existence word and, if `skip_width > 0`, its
+    /// immediately-following skip field, together. Default impl just
+    /// calls [`Self::read_u64`]/[`Self::read_var`] separately -- correct
+    /// for any backend, and all `HeapStorage` needs, since there's no
+    /// I/O to amortize there. `FileStorage` overrides this to fetch both
+    /// in one operation: `insert_no_reset`'s descent reads every level's
+    /// word anyway, and almost always ends up needing that level's skip
+    /// value too, so fetching it opportunistically here means that loop
+    /// never has to read it again -- only write the updated value.
+    /// `skip_width == 0` means this level has no skip field (the last
+    /// two levels); the second return value is then meaningless.
+    fn read_word_and_skip(&self, block: usize, offset: usize, skip_width: u8) -> (u64, u64) {
+        let word = self.read_u64(block, offset);
+        let skip = if skip_width > 0 { self.read_var(block, offset + WORD_RECORD_BYTES, skip_width) } else { 0 };
+        (word, skip)
+    }
+
+    fn write_u64_at(&mut self, block: usize, offset: usize, val: u64);
+    fn write_var_at(&mut self, block: usize, offset: usize, width: u8, val: u64);
+    fn block_len(&self, block: usize) -> usize;
+    fn block_count(&self) -> usize;
+
+    /// Maps a logical block index to whatever stable physical identity
+    /// the backend has (a no-op for `HeapStorage`, where logical index
+    /// *is* physical identity; `FileStorage` overrides this to return the
+    /// slot number, which stays stable across the `self.blocks`
+    /// reordering/insertion that churns logical indices). Used only for
+    /// diagnostics -- never on a hot path.
+    fn debug_slot(&self, block: usize) -> usize {
+        block
+    }
+
+    /// Whole-subtree bulk read for the tree's own bulk-listing
+    /// optimization: zero-copy borrow when the whole range lives in one
+    /// physical block (`HeapStorage`'s common case), an owned copy
+    /// otherwise (`FileStorage`, always; `HeapStorage` only when a range
+    /// spans more than one block, which -- since a block never splits a
+    /// record -- only happens for a subtree wider than one block).
+    fn bulk_read(&self, block: usize, offset: usize, len: usize) -> Cow<'_, [u8]>;
+
+    /// Splices `new_bytes` in at `pos`, growing/splitting storage as
+    /// needed -- see each impl for its own mechanism; genuinely
+    /// different between backends, so this stays a whole trait method
+    /// rather than being decomposed further.
+    fn insert_bytes(&mut self, pos: Pos, new_bytes: &[u8], block_capacity: usize);
+
+    /// RAII guard, constructed at the top of every top-level call
+    /// (`contains`/`query_two_bound`/`query_one_bound`), dropped at its
+    /// end. No-op for `HeapStorage`; pops `FileStorage`'s stack cache
+    /// back to just the root.
+    fn begin_top_level_call(&self) -> impl Drop + '_;
+    /// No-op for `HeapStorage`; toggles `FileStorage`'s cache depth
+    /// (`1` for reads, unbounded for insert's ancestor-revisit pass).
+    fn set_insert_mode(&self, active: bool);
+    /// Called at the end of `insert` (both return paths) since `insert`
+    /// can't hold a `begin_top_level_call` guard across its own
+    /// `&mut self` calls.
+    fn end_insert(&self);
+
+    /// Appends one atomic node record to whichever block the streaming
+    /// bulk-build path is currently filling, opening a fresh block first
+    /// if `bytes` wouldn't fit in what's left of the current one.
+    /// `bytes.len()` must never exceed `block_capacity` (guaranteed by
+    /// the build path: a node record is at most
+    /// `WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES`, and every caller of
+    /// bulk build already asserts `block_capacity` is at least that).
+    fn append_record(&mut self, bytes: &[u8], block_capacity: usize) -> Pos;
+
+    /// Overwrites `width` bytes at `pos.offset + rel_offset`, where `pos`
+    /// was returned by an earlier, not-yet-[`Self::finish_append`]ed call
+    /// to [`Self::append_record`] on the same builder -- how a far node's
+    /// skip placeholder gets backfilled once its subtree's total byte
+    /// length is known, without requiring that node's own block to
+    /// already be finalized. Unlike [`BlockStorage::write_var_at`] (which
+    /// requires `block` to already be a committed, addressable block),
+    /// this must also work when `pos` still refers to storage's own
+    /// currently-open, not-yet-finalized block.
+    fn patch_appended(&mut self, pos: Pos, rel_offset: usize, width: u8, val: u64);
+
+    /// Finalizes whatever block [`Self::append_record`] left open (if
+    /// any) and reclaims any leftover reserved-but-unused capacity --
+    /// called exactly once, after a streaming bulk build's last
+    /// `append_record` call.
+    fn finish_append(&mut self, block_capacity: usize);
+
+    fn empty() -> Self;
+
+    /// (capacity, used_len) per logical block, in DFS order.
+    fn block_table(&self) -> Vec<(usize, usize)>;
+    fn write_blocks_into(&self, out: &mut Vec<u8>);
+    /// Reconstructs storage from a serialized block table + content
+    /// stream. Fallible: the bytes may come from an untrusted source
+    /// (corrupt file, truncated transfer), so a short read is a real
+    /// [`crate::error::TreeError::Io`]/[`crate::error::TreeError::CorruptData`],
+    /// never a panic.
+    fn read_blocks_from<R: std::io::Read>(r: &mut R, table: &[(usize, usize)]) -> crate::error::Result<Self>;
+
+    fn mem_size_bytes(&self) -> usize;
+    fn size_breakdown(&self) -> Vec<(&'static str, usize)>;
+
+    /// Releases any reserved-but-unused capacity, without changing a
+    /// single byte of content. Meant to be called by a caller who knows
+    /// they're done with a burst of insertion activity (a whole
+    /// `insert_batch` call, or "no more inserts for now") -- calling it
+    /// after *every* insert or every batch would be counterproductive
+    /// (see [`HeapStorage::insert_bytes`]'s own doc comment: every block
+    /// a caller is still actively growing is deliberately pre-reserved to
+    /// `block_capacity` precisely so repeated nearby inserts don't each
+    /// pay for a reallocation -- shrinking it back down immediately would
+    /// just force the next insert to regrow it again).
+    fn shrink_to_fit(&mut self);
+
+    /// Rebuilds the entire block layout from scratch, packing `records`
+    /// -- every node's own `(position, byte length)` in DFS-preorder --
+    /// greedily into `block_capacity`-sized blocks, exactly the way the
+    /// streaming bulk-build path packs node records as they're produced,
+    /// except sourcing each record's bytes from the *existing* storage
+    /// instead of a live build.
+    fn compact_from_records(&mut self, records: &[(Pos, usize)], block_capacity: usize);
+}
+
+// -------------------- HeapStorage --------------------
+
+/// Direct port of the original heap variant's storage: one `Vec<u8>` per
+/// logical block, no slot indirection at all (a block's index in
+/// `blocks` *is* its address). Growing/splitting a block is plain
+/// `Vec::splice`/`split_off`/`insert` on these.
+#[cfg(feature = "heap")]
+pub struct HeapStorage {
+    blocks: Vec<Vec<u8>>,
+}
+
+#[cfg(feature = "heap")]
+struct NoopGuard;
+impl Drop for NoopGuard {
+    fn drop(&mut self) {}
+}
+
+#[cfg(feature = "heap")]
+impl BlockStorage for HeapStorage {
+    #[inline]
+    fn read_u64(&self, block: usize, offset: usize) -> u64 {
+        u64::from_le_bytes(self.blocks[block][offset..offset + 8].try_into().unwrap())
+    }
+    #[inline]
+    fn read_var(&self, block: usize, offset: usize, width: u8) -> u64 {
+        read_var_at(&self.blocks[block], offset, width)
+    }
+    #[inline]
+    fn write_u64_at(&mut self, block: usize, offset: usize, val: u64) {
+        self.blocks[block][offset..offset + 8].copy_from_slice(&val.to_le_bytes());
+    }
+    #[inline]
+    fn write_var_at(&mut self, block: usize, offset: usize, width: u8, val: u64) {
+        write_var_at(&mut self.blocks[block], offset, width, val);
+    }
+    #[inline]
+    fn block_len(&self, block: usize) -> usize {
+        self.blocks[block].len()
+    }
+    fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+    fn bulk_read(&self, block: usize, offset: usize, len: usize) -> Cow<'_, [u8]> {
+        let avail = self.blocks[block].len() - offset;
+        if len <= avail {
+            return Cow::Borrowed(&self.blocks[block][offset..offset + len]);
+        }
+        let mut buf = Vec::with_capacity(len);
+        buf.extend_from_slice(&self.blocks[block][offset..]);
+        let mut b = block + 1;
+        while buf.len() < len {
+            let take = (len - buf.len()).min(self.blocks[b].len());
+            buf.extend_from_slice(&self.blocks[b][..take]);
+            b += 1;
+        }
+        Cow::Owned(buf)
+    }
+    /// A tail-position insert (`pos.offset == block.len()`) that doesn't
+    /// fit within `block_capacity` gets a fresh block of its own instead
+    /// of being let through onto the existing block regardless of size.
+    /// An earlier, unconditional tail bypass meant a block at a
+    /// repeatedly-hit tail position could grow arbitrarily far past
+    /// `block_capacity` via plain `Vec` amortized doubling, never
+    /// splitting -- measured to balloon a build's `mem_size_bytes` by
+    /// ~9x (53.55 MiB -> 476.21 MiB at 2,000,000 triples) once
+    /// Morton-sorted batch insertion made hitting the same block's tail
+    /// repeatedly, back to back, the common case instead of a rare one.
+    fn insert_bytes(&mut self, pos: Pos, new_bytes: &[u8], block_capacity: usize) {
+        let block_len = self.blocks[pos.block].len();
+        if block_len + new_bytes.len() <= block_capacity {
+            let block = &mut self.blocks[pos.block];
+            block.splice(pos.offset..pos.offset, new_bytes.iter().copied());
+            return;
+        }
+        if pos.offset == block_len {
+            // Doesn't fit, and there's no existing tail content to carry
+            // into a split -- give new_bytes a block of its own, right
+            // after this one, instead of widening this block past its
+            // intended capacity.
+            let mut new_block = Vec::with_capacity(block_capacity.max(new_bytes.len()));
+            new_block.extend_from_slice(new_bytes);
+            self.blocks.insert(pos.block + 1, new_block);
+            return;
+        }
+        let block = &mut self.blocks[pos.block];
+        let mut tail = block.split_off(pos.offset);
+        // Pre-reserve the split-off tail up to the full block budget too
+        // -- it's a real, ongoing block from here on (more inserts can
+        // land in it later), not a one-off.
+        tail.reserve_exact(block_capacity.saturating_sub(tail.len()));
+        block.extend_from_slice(new_bytes);
+        self.blocks.insert(pos.block + 1, tail);
+    }
+    fn begin_top_level_call(&self) -> impl Drop + '_ {
+        NoopGuard
+    }
+    fn set_insert_mode(&self, _active: bool) {}
+    fn end_insert(&self) {}
+
+    /// Every block is allocated at its full `capacity` budget up front
+    /// (`Vec::with_capacity`) the moment it's opened, so accumulating
+    /// records into it never triggers `Vec`'s own amortized-doubling
+    /// reallocation-and-copy along the way. The trade: a block that ends
+    /// up smaller than `capacity` carries reserved capacity it never
+    /// used -- [`Self::shrink_to_fit`], called from
+    /// [`Self::finish_append`] once the whole streaming build is done,
+    /// reclaims exactly that.
+    fn append_record(&mut self, bytes: &[u8], capacity: usize) -> Pos {
+        debug_assert!(bytes.len() <= capacity, "record of {} bytes exceeds block_capacity {capacity}", bytes.len());
+        if self.blocks.is_empty() {
+            self.blocks.push(Vec::with_capacity(capacity));
+        } else {
+            let last = self.blocks.len() - 1;
+            if !self.blocks[last].is_empty() && self.blocks[last].len() + bytes.len() > capacity {
+                self.blocks.push(Vec::with_capacity(capacity));
+            }
+        }
+        let last = self.blocks.len() - 1;
+        let offset = self.blocks[last].len();
+        self.blocks[last].extend_from_slice(bytes);
+        Pos { block: last, offset }
+    }
+    fn patch_appended(&mut self, pos: Pos, rel_offset: usize, width: u8, val: u64) {
+        write_var_at(&mut self.blocks[pos.block], pos.offset + rel_offset, width, val);
+    }
+    fn finish_append(&mut self, _capacity: usize) {
+        self.shrink_to_fit();
+    }
+    fn empty() -> Self {
+        HeapStorage { blocks: Vec::new() }
+    }
+    fn shrink_to_fit(&mut self) {
+        for block in &mut self.blocks {
+            block.shrink_to_fit();
+        }
+        self.blocks.shrink_to_fit();
+    }
+    fn compact_from_records(&mut self, records: &[(Pos, usize)], block_capacity: usize) {
+        let mut new_blocks: Vec<Vec<u8>> = Vec::new();
+        let mut current: Vec<u8> = Vec::with_capacity(block_capacity);
+        for &(pos, len) in records {
+            if !current.is_empty() && current.len() + len > block_capacity {
+                new_blocks.push(std::mem::replace(&mut current, Vec::with_capacity(block_capacity)));
+            }
+            current.extend_from_slice(&self.blocks[pos.block][pos.offset..pos.offset + len]);
+        }
+        if !current.is_empty() {
+            new_blocks.push(current);
+        }
+        self.blocks = new_blocks;
+    }
+
+    fn block_table(&self) -> Vec<(usize, usize)> {
+        self.blocks.iter().map(|b| (b.len(), b.len())).collect()
+    }
+    fn write_blocks_into(&self, out: &mut Vec<u8>) {
+        for b in &self.blocks {
+            out.extend_from_slice(b);
+        }
+    }
+    fn read_blocks_from<R: std::io::Read>(r: &mut R, table: &[(usize, usize)]) -> crate::error::Result<Self> {
+        let mut blocks = Vec::with_capacity(table.len());
+        for &(_, len) in table {
+            let mut v = vec![0u8; len];
+            r.read_exact(&mut v)?;
+            blocks.push(v);
+        }
+        Ok(HeapStorage { blocks })
+    }
+
+    fn mem_size_bytes(&self) -> usize {
+        self.blocks.capacity() * std::mem::size_of::<Vec<u8>>() + self.blocks.iter().map(crate::vec_bytes).sum::<usize>()
+    }
+    fn size_breakdown(&self) -> Vec<(&'static str, usize)> {
+        vec![
+            ("blocks: outer Vec<Vec<u8>> pointers", self.blocks.capacity() * std::mem::size_of::<Vec<u8>>()),
+            ("blocks: node records (sum of inner Vecs)", self.blocks.iter().map(crate::vec_bytes).sum()),
+        ]
+    }
+}
