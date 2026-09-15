@@ -194,39 +194,25 @@ exactly one capability the previous step didn't have):
   benchmarks) and `wide_intersection_dataset`/`_spread_s` (built specifically
   to isolate the k²-tree-family traversal pathology described in §5).
 
-## 4. What the benchmark binaries actually measure
+## 4. What the benchmark binaries measured (historical)
 
-- `compare/` (`main.rs`/`scenarios.rs`/`report.rs`): the comprehensive
-  head-to-head — build time, memory, point/row/col/unbound-predicate query
-  latency, BFS (seq/parallel), and LTJ join throughput — across Mk2Forest,
-  Ik2Tree, Omnitree, and every RadixTree layout variant, on uniform and
-  Zipfian datasets.
-- `mk2tree.rs`/`ik2tree.rs`/`omnitree.rs`/`radixtree.rs`: thin per-structure
-  correctness demos (build + randomized-probe cross-check against
-  `NaiveIndex`).
-- `bench_insertable.rs`: the six insertable/rebuild-only variants (varskip
-  baseline, heap/mmap/arena/file unrolled) side by side on four 20M-triple
-  scenarios, `mem_size_bytes()`-based (single-process, so RSS would be
-  contaminated — see §1).
-- `bench_generic_overhead.rs`: the A/B validation this session added —
-  original heap/file vs. the new generic heap/file, same scenarios, to
-  confirm the `BlockStorage` trait costs nothing once monomorphized (§5).
-- `rss_heap.rs`/`rss_anon_mmap.rs`/`rss_file.rs`/`rss_file_mmap.rs`: one
-  structure per *process*, for honest independent peak/steady-state RSS.
-- `phase_heap.rs`/`phase_file.rs`/`phase_anon_mmap.rs`/`phase_file_mmap.rs`/`phase_mk2.rs`/`phase_ik2.rs`:
-  build and query/insert in separate process invocations (via
-  `tree_serialize`), so a phase's own RSS/timing isn't polluted by the other
-  phases.
-- `phase_join.rs`: star/triangle/4-cycle join latency across
-  heap/file/mk2/ik2 on `graph_patterns_dataset`.
-- `phase_wide_join.rs`: isolates lazy vs. eager join-stream behavior — does a
-  join cost *less* than materializing its widest input stream alone (only
-  possible for a genuinely lazy, subtree-pruning `seek`, which only
-  `Mk2Forest`'s `K2Tree` row/col iterators have in this project; `Ik2Tree`
-  and the heap/file variants all materialize eagerly).
-- `export_dataset.rs`: dumps a dataset as raw `u32` triples so an external
-  (non-Rust) benchmark — specifically `sdsl-lite`'s own `k2_tree` — can be
-  measured against byte-for-byte the same data.
+The four correctness demos still in this directory —
+`mk2tree.rs`/`ik2tree.rs`/`omnitree.rs`/`radixtree.rs` (thin per-structure
+demos: build + randomized-probe cross-check against `NaiveIndex`) — are
+kept because they're explanatory: a minimal, runnable illustration of each
+structure's own API.
+
+Every *benchmark-only* binary this investigation used to produce the
+numbers in §5 below (`compare/`'s comprehensive head-to-head;
+`bench_insertable.rs`/`bench_generic_overhead.rs`'s A/B validations;
+`rss_*.rs`'s per-process RSS measurements; `phase_*.rs`'s isolated
+build/query/insert phases; `export_dataset.rs`'s external-tool export) has
+been removed from this repository — reproducing the production
+structure's own numbers going forward is [`s-bench`](https://github.com/hrssilva/s-bench)'s
+job, not this exploratory directory's. §5's findings and numbers below are
+kept as the historical record of the investigation that led to the
+production design in `src/`; they are not reproducible from this
+directory's current contents.
 
 ## 5. Empirical findings
 
@@ -450,34 +436,14 @@ cargo run --example mk2tree
 cargo run --example ik2tree
 cargo run --example omnitree
 cargo run --example radixtree
-
-# The comprehensive structure/query/join/BFS comparison
-cargo run --release --example compare
-
-# Insertable variants: build+insert cost side by side (single process)
-cargo run --release --example bench_insertable
-
-# Validate the generic abstraction's overhead against the hand-specialized originals
-cargo run --release --example bench_generic_overhead
-
-# Honest, uncontaminated peak/steady-state RSS (one structure per process)
-cargo run --release --example rss_heap [scenario]
-cargo run --release --example rss_file [scenario]
-cargo run --release --example rss_anon_mmap [scenario]
-cargo run --release --example rss_file_mmap [scenario]
-
-# Build/query/insert as separate process phases
-cargo run --release --example phase_heap build|query|insert
-cargo run --release --example phase_file build|query|insert
-
-# Join-pattern (star/triangle/4-cycle) latency
-cargo run --release --example phase_join heap|file|mk2|ik2 build|query
-
-# Lazy-vs-eager join-stream isolation
-cargo run --release --example phase_wide_join heap|file|mk2|ik2 build|query
 ```
 
 All `cargo test` runs (per-module `#[cfg(test)]` suites, reached through
 whichever example binary pulls that module in via `#[path]`) cross-check
 every non-trivial query against `NaiveIndex` — run `cargo test --tests
 --examples` from the crate root to exercise the full suite.
+
+For current build/query/insert/memory numbers on the production structure
+(`src/`), see [`s-bench`](https://github.com/hrssilva/s-bench) — it
+benchmarks `s-graph` (and `s-parser`) against real, reproducible data
+rather than this directory's own removed benchmark binaries (§4).

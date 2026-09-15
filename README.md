@@ -11,8 +11,7 @@ It grew out of an exploratory comparison against the k²-tree family
 full survey and literature grounding (see `examples/README.md`). This
 crate (`src/`) is the productionized result: the same structure, with
 `Result`-based error handling, feature-gated backends, and a real public
-API instead of a benchmark harness. `PRODUCTION_ASSESSMENT.md` has the
-full design rationale and the decisions made turning it into this crate.
+API instead of a benchmark harness.
 
 ## Why
 
@@ -132,72 +131,19 @@ parser and dictionary-encode the terms you get back into `u32` ids
 in both positions; blank nodes scoped per source document, since their
 identity is only meaningful within it).
 
-The `w3c-demo/` directory in this repository is a complete, runnable
-example of exactly that pipeline, using
-[`s-parser`](https://github.com/hrssilva/s-parser) (a separate,
-from-scratch N-Triples parser) instead of `examples/`'s own synthetic
-data generator — see below.
+## Benchmarks: real data, not synthetic
 
-## Demonstration: real W3C RDF data, not synthetic
-
-Every number below comes from actually parsing RDF — the [W3C RDF 1.1
-test suite](https://github.com/w3c/rdf-tests) (the same corpus
-`s-parser` validates its own conformance against), read with
-`s-parser`'s `NtTokenizer`, dictionary-encoded, and built into each
-`s-graph` backend. Reproduce it yourself:
-
-```sh
-cd w3c-demo
-./fetch_w3c_data.sh          # shallow-clones w3c/rdf-tests
-cargo run --release -- ./rdf-tests [replicas]
-```
-
-**Pure real data, zero amplification** (328 fixture files, one pass —
-`replicas` defaults to 1):
-
-```
-809 records parsed (1 file skipped, see stderr), 758 distinct triples, 751 distinct entities, 117 distinct predicates, in 5.8ms
-
-Heap        build= 459.974µs mem=      9137 bytes (12.05 bytes/triple) height=5 blocks=3  contains_avg=  292ns (758/758 probes hit)
-File        build= 550.926µs mem=       155 bytes (0.20 bytes/triple) height=5 blocks=3  contains_avg=1.528µs (758/758 probes hit)
-Compressed  build= 644.311µs mem=     12497 bytes (16.49 bytes/triple) height=5 blocks=3  contains_avg=3.794µs (758/758 probes hit)
-
-`rdf:type` used as a predicate for 37 distinct object(s) in this corpus (query_one_bound)
-```
-
-(The one skipped file is a character-boundary fixture that deliberately
-encodes a raw UTF-16 surrogate half — not a valid Unicode scalar value.
-`s-parser` correctly rejects it rather than silently accepting malformed
-input; the demo logs it and moves on to the other 327 files.)
-
-**Amplified to demonstration scale** (`replicas = 2000`): each replica
-gets its own subject namespace (so triples stay genuinely distinct, not
-duplicate rows collapsing in the set), while every predicate and object
-stays on the real, bounded W3C vocabulary — see `w3c-demo/src/main.rs`'s
-`replicate_key` for exactly what this does and doesn't change. Parsing
-1.6M records this way (re-reading the same small files 2000 times) takes
-~7.3s, dominated by that repetition, not by `s-parser`'s own throughput —
-see [`s-parser`'s own benchmarks](https://github.com/hrssilva/s-parser)
-for real parsing-speed numbers on non-repeated input.
-
-```
-1618000 records parsed, 1516000 distinct triples, 796353 distinct entities, 117 distinct predicates, in 7.3s
-
-Heap        build=163.015954ms mem=  22061077 bytes (14.55 bytes/triple) height=7 blocks=5359 contains_avg=  755ns (2000/2000 probes hit)
-File        build=179.141994ms mem=    171561 bytes (0.11 bytes/triple) height=7 blocks=5359 contains_avg= 8.32µs (2000/2000 probes hit)
-Compressed  build=217.618461ms mem=   7416542 bytes (4.89 bytes/triple) height=7 blocks=5359 contains_avg=23.775µs (2000/2000 probes hit)
-```
-
-`File`'s `mem_size_bytes` (RAM only, not disk — the tree content itself
-lives in the backing file, not in this number) staying two to three
-orders of magnitude below `Heap`/`Compressed` at both scales, and
-`Compressed` landing at roughly a third of `Heap`'s footprint, are the
-same backend tradeoffs `examples/README.md`'s own large-scale synthetic
-benchmarks measured — this just confirms they hold on real parsed RDF,
-not only generated data.
-
-Measured on the machine this repository was developed on; re-run the
-commands above for your own hardware.
+[`s-bench`](https://github.com/hrssilva/s-bench) is a separate repository
+that builds and queries this crate (`Heap`/`File`/`Compressed`, all three)
+against the real [W3C RDF 1.1 test suite](https://github.com/w3c/rdf-tests),
+parsed with [`s-parser`](https://github.com/hrssilva/s-parser) — real
+IRIs/literals dictionary-encoded into triples, not this project's own
+synthetic dataset generator. It's a separate repository specifically so
+neither it nor its private dependencies ever become something
+`cargo build`/`cargo test` on this crate needs to resolve. See its README
+for current numbers (build time, memory, `contains` latency, all three
+backends, at both the real corpus's own small scale and amplified to
+~1.5M triples) and exactly how to reproduce them.
 
 ## Project layout
 
@@ -206,13 +152,6 @@ commands above for your own hardware.
   against (Mk²-tree, IK²-tree, Omnitree, and every intermediate
   RadixTree layout variant), kept for its literature grounding and
   measured history. Not part of the public API.
-- `w3c-demo/` — the real-data demonstration above. A separate Cargo
-  project (not a workspace member) because it depends on the private
-  `s-parser` repository over SSH; `cargo build`/`cargo test` from this
-  repository's root never touches it.
-- `PRODUCTION_ASSESSMENT.md` — the design assessment and the decisions
-  made turning the `examples/` prototype into `src/` (error-handling
-  boundaries, feature gating, what got dropped and why, migration notes).
 
 ## Testing
 
