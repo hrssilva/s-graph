@@ -957,6 +957,20 @@ struct ScanFrame {
     child: Pos,
 }
 
+/// Monotone child navigation shared by native prefix joins. No borrowed cache
+/// buffers: positions remain valid across reads on File/Compressed storage.
+#[derive(Clone, Copy)]
+pub(crate) struct PrefixCursor {
+    pub(crate) unskipped: u64,
+    child: Pos,
+}
+
+impl PrefixCursor {
+    pub(crate) const EMPTY: Self = Self { unskipped: 0, child: Pos::START };
+
+    pub(crate) fn position(&self) -> Pos { self.child }
+}
+
 impl ScanFrame {
     const EMPTY: Self = Self { lo: [0; 3], remaining: 0, child: Pos::START };
 }
@@ -1028,6 +1042,33 @@ impl RadixTreeDfsInterleavedVarSkipUnrolledGeneric<FileStorage> {
 }
 
 impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
+    pub(crate) fn prefix_domains(&self) -> [u64; 3] { self.dimension_sizes }
+
+    pub(crate) fn prefix_schedule(&self) -> impl ExactSizeIterator<Item = ([u8; 3], [u8; 3], [u8; 3])> + '_ {
+        self.level_dim_bits.iter().zip(&self.level_shifts_cache).zip(&self.level_child_cell_bits_cache)
+            .map(|((&bits, &shifts), &remaining)| (bits, shifts, remaining))
+    }
+
+    pub(crate) fn prefix_guard(&self) -> impl Drop + '_ { self.storage.begin_top_level_call() }
+
+    pub(crate) fn prefix_single(&self) -> bool { self.single_point_exists }
+
+    #[inline]
+    pub(crate) fn prefix_cursor(&self, pos: Pos, level: usize) -> PrefixCursor {
+        let occupied = self.block_read_u64(pos.block, pos.offset);
+        PrefixCursor { unskipped: occupied, child: self.advance(pos, self.own_record_bytes(level)) }
+    }
+
+    /// Select occupied slots in increasing order. Advance only when another
+    /// child is requested, avoiding a subtree-span read on early cancellation.
+    #[inline]
+    pub(crate) fn prefix_child(&self, cursor: &mut PrefixCursor, level: usize, slot: u32) {
+        if level + 1 == self.height as usize { return; }
+        let preceding = cursor.unskipped & ((1u64 << slot) - 1);
+        cursor.child = self.advance_past_children(cursor.child, preceding, level + 1);
+        cursor.unskipped &= !preceding;
+    }
+
     /// Streams matching triples without allocating an adjacency list or sorting.
     /// `None` is a wildcard in any coordinate; every stored triple occurs once.
     pub fn scan(&self, bounds: [Option<u32>; 3]) -> Scan<'_, S> {

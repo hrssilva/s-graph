@@ -1,64 +1,9 @@
-//! Graph patterns and compatibility adjacency adapters.
-//! General joins use [`crate::join::PreparedJoin`]: packed ordered relations
-//! prepared once, with allocation-free leapfrog execution using a workspace.
+//! Integer graph patterns and native prefix-join collection helpers.
+//! For streaming results and reusable execution memory, use
+//! [`crate::join::NativeJoin`].
 
 use crate::storage::BlockStorage;
 use crate::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric;
-
-/// A sorted, deduplicated stream of `u32` ids with the two primitives a
-/// leapfrog join needs: read the current value, and seek forward.
-pub trait SortedNeighbors {
-    fn current(&self) -> Option<u32>;
-    fn advance(&mut self);
-    fn seek(&mut self, target: u32);
-}
-
-/// Wraps an already-sorted, already-materialized `Vec<u32>` (what
-/// [`RadixTreeDfsInterleavedVarSkipUnrolledGeneric::query_two_bound`]
-/// returns -- this structure has no lazy row/col iterator, unlike a
-/// k²-tree's subtree-pruning one) into a [`SortedNeighbors`], with `seek`
-/// implemented as a binary search over the remaining slice.
-pub struct SortedVecIter {
-    data: Vec<u32>,
-    pos: usize,
-}
-
-impl SortedVecIter {
-    pub fn new(data: Vec<u32>) -> Self {
-        SortedVecIter { data, pos: 0 }
-    }
-}
-
-impl SortedNeighbors for SortedVecIter {
-    fn current(&self) -> Option<u32> {
-        self.data.get(self.pos).copied()
-    }
-    fn advance(&mut self) {
-        self.pos = (self.pos + 1).min(self.data.len());
-    }
-    fn seek(&mut self, target: u32) {
-        let offset = self.data[self.pos..].partition_point(|&v| v < target);
-        self.pos += offset;
-    }
-}
-
-/// Compatibility row/column adapters. General joins and bounded paths use
-/// [`crate::join::PatternBackend`] for scans in all three dimensions.
-pub trait GraphBackend {
-    /// Ascending objects `o` such that `(subject, predicate, o)` is present.
-    fn stream_row<'a>(&'a self, predicate: u32, subject: u32) -> Box<dyn SortedNeighbors + 'a>;
-    /// Ascending subjects `s` such that `(s, predicate, object)` is present.
-    fn stream_col<'a>(&'a self, predicate: u32, object: u32) -> Box<dyn SortedNeighbors + 'a>;
-}
-
-impl<S: BlockStorage> GraphBackend for RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
-    fn stream_row<'a>(&'a self, predicate: u32, subject: u32) -> Box<dyn SortedNeighbors + 'a> {
-        Box::new(SortedVecIter::new(self.query_two_bound([0, 1], [subject, predicate], 2)))
-    }
-    fn stream_col<'a>(&'a self, predicate: u32, object: u32) -> Box<dyn SortedNeighbors + 'a> {
-        Box::new(SortedVecIter::new(self.query_two_bound([1, 2], [predicate, object], 0)))
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Term {
@@ -82,23 +27,30 @@ impl From<u32> for Term {
     fn from(value: u32) -> Self { Self::Const(value) }
 }
 
-/// Convenience collection API. For repeated execution or bounded output memory,
-/// use `PreparedJoin` and `JoinWorkspace` directly. Invalid queries panic;
-/// `try_ltj_run` returns a validation error instead.
-pub fn ltj_run<B: crate::join::PatternBackend, P: Copy + Into<Term>>(query: &JoinQuery<P>, backend: &B) -> Vec<Vec<u32>> {
-    try_ltj_run(query, backend).expect("invalid join query")
+/// Compile and collect a native prefix join. For repeated execution or bounded
+/// output memory, use [`crate::join::NativeJoin`] and its workspace directly.
+/// Invalid queries panic; [`try_join_run`] returns validation errors instead.
+/// Bindings are indexed by variable ID; result order is unspecified.
+pub fn join_run<S: BlockStorage, P: Copy + Into<Term>>(query: &JoinQuery<P>, tree: &RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>) -> Vec<Vec<u32>> {
+    try_join_run(query, tree).expect("invalid join query")
 }
 
-pub fn try_ltj_run<B: crate::join::PatternBackend, P: Copy + Into<Term>>(query: &JoinQuery<P>, backend: &B) -> crate::Result<Vec<Vec<u32>>> {
-    let prepared = crate::join::PreparedJoin::new(query, backend)?;
-    let mut workspace = crate::join::JoinWorkspace::default();
+/// Fallible native prefix-join collection helper.
+pub fn try_join_run<S: BlockStorage, P: Copy + Into<Term>>(query: &JoinQuery<P>, tree: &RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>) -> crate::Result<Vec<Vec<u32>>> {
+    let plan = crate::join::NativeJoin::new(query, tree)?;
+    let mut workspace = crate::join::NativeJoinWorkspace::default();
     let mut out = Vec::new();
-    let _: std::ops::ControlFlow<()> = prepared.visit(&mut workspace, |row| {
+    let _: std::ops::ControlFlow<()> = plan.visit(&mut workspace, |row| {
         out.push(row.to_vec());
         std::ops::ControlFlow::Continue(())
     });
     Ok(out)
 }
+
+/// Historical name for [`join_run`]; executes the native prefix algorithm.
+pub use join_run as ltj_run;
+/// Historical name for [`try_join_run`]; executes the native prefix algorithm.
+pub use try_join_run as try_ltj_run;
 
 #[cfg(all(test, feature = "heap"))]
 mod tests {
@@ -152,7 +104,7 @@ mod tests {
         assert_eq!(sorted(ltj_run(query, &heap)), expected, "Heap join mismatch");
     }
 
-    // Anchored compatibility cases; general patterns are tested in join.rs.
+    // Anchored compatibility cases; general patterns are tested in tests/native_join.rs.
 
     #[test]
     fn two_hop_path_pattern() {
@@ -204,59 +156,4 @@ mod tests {
         check_heap(&triples, &query, &all_nodes);
     }
 
-    #[test]
-    fn streams_agree_with_naive_and_are_sorted() {
-        let triples = uniform(12, 4, 12, 200, 999);
-        let naive = NaiveIndex::build(&triples);
-        let heap = crate::Heap::build_dynamic(triples, 4096);
-
-        fn drain(mut s: Box<dyn SortedNeighbors + '_>) -> Vec<u32> {
-            let mut out = Vec::new();
-            while let Some(v) = s.current() {
-                out.push(v);
-                s.advance();
-            }
-            out
-        }
-
-        for p in 0..4u32 {
-            for s in 0..12u32 {
-                assert_eq!(drain(heap.stream_row(p, s)), naive.row(p, s), "row p={p} s={s}");
-            }
-            for o in 0..12u32 {
-                assert_eq!(drain(heap.stream_col(p, o)), naive.col(p, o), "col p={p} o={o}");
-            }
-        }
-    }
-
-    #[test]
-    fn seek_matches_linear_skip() {
-        let triples = uniform(20, 3, 20, 300, 555);
-        let heap = crate::Heap::build_dynamic(triples, 4096);
-
-        for p in 0..3u32 {
-            for s in 0..20u32 {
-                let full: Vec<u32> = {
-                    let mut v = Vec::new();
-                    let mut it = heap.stream_row(p, s);
-                    while let Some(x) = it.current() {
-                        v.push(x);
-                        it.advance();
-                    }
-                    v
-                };
-                for &target in &[0u32, 5, 10, 15, 20] {
-                    let expect: Vec<u32> = full.iter().copied().filter(|&v| v >= target).collect();
-                    let mut it = heap.stream_row(p, s);
-                    it.seek(target);
-                    let mut got = Vec::new();
-                    while let Some(x) = it.current() {
-                        got.push(x);
-                        it.advance();
-                    }
-                    assert_eq!(got, expect, "seek({target}) p={p} s={s}");
-                }
-            }
-        }
-    }
 }

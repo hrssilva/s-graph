@@ -3,7 +3,7 @@
 A compact graph representation and algorithm library over integer triples
 `(subject, predicate, object)`: a DFS-preorder, interleaved-skip-pointer radix trie over
 Morton-coded triples, generic over three storage backends (in-RAM,
-real-file, LZ4-compressed in-RAM), with local insertion, general prepared
+real-file, LZ4-compressed in-RAM), with local insertion, native prefix
 conjunctive joins, bounded paths, and regular-path automata. Dictionaries,
 named-graph semantics, query languages and transactions belong to consumers.
 
@@ -88,13 +88,13 @@ identical across all three; see `src/storage_file.rs`/
 ### Joins and graph traversal
 
 ```rust
-use s_graph::graph::{JoinQuery, Term, TriplePattern, ltj_run};
+use s_graph::graph::{JoinQuery, Term, TriplePattern, join_run};
 use s_graph::path::bfs_sequential;
 use s_graph::Heap;
 
 let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2), (0, 0, 3)], 4096);
 
-// Prepare ordered relations and collect a leapfrog triejoin result: "subject 0 --p0--> ?a . ?a --p1--> ?b"
+// Collect a native prefix-join result: "subject 0 --p0--> ?a . ?a --p1--> ?b"
 let query = JoinQuery {
     num_vars: 2,
     patterns: vec![
@@ -102,48 +102,61 @@ let query = JoinQuery {
         TriplePattern { subject: Term::Var(0), predicate: 1, object: Term::Var(1) },
     ],
 };
-let bindings = ltj_run(&query, &tree); // Vec<Vec<u32>>, one Vec per match, indexed by variable
+let bindings = join_run(&query, &tree); // Vec<Vec<u32>>, one Vec per match, indexed by variable
 
 // BFS / shortest hop-count reachability.
 let dist = bfs_sequential(&tree, /* start */ 0, /* predicate filter */ None);
 ```
 
-For repeated queries, prepare once and stream borrowed bindings with reusable
-execution memory. Predicates may be `Term::Var` as well as `Term::Const`:
+For joins directly over the S/P/O topology, compile the global prefix schedule
+and stream borrowed bindings. Predicates remain structural, including a predicate
+variable shared across atoms. Compilation does not scan or copy graph relations:
 
 ```rust
 use std::ops::ControlFlow;
 use s_graph::graph::{JoinQuery, Term, TriplePattern};
-use s_graph::join::{PreparedJoin, JoinWorkspace};
+use s_graph::native_join::{NativeJoin, NativeJoinWorkspace};
 use s_graph::path::{HopRange, Step, PathWorkspace, has_path};
 
-let tree = s_graph::Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2)], 4096);
+let tree = s_graph::Heap::build_dynamic(vec![(0, 0, 1), (1, 0, 2)], 4096);
 let query = JoinQuery {
-    num_vars: 3,
-    patterns: vec![TriplePattern {
-        subject: Term::Var(0), predicate: Term::Var(1), object: Term::Var(2),
-    }],
+    num_vars: 4,
+    patterns: vec![
+        TriplePattern { subject: Term::Var(0), predicate: Term::Var(1), object: Term::Var(2) },
+        TriplePattern { subject: Term::Var(2), predicate: Term::Var(1), object: Term::Var(3) },
+    ],
 };
-let prepared = PreparedJoin::new(&query, &tree).unwrap();
-let mut workspace = JoinWorkspace::default();
-let _: ControlFlow<()> = prepared.visit(&mut workspace, |binding| {
+let plan = NativeJoin::new(&query, &tree).unwrap();
+let mut workspace = NativeJoinWorkspace::default();
+let _: ControlFlow<()> = plan.visit(&mut workspace, |binding| {
     // Consume binding immediately; Break stops enumeration.
-    assert_eq!(binding.len(), 3);
+    assert_eq!(binding, &[0, 0, 1, 2]);
     ControlFlow::Continue(())
 });
 let mut paths = PathWorkspace::default(); // sparse visitation, independent of max ID
 assert!(has_path(&tree, 0, 2, HopRange::new(2, 2).unwrap(), Step::default(), &mut paths));
 ```
 
-`PreparedJoin` is an immutable snapshot, including query-specific ordered
-relations. Preparation scans, filters and sorts; repeated execution reuses those
-relations. Its leapfrog execution has the WCO bound up to logarithmic factors;
-preparation costs and memory are separate. Reprepare to observe mutations.
-`JoinOptions` provides explicit variable ordering, a preparation row budget,
-and packed/plain relation layouts. Packed columns minimize memory; plain `u32`
-rows avoid bit extraction when latency is the priority.
-The compatibility `ltj_run` prepares on every call; custom backends now implement
-`PatternBackend` to supply general scans, alongside any legacy adjacency traits.
+`NativeJoin` uses O(atoms × tree height + variables) metadata and workspace,
+independent of the number of triples. It supports constants, repeated variables,
+cycles, ground constraints and disconnected patterns. The plan borrows its tree;
+drop it before mutation and compile a new plan afterwards. Output order is
+unspecified. There is no established WCO bound for this native traversal, and
+uneven split schedules can delay pruning. `visit_with_stats` reports node
+openings and surviving child choices. `allocated_bytes` reports retained vector
+capacity for the plan or workspace; backend cache memory is separate.
+
+`graph::join_run` and `graph::try_join_run` compile and collect native joins.
+The historical names `ltj_run` and `try_ltj_run` are aliases for those helpers;
+they no longer execute Leapfrog Triejoin. Reuse `NativeJoin` and its workspace
+for repeated queries. Native joins accept the tree's `BlockStorage` backends;
+`join::PatternBackend` remains the generic scan interface for path algorithms.
+
+The materialized `PreparedJoin`, its `JoinOptions`, `RelationLayout` and
+`JoinWorkspace`, and the boxed `GraphBackend`/sorted-neighbor adapters have been
+removed. Migrate prepared queries to `NativeJoin`/`NativeJoinWorkspace`; plans
+now borrow the tree rather than own snapshots. No proven WCO executor is currently
+provided; proving or improving the native traversal's bound remains open work.
 
 - `tree.scan([s, p, o])`: allocation-free filtered triples in Morton order.
 - `query_one_bound_into` / `query_two_bound_into`: sorted adjacency in reusable buffers.
@@ -158,10 +171,11 @@ one edge; edge multiplicity must be encoded by the consumer. Supplied start IDs
 are considered valid for zero-hop paths, including externally managed isolated
 vertices. Path enumeration can have exponential output; callbacks can stop early.
 
-All serial algorithms support every storage backend. Prepared joins are
-`Send + Sync` and can execute concurrently with separate workspaces. Legacy
-`bfs_parallel` requires a `Sync` backend: `Heap` qualifies, while `File` and
-`Compressed` retain single-threaded interior caches.
+All serial algorithms support every storage backend. `bfs_parallel` requires
+a `Sync` backend: `Heap` qualifies, while `File` and
+`Compressed` retain single-threaded interior caches. Native plans borrow the
+backend and inherit its threading constraints; Heap plans can be shared with
+separate workspaces.
 
 See [DESIGN.md](DESIGN.md) for complexity, memory, semantics and tradeoffs.
 

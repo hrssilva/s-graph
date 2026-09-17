@@ -1,7 +1,7 @@
 //! Reproducible smoke benchmarks, not a replacement for representative datasets.
 use s_graph::Heap;
 use s_graph::graph::{JoinQuery, Term, TriplePattern};
-use s_graph::join::{JoinOptions, JoinWorkspace, PreparedJoin, RelationLayout};
+use s_graph::native_join::{NativeJoin, NativeJoinStats, NativeJoinWorkspace};
 use s_graph::path::{HopRange, PathWorkspace, Step, reachable};
 use std::{hint::black_box, ops::ControlFlow, time::Instant};
 
@@ -14,6 +14,63 @@ fn measure(mut work: impl FnMut(), iterations: u32) -> f64 {
         work();
     }
     start.elapsed().as_nanos() as f64 / iterations as f64
+}
+
+fn native_bench<P: Copy + Into<Term>>(label: &str, query: &JoinQuery<P>, tree: &Heap, expected: u64, iterations: u32) {
+    let compile = measure(
+        || {
+            black_box(NativeJoin::new(query, tree).unwrap());
+        },
+        1000,
+    );
+    let plan = NativeJoin::new(query, tree).unwrap();
+    let mut ws = NativeJoinWorkspace::default();
+    let execute = measure(
+        || {
+            let mut count = 0;
+            let _: ControlFlow<()> = plan.visit(&mut ws, |r| {
+                black_box(r);
+                count += 1;
+                ControlFlow::Continue(())
+            });
+            assert_eq!(count, expected);
+        },
+        iterations,
+    );
+    let first = measure(
+        || {
+            let _ = black_box(plan.visit(&mut ws, |r| {
+                black_box(r);
+                ControlFlow::Break(())
+            }));
+        },
+        1000,
+    );
+    let total = measure(
+        || {
+            let plan = NativeJoin::new(query, tree).unwrap();
+            let mut local = NativeJoinWorkspace::default();
+            let mut count = 0;
+            let _: ControlFlow<()> = plan.visit(&mut local, |row| {
+                black_box(row);
+                count += 1;
+                ControlFlow::Continue(())
+            });
+            assert_eq!(count, expected);
+        },
+        iterations,
+    );
+    let mut stats = NativeJoinStats::default();
+    let _: ControlFlow<()> = plan.visit_with_stats(&mut ws, &mut stats, |_| ControlFlow::Continue(()));
+    println!("native {label}: compile {compile:.0} ns; execute {execute:.0} ns; first {first:.0} ns; compile + fresh workspace + execute {total:.0} ns");
+    println!(
+        "native {label}: plan {} bytes; workspace {} bytes; {} node openings; {} candidate children; {} results",
+        plan.allocated_bytes(),
+        ws.allocated_bytes(),
+        stats.node_visits,
+        stats.candidates,
+        stats.results
+    );
 }
 
 fn main() {
@@ -30,51 +87,7 @@ fn main() {
             TriplePattern { subject: C(0), predicate: 2, object: V(1) },
         ],
     };
-    println!(
-        "join preparation: {:.0} ns",
-        measure(
-            || {
-                black_box(PreparedJoin::new(&query, &tree).unwrap());
-            },
-            20
-        )
-    );
-    let prepared = PreparedJoin::new(&query, &tree).unwrap();
-    println!("prepared relation payload: {} bytes", prepared.relation_bytes());
-    let mut ws = JoinWorkspace::default();
-    println!(
-        "prepared join execution: {:.0} ns",
-        measure(
-            || {
-                let mut count = 0;
-                let _: ControlFlow<()> = prepared.visit(&mut ws, |row| {
-                    black_box(row);
-                    count += 1;
-                    ControlFlow::Continue(())
-                });
-                assert_eq!(count, 1);
-            },
-            100_000
-        )
-    );
-    // The previous anchored algorithm's adjacency/materialization strategy.
-    println!(
-        "anchored materialized-adjacency baseline: {:.0} ns",
-        measure(
-            || {
-                let mut count = 0;
-                for a in tree.query_two_bound([0, 1], [0, 0], 2) {
-                    for b in tree.query_two_bound([0, 1], [a, 1], 2) {
-                        if tree.contains(0, 2, b) {
-                            count += 1;
-                        }
-                    }
-                }
-                assert_eq!(count, 1);
-            },
-            20_000
-        )
-    );
+    native_bench("anchored", &query, &tree, 1, 10_000);
     let mut path_ws = PathWorkspace::dense(nodes as usize);
     println!(
         "bounded reachability (0..8): {:.0} ns",
@@ -146,39 +159,10 @@ fn main() {
             TriplePattern { subject: V(0), predicate: 2, object: V(2) },
         ],
     };
-    let start = Instant::now();
-    let prepared = PreparedJoin::new(&triangle, &tree).unwrap();
-    println!("unanchored triangle preparation: {} ns; payload: {} bytes", start.elapsed().as_nanos(), prepared.relation_bytes());
-    println!(
-        "unanchored triangle, {nodes} results: {:.0} ns",
-        measure(
-            || {
-                let mut count = 0;
-                let _: ControlFlow<()> = prepared.visit(&mut ws, |row| {
-                    black_box(row);
-                    count += 1;
-                    ControlFlow::Continue(())
-                });
-                assert_eq!(count, nodes);
-            },
-            20
-        )
-    );
-    let plain = PreparedJoin::with_options(&triangle, &tree, JoinOptions { layout: RelationLayout::Plain, ..Default::default() }).unwrap();
-    println!("plain triangle payload: {} bytes", plain.relation_bytes());
-    println!(
-        "plain triangle, {nodes} results: {:.0} ns",
-        measure(
-            || {
-                let mut count = 0;
-                let _: ControlFlow<()> = plain.visit(&mut ws, |row| {
-                    black_box(row);
-                    count += 1;
-                    ControlFlow::Continue(())
-                });
-                assert_eq!(count, nodes);
-            },
-            20
-        )
-    );
+    native_bench("triangle", &triangle, &tree, nodes as u64, 20);
+    let labels = JoinQuery {
+        num_vars: 4,
+        patterns: vec![TriplePattern { subject: V(0), predicate: V(1), object: V(2) }, TriplePattern { subject: V(2), predicate: V(1), object: V(3) }],
+    };
+    native_bench("shared predicate path", &labels, &tree, nodes as u64 * 3, 20);
 }

@@ -35,63 +35,67 @@ sequential legacy BFS now reuses its adjacency and frontier buffers. Streaming
 is useful for early exit and high degree; bulk decoding can be faster when the
 whole adjacency list is required. Both paths remain available.
 
-## General prepared joins
+## Native prefix joins
 
-`TriplePattern<P = u32>` preserves existing constant-predicate syntax. Use
-`TriplePattern<Term>` for variables in any coordinate. `PreparedJoin` supports
-unanchored patterns, cycles, disconnected components, ground constraints,
-repeated variables within an atom, and arbitrary variable orders. Variables must
-be numbered in `0..num_vars` and each must appear in an atom; malformed queries
-return `TreeError::InvalidConfig`.
+`native_join::NativeJoin` borrows the tree and compiles its global subdivision
+schedule into flat stage, check and write arrays. Compilation reads only domains
+and schedule metadata. There are no copied input relations, sorted projections,
+per-predicate indexes or exponential lookup tables over query variables.
 
-Preparation proceeds as follows:
+Each stage selects a child for one atom. All atoms select compatible children
+at a physical level before the traversal descends to the next level. The compiler
+knows which variable bits earlier stages establish and emits masks accordingly:
 
-1. Validate the query and choose a deterministic order favoring variables shared
-   by constant-filtered atoms, or use the explicit permutation in `JoinOptions`.
-2. Scan constant-filtered atoms first. Propagate singleton variable projections
-   into later scans. Apply repeated-variable equalities before projection.
-3. Sort and deduplicate each atom's relation in the chosen variable order.
-   Encode each column relative to its minimum, using only the bits needed for
-   its value range. Constant columns occupy no payload bits. Plain `u32` rows
-   are also available through `RelationLayout::Plain`.
-4. Compile variable occurrences and parent cursor offsets into flat arrays.
+- Constants and leading zeros implied by coordinate domains filter occupancy
+  statically. A variable shared across roles inherits the narrowest role's domain.
+- Repeated occurrences of the same variable bit within a child are compared in
+  the static mask, preserving correlations between coordinate digits.
+- Bits established by earlier stages select precomputed occupancy masks at
+  runtime. Different coordinate roles and widths map to absolute integer bits.
+- Each remaining variable bit has one owning stage. Its assignment is undone by
+  clearing that stage's write mask on backtracking; no per-branch known-bit arrays
+  or heap allocations are required.
 
-No graph-wide six-permutation index is installed. A prepared join owns its
-query-specific relations and represents a **snapshot**. Mutations require a new
-preparation to affect results. Preparation costs the actual tree scans plus
-O(sum N_i log N_i) sorting; it is not free and can scan the graph once per
-unbound atom. Default packed payload uses each relation's row count times the
-sum of its column bit widths, rounded to `u64` words. Each width is
-`ceil(log2(max - min + 1))`; extraction takes at most two word reads. Plain
-payload uses `4 * sum(arity_i * distinct_rows_i)` bytes. Preparation holds
-three-column temporary rows; allocator capacity slack, packing output and plan
-metadata are additional. Packed rows reduce memory traffic, while plain rows
-avoid bit extraction; select using workload measurements.
-`JoinOptions::max_rows` limits total matched rows during preparation; it is a row
-budget, not an exact allocator-byte limit. `relation_bytes()` reports final
-payload. Keep prepared joins only for workloads that justify this memory.
+By induction, surviving prefixes agree on all shared known bits. Every complete
+binding identifies an occupied leaf in each atom, and incompatible prefixes are
+never discarded unless a required equality or constant fails. Since a full
+binding determines each atom's triple, results are unique under set semantics.
+Empty conjunctions yield one empty binding; a false ground atom suppresses all
+results. Duplicate atoms are removed at compilation.
 
-Execution performs leapfrog intersection of trie-level projections represented
-by row intervals. `open` narrows to a parent's prefix interval; monotone seeks
-use exponential search followed by binary search. Advancing skips a whole group
-of equal keys. Parent cursors remain positioned during child evaluation.
-Backtracking is iterative. All applicable atoms constrain every variable,
-including when no other variable is bound.
+The iterative executor uses O(atoms * height + variables) workspace and emits
+borrowed bindings through `ControlFlow`. Compilation metadata has the same
+space bound. Child positions use existing DFS subtree spans; skipped subtrees
+are not expanded. Ordinary execution compiles out diagnostic counters, while
+`visit_with_stats` reports node openings, surviving child choices and results.
+Once its workspace has sufficient capacity, the executor itself allocates nothing.
+Backend cache allocations remain subject to the storage contract.
 
-This is the [Leapfrog Triejoin](https://arxiv.org/abs/1210.0481) execution model:
-for full conjunctive queries, enumeration is worst-case optimal up to logarithmic
-factors **over the prepared relations**. Tree scanning and relation construction
-are separate costs. Intersecting materialized adjacency lists alone would not
-establish that guarantee. Projection with duplicate elimination, aggregation,
-optional matches and query-language bag semantics are outside this operator.
+This is a native prefix join, not a proven implementation of the Qdag WCO bound.
+It can revisit nodes for different compatible prefix combinations, especially
+when asymmetric split schedules reveal shared-variable bits at different levels.
+Results are unordered. The borrow prevents mutation while a plan remains in use;
+recompile after mutation. Native Heap plans can be shared, with separate
+workspaces; File/Compressed plans inherit their backends' threading restrictions.
+The [literature review](TOPOLOGY_REVIEW.md) describes the relationship to prior work.
 
-`JoinWorkspace` stores O(query size) cursor and binding arrays. Once warmed for
-a query size, execution allocates no heap memory of its own. Callbacks borrow
-the current binding and can return `ControlFlow::Break` immediately. Prepared
-joins are immutable `Send + Sync`; threads use separate workspaces. `ltj_run`
-is a compatibility convenience that prepares and collects on every call;
-`try_ltj_run` also returns validation errors. Custom backends implement the GAT
-`PatternBackend` interface, which avoids boxed dispatch in the new algorithms.
+## Join API and migration
+
+`TriplePattern<P = u32>` preserves constant-predicate syntax; use
+`TriplePattern<Term>` for variables in any coordinate. Variables must cover
+`0..num_vars`. Invalid queries return `TreeError::InvalidConfig`.
+`graph::join_run` compiles and collects a native join, while `try_join_run` also
+returns validation errors. Historical `ltj_run`/`try_ltj_run` names are aliases
+for these native helpers and do not execute Leapfrog Triejoin.
+
+The materialized prepared executor, packing layouts, preparation options and
+boxed sorted-neighbor adapters have been removed. Callers use `NativeJoin` with
+`NativeJoinWorkspace`, and drop borrowed plans before mutating their trees.
+Joins now require the native tree over a `BlockStorage`; `PatternBackend` remains
+available for custom scan backends used by path and automaton algorithms.
+There is currently no join executor with an established WCO bound. Projection
+with duplicate elimination, aggregation, optional matches and query-language bag
+semantics remain outside this full-binding set operator.
 
 ## Paths
 
@@ -143,46 +147,52 @@ Invalid static split configurations return errors instead of failing to advance
 the builder. Degenerate `[1,1,1]` domains support insertion and duplicate detection.
 
 File storage remains scratch storage. Its operational I/O failures panic, and
-File/Compressed interior caches remain non-`Sync`. Prepared snapshots can be
-shared after preparation from either backend. These changes do not introduce
+File/Compressed interior caches remain non-`Sync`. Native plans borrow their
+backends and inherit these threading restrictions. These changes do not introduce
 recovery, locks on every read, or an unsafe `Sync` implementation.
 
 ## Verification and measurements
 
-`tests/algorithms.rs` compares joins with exhaustive assignments across variable
+`tests/algorithms.rs` compares joins with exhaustive assignments across atom
 orders and paths with an independent enumerator. It covers diagonals, variable
 predicates, unanchored triangles, disconnected queries, cancellation/reuse,
-snapshot behavior, sparse IDs, cycles, all directions, all path uniqueness modes,
+borrowed-plan reuse, sparse IDs, cycles, all directions, all path uniqueness modes,
 automaton product states, backend parity, truncations and byte mutations.
 Existing insertion, bulk-build, compaction and cross-backend tests remain active.
 
+`tests/native_join.rs` additionally checks native joins against exhaustive
+assignments and an independent test-only triple enumerator, including asymmetric splits, all coordinate
+orders, full-width IDs, shared predicates, 12-variable disconnected patterns,
+cancellation, workspace reuse, inserted/restored trees and all storage backends.
+
 Run `cargo bench --bench algorithms` for a deterministic 20,000-vertex,
-60,000-triple fixture. It reports preparation separately from execution, relation
-payload bytes, bounded traversal, bulk versus streaming adjacency, and unanchored
+60,000-triple fixture. It reports compilation separately from execution, plan and workspace
+capacity, bounded traversal, bulk versus streaming adjacency, and unanchored
 triangle enumeration. These are smoke measurements, not production latency
 guarantees; use representative degree distributions, query shapes, cold/warm
 caches and tail-latency measurements before choosing a deployment configuration.
 
-A local release run with Rust 1.98.1 produced the following illustrative numbers
-(the harness prints current measurements on your machine):
+A local release run with Rust 1.98.1 produced the following illustrative native
+measurements on the 474,870-byte tree (the harness prints current measurements
+on your machine):
 
-| Operation | Observed mean |
-|---|---:|
-| Anchored join preparation | 3.7 µs |
-| Repeated anchored join, one binding | 0.096 µs |
-| Materialized-adjacency anchored baseline | 1.85 µs |
-| Bounded endpoint traversal, 0–8 hops | 56 µs |
-| First result from a 20,000-edge hub, streamed | 0.26 µs |
-| Same hub, materialize then take first | 46 µs |
-| Unanchored triangle preparation, packed | 3.0 ms |
-| Unanchored triangle execution, 20,000 bindings, packed | 6.2 ms |
-| Same triangle execution, plain | 4.2 ms |
+| Query | Native compile | Native execution | First result, compiled plan | Native plan + workspace capacity |
+|---|---:|---:|---:|---:|
+| Anchored, 1 result | 1.06 µs | 1.44 µs | 0.31 µs | 2,480 bytes |
+| Triangle, 20,000 results | 1.24 µs | 2.61 ms | 0.33 µs | 3,504 bytes |
+| Two-edge path sharing a predicate variable, 60,000 results | 1.08 µs | 6.03 ms | 0.19 µs | 2,256 bytes |
 
-Packed triangle relations occupied 225,000 payload bytes versus 480,000 for
-plain rows (53% less); the primary tree occupied 474,870 allocated bytes in
-both cases. The anchored query's singleton columns need no packed payload,
-but its plan and workspace still occupy memory. Full small adjacency consumption
-was faster with bulk materialization (2.0 µs) than streaming (2.3 µs). These
-comparisons deliberately show the tradeoffs rather than claiming one layout
-wins every workload. The baseline uses the existing adjacency operations on the
-same tree, not a separate database engine or an old-revision timing.
+Native compile + fresh workspace + full execution took 2.62 µs, 2.67 ms and
+6.02 ms respectively. These are repeated measurements with warm process/data
+caches, not cold-cache or tail-latency claims. Small differences between summed
+and directly measured times reflect measurement variability.
+
+Historical comparison, recorded before removing the materialized executor:
+the packed prepared triangle required 2.93 ms preparation and
+6.20 ms execution, plus 225,000 bytes of relation payload. The shared-predicate
+path required 7.34 ms preparation, 9.28 ms execution and 480,000 payload bytes.
+Prepared-plan metadata and workspace are additional to those payload numbers.
+Native capacities exclude inline structs and backend caches; native execution
+constructs no input or intermediate relations. The removed prepared anchored query
+executed faster when reused (0.10 µs). These historical comparisons do not claim
+that native execution is always faster and are not rerun by the current harness.

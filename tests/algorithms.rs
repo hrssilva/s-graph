@@ -1,7 +1,7 @@
 #![cfg(feature = "heap")]
 
-use s_graph::graph::{JoinQuery, Term, TriplePattern, ltj_run, try_ltj_run};
-use s_graph::join::{JoinOptions, JoinWorkspace, PreparedJoin};
+use s_graph::graph::{JoinQuery, Term, TriplePattern, join_run, try_join_run};
+use s_graph::join::{NativeJoin, NativeJoinWorkspace};
 use s_graph::path::*;
 use s_graph::{Heap, Triple};
 use std::ops::ControlFlow;
@@ -26,9 +26,9 @@ fn brute_join(query: &JoinQuery<Term>, triples: &[Triple], domain: u32) -> Vec<V
     result
 }
 
-fn collect(prepared: &PreparedJoin, ws: &mut JoinWorkspace) -> Vec<Vec<u32>> {
+fn collect<S: s_graph::BlockStorage>(plan: &NativeJoin<'_, S>, ws: &mut NativeJoinWorkspace) -> Vec<Vec<u32>> {
     let mut rows = Vec::new();
-    let _: ControlFlow<()> = prepared.visit(ws, |r| {
+    let _: ControlFlow<()> = plan.visit(ws, |r| {
         rows.push(r.to_vec());
         ControlFlow::Continue(())
     });
@@ -54,15 +54,16 @@ fn general_join_matches_exhaustive_assignments() {
         for _ in 0..3 {
             patterns.push(TriplePattern { subject: term(rand() % 6), predicate: term(rand() % 6), object: term(rand() % 6) });
         }
-        let query = JoinQuery { num_vars: 3, patterns };
+        let mut query = JoinQuery { num_vars: 3, patterns };
         let expected = brute_join(&query, &triples, 3);
-        for order in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
-            let prepared = PreparedJoin::with_options(&query, &tree, JoinOptions { variable_order: Some(order.to_vec()), ..Default::default() }).unwrap();
-            let mut ws = JoinWorkspace::default();
-            assert_eq!(collect(&prepared, &mut ws), expected);
+        for _ in 0..query.patterns.len() {
+            let plan = NativeJoin::new(&query, &tree).unwrap();
+            let mut ws = NativeJoinWorkspace::default();
+            assert_eq!(collect(&plan, &mut ws), expected);
             // Cancellation must not leak cursor state into the next execution.
-            let _: ControlFlow<()> = prepared.visit(&mut ws, |_| ControlFlow::Break(()));
-            assert_eq!(collect(&prepared, &mut ws), expected);
+            let _: ControlFlow<()> = plan.visit(&mut ws, |_| ControlFlow::Break(()));
+            assert_eq!(collect(&plan, &mut ws), expected);
+            query.patterns.rotate_left(1);
         }
     }
 }
@@ -72,24 +73,24 @@ fn join_regressions_and_validation() {
     use Term::{Const as C, Var as V};
     let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 0, 2), (2, 0, 0), (2, 1, 2)], 32);
     let unanchored = JoinQuery { num_vars: 2, patterns: vec![TriplePattern { subject: V(0), predicate: 0, object: V(1) }] };
-    assert_eq!(ltj_run(&unanchored, &tree).len(), 3);
+    assert_eq!(join_run(&unanchored, &tree).len(), 3);
     let constants = JoinQuery { num_vars: 0, patterns: vec![TriplePattern { subject: C(0), predicate: 0, object: C(2) }] };
-    assert!(ltj_run(&constants, &tree).is_empty());
+    assert!(join_run(&constants, &tree).is_empty());
     let diagonal = JoinQuery { num_vars: 1, patterns: vec![TriplePattern { subject: V(0), predicate: 1, object: V(0) }] };
-    assert_eq!(ltj_run(&diagonal, &tree), vec![vec![2]]);
+    assert_eq!(join_run(&diagonal, &tree), vec![vec![2]]);
     let disconnected = JoinQuery {
         num_vars: 2,
         patterns: vec![TriplePattern { subject: C(0), predicate: 0, object: V(1) }, TriplePattern { subject: V(0), predicate: 1, object: V(0) }],
     };
-    assert_eq!(ltj_run(&disconnected, &tree), vec![vec![2, 1]]);
+    assert_eq!(join_run(&disconnected, &tree), vec![vec![2, 1]]);
     let invalid = JoinQuery { num_vars: 1, patterns: vec![TriplePattern { subject: V(1), predicate: 0, object: C(0) }] };
-    assert!(try_ltj_run(&invalid, &tree).is_err());
-    assert!(PreparedJoin::with_options(&unanchored, &tree, JoinOptions { max_rows: 1, ..Default::default() }).is_err());
-    assert!(PreparedJoin::with_options(&unanchored, &tree, JoinOptions { variable_order: Some(vec![0, 0]), ..Default::default() }).is_err());
+    assert!(try_join_run(&invalid, &tree).is_err());
+    assert_eq!(s_graph::graph::ltj_run(&unanchored, &tree), join_run(&unanchored, &tree));
+    assert!(s_graph::graph::try_ltj_run(&invalid, &tree).is_err());
     let empty: JoinQuery = JoinQuery { num_vars: 0, patterns: vec![] };
-    assert_eq!(ltj_run(&empty, &tree), vec![Vec::<u32>::new()]);
+    assert_eq!(join_run(&empty, &tree), vec![Vec::<u32>::new()]);
     let max = Heap::build_dynamic(vec![(u32::MAX, 0, u32::MAX)], 32);
-    assert_eq!(ltj_run(&unanchored, &max), vec![vec![u32::MAX, u32::MAX]]);
+    assert_eq!(join_run(&unanchored, &max), vec![vec![u32::MAX, u32::MAX]]);
 }
 
 fn check_scan<S: s_graph::BlockStorage>(tree: &s_graph::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>, triples: &[Triple]) {
@@ -295,9 +296,9 @@ fn regular_paths_preserve_automaton_state_and_hop_bounds() {
 }
 
 #[test]
-fn joins_are_snapshots_and_are_shareable() {
+fn native_joins_borrow_the_tree_and_are_shareable() {
     fn send_sync<T: Send + Sync>() {}
-    send_sync::<PreparedJoin>();
+    send_sync::<NativeJoin<'static, s_graph::storage::HeapStorage>>();
     use Term::Var as V;
     let triples = vec![(0, 0, 1), (1, 1, 2), (2, 2, 0), (0, 0, 2), (2, 1, 1), (1, 2, 0)];
     let tree = Heap::build_dynamic(triples.clone(), 32);
@@ -309,22 +310,29 @@ fn joins_are_snapshots_and_are_shareable() {
             TriplePattern { subject: V(2), predicate: Term::Const(2), object: V(0) },
         ],
     };
-    let prepared = PreparedJoin::new(&triangle, &tree).unwrap();
-    assert_eq!(collect(&prepared, &mut JoinWorkspace::default()), brute_join(&triangle, &triples, 3));
+    let plan = NativeJoin::new(&triangle, &tree).unwrap();
+    assert_eq!(collect(&plan, &mut NativeJoinWorkspace::default()), brute_join(&triangle, &triples, 3));
     #[cfg(feature = "file")]
     assert_eq!(
-        collect(&PreparedJoin::new(&triangle, &s_graph::File::build_dynamic(triples.clone(), 32)).unwrap(), &mut JoinWorkspace::default()),
+        collect(&NativeJoin::new(&triangle, &s_graph::File::build_dynamic(triples.clone(), 32)).unwrap(), &mut NativeJoinWorkspace::default()),
         brute_join(&triangle, &triples, 3)
     );
     #[cfg(feature = "compressed")]
-    assert_eq!(collect(&PreparedJoin::new(&triangle, &s_graph::Compressed::build_dynamic(triples, 32)).unwrap(), &mut JoinWorkspace::default()).len(), 2);
+    assert_eq!(collect(&NativeJoin::new(&triangle, &s_graph::Compressed::build_dynamic(triples, 32)).unwrap(), &mut NativeJoinWorkspace::default()).len(), 2);
     let mut tree = Heap::build_dynamic_empty([3, 1, 3], 32);
     tree.insert(0, 0, 1).unwrap();
     let query = JoinQuery { num_vars: 2, patterns: vec![TriplePattern { subject: V(0), predicate: 0, object: V(1) }] };
-    let prepared = PreparedJoin::new(&query, &tree).unwrap();
+    {
+        let plan = NativeJoin::new(&query, &tree).unwrap();
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| collect(&plan, &mut NativeJoinWorkspace::default()));
+            let second = scope.spawn(|| collect(&plan, &mut NativeJoinWorkspace::default()));
+            assert_eq!(first.join().unwrap(), vec![vec![0, 1]]);
+            assert_eq!(second.join().unwrap(), vec![vec![0, 1]]);
+        });
+    }
     tree.insert(1, 0, 2).unwrap();
-    assert_eq!(collect(&prepared, &mut JoinWorkspace::default()).len(), 1);
-    assert_eq!(ltj_run(&query, &tree).len(), 2);
+    assert_eq!(join_run(&query, &tree).len(), 2);
 }
 
 #[test]

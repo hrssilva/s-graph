@@ -71,7 +71,8 @@
 //! that backend contract. Deserialization validates structure and enforces
 //! configurable resource limits before exposing a tree.
 //!
-//! General pattern joins live in [`join`]; bounded walks, path reconstruction
+//! Native Morton-prefix joins live in [`join`] and [`native_join`];
+//! bounded walks, path reconstruction
 //! and enumeration in [`traversal`]; regular-path automata in [`automaton`].
 //!
 //! # Feature flags
@@ -89,6 +90,7 @@ mod block_index;
 pub mod automaton;
 pub mod graph;
 pub mod join;
+pub mod native_join;
 pub mod path;
 pub mod serialize;
 pub mod storage;
