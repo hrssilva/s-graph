@@ -1,5 +1,6 @@
-//! A succinct, insertable, disk/RAM/compression-agnostic index for RDF
-//! triples `(subject, predicate, object)`.
+//! Compact, insertable integer graph storage and algorithms over
+//! `(subject, predicate, object)` triples, generic over disk/RAM/compression.
+//! Terms, named graphs, query languages and transactions belong to consumers.
 //!
 //! # What this is
 //!
@@ -7,8 +8,9 @@
 //! triples: each node is an 8-byte existence bitmap (up to 64-way
 //! branching per level) plus, for nodes more than 2 levels from a leaf,
 //! an inline variable-width (1/2/4/8-byte) skip pointer giving the byte
-//! distance to jump past that node's entire subtree. Navigation is pure
-//! `pos + span` pointer arithmetic -- no rank/select operations anywhere.
+//! distance to jump past that node's entire subtree. Same-block navigation
+//! uses direct offsets; a compact Fenwick directory resolves cross-block spans
+//! in O(log blocks), without rank/select over node records.
 //! A per-dimension bit-consumption schedule is computed once from each
 //! dimension's domain size, before any data exists; a dimension stops
 //! contributing digits once its own domain is exhausted, so the tree
@@ -25,7 +27,7 @@
 //! - [`Compressed`] (feature `compressed`): LZ4-compressed in-RAM blocks,
 //!   for RAM-constrained deployments with no disk available at all.
 //!
-//! Real `O(height)` [`Heap::insert`]/[`Heap::insert_batch`] is supported
+//! Local [`Heap::insert`]/[`Heap::insert_batch`] is supported
 //! on every backend, unlike the from-scratch-rebuild-only structures this
 //! design is descended from. A streaming/parallel/RAM-bounded bulk build
 //! ([`Heap::build_dynamic`], [`Heap::build_dynamic_bounded`]) is also
@@ -64,12 +66,13 @@
 //! Everything else -- a mid-traversal disk read/write failure against an
 //! already-built `File`/`Compressed` tree, or an internal invariant the
 //! build path itself already guarantees (e.g. a node record never
-//! exceeding `block_capacity`) -- stays a panic. Threading `Result`
-//! through every read/write in the hottest path in the crate for an
-//! error class `Heap` (the default backend) can never even produce would
-//! degrade the common case for a failure mode with no sensible partial
-//! recovery anyway: there's no valid partial state to hand back from
-//! inside a tree traversal when a disk read fails.
+//! exceeding `block_capacity`) -- stays a panic. Operational I/O errors are
+//! not yet exposed as recoverable traversal errors; consumers must account for
+//! that backend contract. Deserialization validates structure and enforces
+//! configurable resource limits before exposing a tree.
+//!
+//! General pattern joins live in [`join`]; bounded walks, path reconstruction
+//! and enumeration in [`traversal`]; regular-path automata in [`automaton`].
 //!
 //! # Feature flags
 //!
@@ -79,8 +82,13 @@
 //! independent subtrees -- off by default so a single-threaded consumer
 //! isn't forced to accept the dependency).
 
+#![forbid(unsafe_code)]
+
 pub mod error;
+mod block_index;
+pub mod automaton;
 pub mod graph;
+pub mod join;
 pub mod path;
 pub mod serialize;
 pub mod storage;
@@ -89,8 +97,9 @@ pub mod storage_compressed;
 #[cfg(feature = "file")]
 pub mod storage_file;
 pub mod tree;
+pub mod traversal;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "heap"))]
 mod test_support;
 
 pub use error::{OutOfDomain, Result, TreeError};

@@ -3,6 +3,14 @@ name = "s-graph"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.docs.rs]
+all-features = true
+
+[[bench]]
+name = "algorithms"
+harness = false
+required-features = ["heap"]
+
 [features]
 default = ["heap"]
 # The in-RAM, no-slot-indirection backend. Zero extra dependencies.

@@ -1,5 +1,10 @@
 //! BFS reachability / unweighted shortest-path (hop count), sequential
 //! and (behind the `parallel` feature) `rayon`-parallel.
+//!
+//! For sparse IDs, bounded walks, path reconstruction and streamed path
+//! enumeration, see [`crate::traversal`].
+
+pub use crate::traversal::*;
 
 use crate::storage::BlockStorage;
 use crate::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric;
@@ -14,6 +19,10 @@ use std::sync::atomic::{AtomicI32, Ordering};
 pub trait AdjacencyBackend {
     fn out_neighbors(&self, node: u32, predicate: Option<u32>) -> Vec<u32>;
     fn num_nodes(&self) -> usize;
+    fn out_neighbors_into(&self, node: u32, predicate: Option<u32>, out: &mut Vec<u32>) {
+        out.clear();
+        out.extend(self.out_neighbors(node, predicate));
+    }
 }
 
 impl<S: BlockStorage> AdjacencyBackend for RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
@@ -21,6 +30,12 @@ impl<S: BlockStorage> AdjacencyBackend for RadixTreeDfsInterleavedVarSkipUnrolle
         match predicate {
             Some(p) => self.query_two_bound([0, 1], [node, p], 2),
             None => self.query_one_bound(0, node, 2),
+        }
+    }
+    fn out_neighbors_into(&self, node: u32, predicate: Option<u32>, out: &mut Vec<u32>) {
+        match predicate {
+            Some(p) => self.query_two_bound_into([0, 1], [node, p], 2, out),
+            None => self.query_one_bound_into(0, node, 2, out),
         }
     }
     fn num_nodes(&self) -> usize {
@@ -43,17 +58,20 @@ pub fn bfs_sequential<B: AdjacencyBackend>(g: &B, start: u32, predicate: Option<
     dist[start as usize] = 0;
     let mut frontier = vec![start];
     let mut level = 0i32;
+    let mut next = Vec::new();
+    let mut neighbors = Vec::new();
     while !frontier.is_empty() {
-        let mut next = Vec::new();
-        for u in frontier {
-            for v in g.out_neighbors(u, predicate) {
+        next.clear();
+        for &u in &frontier {
+            g.out_neighbors_into(u, predicate, &mut neighbors);
+            for &v in &neighbors {
                 if dist[v as usize] == -1 {
                     dist[v as usize] = level + 1;
                     next.push(v);
                 }
             }
         }
-        frontier = next;
+        std::mem::swap(&mut frontier, &mut next);
         level += 1;
     }
     dist
@@ -85,7 +103,7 @@ pub fn bfs_parallel<B: AdjacencyBackend + Sync>(g: &B, start: u32, predicate: Op
     dist.into_iter().map(|a| a.into_inner()).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "heap"))]
 mod tests {
     use super::*;
     use crate::test_support::NaiveIndex;

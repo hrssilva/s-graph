@@ -50,6 +50,21 @@ pub const MAGIC: &[u8; 4] = b"SGZ1";
 /// silent misparse.
 pub const FORMAT_VERSION: u8 = 1;
 
+/// Resource limits for untrusted snapshots. Increase explicitly for larger graphs.
+#[derive(Clone, Copy, Debug)]
+pub struct DeserializeLimits {
+    pub max_blocks: usize,
+    pub max_block_bytes: usize,
+    /// Includes reserved block capacity, not only used bytes.
+    pub max_bytes: u64,
+}
+
+impl Default for DeserializeLimits {
+    fn default() -> Self {
+        Self { max_blocks: 1_000_000, max_block_bytes: 16 * 1024 * 1024, max_bytes: 1024 * 1024 * 1024 }
+    }
+}
+
 pub struct Header {
     pub height: u32,
     pub node_count: u64,
@@ -124,7 +139,7 @@ pub fn read_header_from<R: std::io::Read>(r: &mut R) -> Result<Header> {
     }
     let height = read_u32_from(r)?;
     let node_count = read_u64_from(r)?;
-    let block_capacity = read_u64_from(r)? as usize;
+    let block_capacity = usize::try_from(read_u64_from(r)?).map_err(|_| TreeError::CorruptData("block capacity overflows usize".into()))?;
     let mut dimension_sizes = [0u64; 3];
     for d in &mut dimension_sizes {
         *d = read_u64_from(r)?;
@@ -133,8 +148,15 @@ pub fn read_header_from<R: std::io::Read>(r: &mut R) -> Result<Header> {
     for d in &mut dim_order {
         *d = read_bytes::<R, 1>(r)?[0] as usize;
     }
-    let single_point_exists = read_bytes::<R, 1>(r)?[0] != 0;
+    let single_point_exists = match read_bytes::<R, 1>(r)?[0] {
+        0 => false,
+        1 => true,
+        _ => return Err(TreeError::CorruptData("invalid point flag".into())),
+    };
     let num_levels = read_u32_from(r)? as usize;
+    if num_levels > crate::tree::MAX_HEIGHT || height as usize != num_levels {
+        return Err(TreeError::CorruptData("invalid level count or height".into()));
+    }
     let mut level_dim_bits = Vec::with_capacity(num_levels);
     let mut level_skip_bytes = Vec::with_capacity(num_levels);
     let mut level_shifts_cache = Vec::with_capacity(num_levels);
@@ -161,12 +183,23 @@ pub fn write_block_table(out: &mut Vec<u8>, capacities: &[usize], used_lens: &[u
 }
 
 pub fn read_block_table_from<R: std::io::Read>(r: &mut R) -> Result<Vec<(usize, usize)>> {
+    read_block_table_limited(r, DeserializeLimits::default())
+}
+
+pub(crate) fn read_block_table_limited<R: std::io::Read>(r: &mut R, limits: DeserializeLimits) -> Result<Vec<(usize, usize)>> {
     let n = read_u32_from(r)? as usize;
-    let mut out = Vec::with_capacity(n);
+    if n > limits.max_blocks { return Err(TreeError::CorruptData("block count exceeds limit".into())); }
+    // Do not reserve an attacker-controlled count before reading its entries.
+    let mut out = Vec::new();
+    let mut total = 0u64;
     for _ in 0..n {
-        let cap = read_u32_from(r)?;
-        let len = read_u32_from(r)?;
-        out.push((cap as usize, len as usize));
+        let cap = read_u32_from(r)? as usize;
+        let len = read_u32_from(r)? as usize;
+        total = total.checked_add(cap as u64).ok_or_else(|| TreeError::CorruptData("capacity overflow".into()))?;
+        if cap == 0 || cap < len || cap > limits.max_block_bytes || total > limits.max_bytes {
+            return Err(TreeError::CorruptData("invalid block length/capacity or resource limit exceeded".into()));
+        }
+        out.push((cap, len));
     }
     Ok(out)
 }

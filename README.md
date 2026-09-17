@@ -1,10 +1,11 @@
 # s-graph
 
-A succinct, insertable index for RDF triples `(subject, predicate,
-object)`: a DFS-preorder, interleaved-skip-pointer radix trie over
+A compact graph representation and algorithm library over integer triples
+`(subject, predicate, object)`: a DFS-preorder, interleaved-skip-pointer radix trie over
 Morton-coded triples, generic over three storage backends (in-RAM,
-real-file, LZ4-compressed in-RAM), with real `O(height)` insertion — not
-the full-rebuild-only limitation most compact triple indexes have.
+real-file, LZ4-compressed in-RAM), with local insertion, general prepared
+conjunctive joins, bounded paths, and regular-path automata. Dictionaries,
+named-graph semantics, query languages and transactions belong to consumers.
 
 It grew out of an exploratory comparison against the k²-tree family
 (Mk²-tree, IK²-tree) and Omnitree, kept in `examples/` along with the
@@ -17,8 +18,9 @@ API instead of a benchmark harness.
 
 Compact RDF indexes (k²-tree-family structures especially) are usually
 build-once, query-forever: adding one triple means rebuilding the whole
-structure. `s-graph`'s `insert`/`insert_batch` cost `O(block_capacity +
-height)` — microseconds, not a rebuild — while keeping the same
+structure. `s-graph` inserts locally, with O(height log B + block bytes)
+work for ordinary insertions and O(B) block-directory work on splits,
+where B is the block count, while keeping the same
 DFS-preorder byte layout that makes the structure page/compress
 naturally. Query latency and memory footprint don't degrade on skewed or
 concentrated data the way the k²-tree family's unconditional per-level
@@ -60,7 +62,7 @@ assert!(!tree.contains(2, 2, 2));
 let objects_of_0_via_pred_0 = tree.query_two_bound([0, 1], [0, 0], 2); // subject=0, predicate=0, object=?
 let predicates_between = tree.predicates_for(0, 1); // subject=0, object=1, predicate=?
 
-// Real O(height) insertion, not a rebuild.
+// Insert within the declared coordinate domains.
 assert!(tree.insert(1, 1, 1).unwrap()); // true: newly inserted
 assert!(!tree.insert(0, 0, 1).unwrap()); // false: already present
 
@@ -92,7 +94,7 @@ use s_graph::Heap;
 
 let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2), (0, 0, 3)], 4096);
 
-// Worst-case-optimal (leapfrog triejoin) multiway join: "subject 0 --p0--> ?a . ?a --p1--> ?b"
+// Prepare ordered relations and collect a leapfrog triejoin result: "subject 0 --p0--> ?a . ?a --p1--> ?b"
 let query = JoinQuery {
     num_vars: 2,
     patterns: vec![
@@ -106,21 +108,75 @@ let bindings = ltj_run(&query, &tree); // Vec<Vec<u32>>, one Vec per match, inde
 let dist = bfs_sequential(&tree, /* start */ 0, /* predicate filter */ None);
 ```
 
-`GraphBackend`/`AdjacencyBackend` are implemented for every `BlockStorage`
-backend, so joins and BFS work identically on `Heap`, `File`, and
-`Compressed`. Enable the `parallel` feature for `path::bfs_parallel`
-(level-synchronous, `rayon`-based).
+For repeated queries, prepare once and stream borrowed bindings with reusable
+execution memory. Predicates may be `Term::Var` as well as `Term::Const`:
+
+```rust
+use std::ops::ControlFlow;
+use s_graph::graph::{JoinQuery, Term, TriplePattern};
+use s_graph::join::{PreparedJoin, JoinWorkspace};
+use s_graph::path::{HopRange, Step, PathWorkspace, has_path};
+
+let tree = s_graph::Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2)], 4096);
+let query = JoinQuery {
+    num_vars: 3,
+    patterns: vec![TriplePattern {
+        subject: Term::Var(0), predicate: Term::Var(1), object: Term::Var(2),
+    }],
+};
+let prepared = PreparedJoin::new(&query, &tree).unwrap();
+let mut workspace = JoinWorkspace::default();
+let _: ControlFlow<()> = prepared.visit(&mut workspace, |binding| {
+    // Consume binding immediately; Break stops enumeration.
+    assert_eq!(binding.len(), 3);
+    ControlFlow::Continue(())
+});
+let mut paths = PathWorkspace::default(); // sparse visitation, independent of max ID
+assert!(has_path(&tree, 0, 2, HopRange::new(2, 2).unwrap(), Step::default(), &mut paths));
+```
+
+`PreparedJoin` is an immutable snapshot, including query-specific ordered
+relations. Preparation scans, filters and sorts; repeated execution reuses those
+relations. Its leapfrog execution has the WCO bound up to logarithmic factors;
+preparation costs and memory are separate. Reprepare to observe mutations.
+`JoinOptions` provides explicit variable ordering, a preparation row budget,
+and packed/plain relation layouts. Packed columns minimize memory; plain `u32`
+rows avoid bit extraction when latency is the priority.
+The compatibility `ltj_run` prepares on every call; custom backends now implement
+`PatternBackend` to supply general scans, alongside any legacy adjacency traits.
+
+- `tree.scan([s, p, o])`: allocation-free filtered triples in Morton order.
+- `query_one_bound_into` / `query_two_bound_into`: sorted adjacency in reusable buffers.
+- `path::reachable`: distinct endpoints reachable by walks within min/max hops.
+- `path::shortest_walk`: shortest qualifying walk with nodes and edges reconstructed.
+- `path::enumerate_paths`: streamed walks, trails or simple paths, with optional target.
+- `automaton::PathAutomaton`: epsilon-free NFA evaluation for label sequences,
+  alternatives and repetition, with hop bounds and distinct endpoint output.
+
+Traversal supports outgoing, incoming or both directions. Identical triples are
+one edge; edge multiplicity must be encoded by the consumer. Supplied start IDs
+are considered valid for zero-hop paths, including externally managed isolated
+vertices. Path enumeration can have exponential output; callbacks can stop early.
+
+All serial algorithms support every storage backend. Prepared joins are
+`Send + Sync` and can execute concurrently with separate workspaces. Legacy
+`bfs_parallel` requires a `Sync` backend: `Heap` qualifies, while `File` and
+`Compressed` retain single-threaded interior caches.
+
+See [DESIGN.md](DESIGN.md) for complexity, memory, semantics and tradeoffs.
 
 ### Error handling
 
 `insert`/`insert_batch`, `build`/`build_with_order`, and
-`deserialize*` return `Result<_, TreeError>`. Everything else
+`deserialize*` return `Result<_, TreeError>`. Read methods
 (`contains`, `query_two_bound`, `query_one_bound`, `predicates_for`)
-can't fail — an out-of-domain query coordinate simply can't match
-anything, so they return an empty/`false` result instead of erroring.
-See `src/lib.rs`'s crate docs for exactly which internal failures stay
-panics (mid-traversal I/O against an already-built `File`/`Compressed`
-tree, mainly) and why.
+return false/empty results for out-of-domain coordinates, which cannot match
+anything. File I/O failures during traversal still panic.
+Snapshot loading validates metadata, topology, record boundaries and skip spans.
+Default limits are 1 GiB of block capacity, 1,000,000 blocks and 16 MiB per block;
+use `deserialize_with_limits` / `deserialize_from_path_with_limits` to change them.
+Configuration-taking infallible builders panic on invalid configuration; `build`
+and `build_with_order` return errors. See crate docs for the remaining panic contract.
 
 ## Getting real data in
 
@@ -131,7 +187,7 @@ parser and dictionary-encode the terms you get back into `u32` ids
 in both positions; blank nodes scoped per source document, since their
 identity is only meaningful within it).
 
-## Benchmarks: real data, not synthetic
+## Benchmarks
 
 [`s-bench`](https://github.com/hrssilva/s-bench) is a separate repository
 that builds and queries this crate (`Heap`/`File`/`Compressed`, all three)
@@ -158,6 +214,7 @@ backends, at both the real corpus's own small scale and amplified to
 ```sh
 cargo test                 # default features (heap)
 cargo test --all-features  # + file, compressed, parallel
+cargo bench --bench algorithms  # preparation, repeated execution, scans and paths
 ```
 
 ## License

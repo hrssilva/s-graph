@@ -48,7 +48,7 @@ fn open_backing_file() -> StdFile {
 }
 
 /// One cached, page-aligned chunk of a single slot's bytes -- one entry
-/// of [`FileStorage::block_stack`].
+/// of `FileStorage::block_stack`.
 ///
 /// # History: two more complicated designs were tried here and reverted
 ///
@@ -120,7 +120,7 @@ impl BlockStack {
 
 /// RAII guard, constructed at the top of every top-level read-only call
 /// (`contains`/`query_two_bound`/`query_one_bound`), that pops
-/// [`FileStorage::block_stack`] back down to just its root entry when
+/// `FileStorage::block_stack` back down to just its root entry when
 /// that call returns -- on every exit path, since this runs on drop.
 /// `insert`/`insert_batch` don't use this and pop the same way manually
 /// via [`FileStorage::end_insert`]. Sound down to `top.min(1)` (not `0`)
@@ -139,10 +139,10 @@ impl Drop for StackCacheGuard<'_> {
 
 /// A real backing `File`, a slot table (`slot_start`/`slot_capacity`/
 /// `slot_used_len`) with `blocks[i]` mapping logical block `i` to a
-/// physical slot, and the stack of small windowed [`StackCacheEntry`]
-/// reads. Writes ([`Self::slot_write_all`]) are write-through -- straight
+/// physical slot, and the stack of small windowed `StackCacheEntry`
+/// reads. Writes (`Self::slot_write_all`) are write-through -- straight
 /// to disk every time, the cache just kept in sync opportunistically --
-/// see [`StackCacheEntry`]'s own doc comment for why that's a deliberate,
+/// see `StackCacheEntry`'s own doc comment for why that's a deliberate,
 /// hard-won choice, not an oversight.
 pub struct FileStorage {
     file: StdFile,
@@ -189,7 +189,7 @@ impl FileStorage {
 
     /// One `pread`, unconditionally, bypassing [`Self::block_stack`]
     /// entirely. Correct on its own -- no cache check needed -- only
-    /// because [`Self::slot_write_all`] is write-through: disk is always
+    /// because `Self::slot_write_all` is write-through: disk is always
     /// the current, authoritative copy of every slot.
     fn slot_read_exact(&self, slot: usize, offset: usize, buf: &mut [u8]) {
         self.file.read_exact_at(buf, self.slot_start[slot] + offset as u64).unwrap_or_else(|e| panic!("file-backed block read failed: {e}"));
@@ -215,7 +215,7 @@ impl FileStorage {
 
     /// Ensures [`Self::block_stack`] has `slot` at its top, with its
     /// cached chunk covering `[offset, offset + len)` -- fetching
-    /// (`pread`) whatever's missing. See [`StackCacheEntry`]'s doc
+    /// (`pread`) whatever's missing. See `StackCacheEntry`'s doc
     /// comment for the push-on-descend/pop-on-backtrack policy this
     /// implements.
     fn ensure_stack_entry(&self, slot: usize, offset: usize, len: usize) {
@@ -368,6 +368,14 @@ impl BlockStorage for FileStorage {
             self.slot_insert_at(slot, pos.offset, new_bytes);
             return;
         }
+        if pos.offset == 0 {
+            // Prepend a block without copying the old block into a new tail
+            // slot or leaving an empty logical block behind.
+            let new_slot = self.allocate_slot(block_capacity.max(new_bytes.len()));
+            self.slot_extend_from_slice(new_slot, new_bytes);
+            self.blocks.insert(pos.block, new_slot);
+            return;
+        }
         let is_tail = pos.offset == used;
         let tail_slot = if is_tail {
             None
@@ -396,8 +404,8 @@ impl BlockStorage for FileStorage {
     fn set_insert_mode(&self, active: bool) {
         self.stack_cap.set(if active { MAX_HEIGHT } else { 1 });
     }
-    /// Manually pops [`FileStorage::block_stack`] back down to just the
-    /// root entry, the same place [`StackCacheGuard`] leaves it for
+    /// Manually pops `FileStorage::block_stack` back down to just the
+    /// root entry, the same place `StackCacheGuard` leaves it for
     /// read-only calls -- `insert`/`insert_batch` can't hold that guard
     /// (its `&self` borrow would conflict with the `&mut self` they need
     /// throughout), so they call this explicitly at every return point.

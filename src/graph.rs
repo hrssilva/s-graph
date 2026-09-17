@@ -1,15 +1,6 @@
-//! Worst-case-optimal (leapfrog triejoin) multiway joins over the tree,
-//! plus the `SortedNeighbors`/`GraphBackend` plumbing that powers them.
-//!
-//! Query shape: a conjunction of triple patterns `(subject, predicate,
-//! object)` where `predicate` is always a bound constant (a query-level
-//! schema constraint, as in a typical SPARQL basic graph pattern) and
-//! `subject`/`object` are either constants or one of a fixed set of join
-//! variables. Variables are solved in a fixed elimination order; for each
-//! variable, every pattern that still has it as its one open position
-//! contributes a [`SortedNeighbors`] stream (row query if the variable is
-//! the object side, col query if the subject side), and leapfrog
-//! intersection finds their common values.
+//! Graph patterns and compatibility adjacency adapters.
+//! General joins use [`crate::join::PreparedJoin`]: packed ordered relations
+//! prepared once, with allocation-free leapfrog execution using a workspace.
 
 use crate::storage::BlockStorage;
 use crate::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric;
@@ -43,7 +34,7 @@ impl SortedNeighbors for SortedVecIter {
         self.data.get(self.pos).copied()
     }
     fn advance(&mut self) {
-        self.pos += 1;
+        self.pos = (self.pos + 1).min(self.data.len());
     }
     fn seek(&mut self, target: u32) {
         let offset = self.data[self.pos..].partition_point(|&v| v < target);
@@ -51,8 +42,8 @@ impl SortedNeighbors for SortedVecIter {
     }
 }
 
-/// Row/col-style bound-predicate queries -- the shared basis for both
-/// joins ([`ltj_run`]) and path algorithms ([`crate::path`]).
+/// Compatibility row/column adapters. General joins and bounded paths use
+/// [`crate::join::PatternBackend`] for scans in all three dimensions.
 pub trait GraphBackend {
     /// Ascending objects `o` such that `(subject, predicate, o)` is present.
     fn stream_row<'a>(&'a self, predicate: u32, subject: u32) -> Box<dyn SortedNeighbors + 'a>;
@@ -76,94 +67,40 @@ pub enum Term {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct TriplePattern {
+pub struct TriplePattern<P = u32> {
     pub subject: Term,
-    pub predicate: u32,
+    pub predicate: P,
     pub object: Term,
 }
 
-pub struct JoinQuery {
+pub struct JoinQuery<P = u32> {
     pub num_vars: usize,
-    pub patterns: Vec<TriplePattern>,
+    pub patterns: Vec<TriplePattern<P>>,
 }
 
-fn resolve(term: Term, bindings: &[Option<u32>]) -> Option<u32> {
-    match term {
-        Term::Const(c) => Some(c),
-        Term::Var(v) => bindings[v],
-    }
+impl From<u32> for Term {
+    fn from(value: u32) -> Self { Self::Const(value) }
 }
 
-/// Advances all streams (if needed) until they agree on a common value,
-/// or until any stream is exhausted. Returns `false` (no more
-/// intersections possible) once any stream runs out.
-fn leapfrog_align(streams: &mut [Box<dyn SortedNeighbors + '_>]) -> bool {
-    loop {
-        if streams.iter().any(|s| s.current().is_none()) {
-            return false;
-        }
-        let min_v = streams.iter().map(|s| s.current().unwrap()).min().unwrap();
-        let max_v = streams.iter().map(|s| s.current().unwrap()).max().unwrap();
-        if min_v == max_v {
-            return true;
-        }
-        for s in streams.iter_mut() {
-            if s.current().unwrap() < max_v {
-                s.seek(max_v);
-            }
-        }
-    }
+/// Convenience collection API. For repeated execution or bounded output memory,
+/// use `PreparedJoin` and `JoinWorkspace` directly. Invalid queries panic;
+/// `try_ltj_run` returns a validation error instead.
+pub fn ltj_run<B: crate::join::PatternBackend, P: Copy + Into<Term>>(query: &JoinQuery<P>, backend: &B) -> Vec<Vec<u32>> {
+    try_ltj_run(query, backend).expect("invalid join query")
 }
 
-/// Runs `query` against `backend`, returning every satisfying assignment
-/// as a `Vec<u32>` indexed by variable number.
-pub fn ltj_run<B: GraphBackend>(query: &JoinQuery, backend: &B) -> Vec<Vec<u32>> {
+pub fn try_ltj_run<B: crate::join::PatternBackend, P: Copy + Into<Term>>(query: &JoinQuery<P>, backend: &B) -> crate::Result<Vec<Vec<u32>>> {
+    let prepared = crate::join::PreparedJoin::new(query, backend)?;
+    let mut workspace = crate::join::JoinWorkspace::default();
     let mut out = Vec::new();
-    let mut bindings = vec![None; query.num_vars];
-    ltj_recurse(query, backend, 0, &mut bindings, &mut out);
-    out
+    let _: std::ops::ControlFlow<()> = prepared.visit(&mut workspace, |row| {
+        out.push(row.to_vec());
+        std::ops::ControlFlow::Continue(())
+    });
+    Ok(out)
 }
 
-#[allow(clippy::collapsible_if)]
-fn ltj_recurse<B: GraphBackend>(query: &JoinQuery, backend: &B, var_idx: usize, bindings: &mut Vec<Option<u32>>, out: &mut Vec<Vec<u32>>) {
-    if var_idx == query.num_vars {
-        out.push(bindings.iter().map(|b| b.expect("all variables bound at a leaf")).collect());
-        return;
-    }
-
-    let mut streams: Vec<Box<dyn SortedNeighbors + '_>> = Vec::new();
-    for pat in &query.patterns {
-        let is_subject_var = pat.subject == Term::Var(var_idx);
-        let is_object_var = pat.object == Term::Var(var_idx);
-        if is_subject_var && !is_object_var {
-            if let Some(o) = resolve(pat.object, bindings) {
-                streams.push(backend.stream_col(pat.predicate, o));
-            }
-        } else if is_object_var && !is_subject_var {
-            if let Some(s) = resolve(pat.subject, bindings) {
-                streams.push(backend.stream_row(pat.predicate, s));
-            }
-        }
-        // Patterns with var_idx on neither side, or a self-loop pattern
-        // with var_idx on both sides, don't contribute a stream here.
-    }
-
-    if streams.is_empty() {
-        return; // var_idx unconstrained by any pattern given current bindings: not a well-formed query for this driver
-    }
-
-    while leapfrog_align(&mut streams) {
-        let val = streams[0].current().unwrap();
-        bindings[var_idx] = Some(val);
-        ltj_recurse(query, backend, var_idx + 1, bindings, out);
-        for s in streams.iter_mut() {
-            s.advance();
-        }
-    }
-    bindings[var_idx] = None;
-}
-
-#[cfg(test)]
+#[cfg(all(test, feature = "heap"))]
 mod tests {
     use super::*;
     use crate::test_support::{uniform, NaiveIndex};
@@ -215,11 +152,7 @@ mod tests {
         assert_eq!(sorted(ltj_run(query, &heap)), expected, "Heap join mismatch");
     }
 
-    // Hand-crafted (not generator-derived) datasets: a fully unanchored
-    // path/triangle pattern has no pattern that can seed the very first
-    // variable in a fixed elimination order, so every query here anchors
-    // at least one position with a constant, mirroring realistic queries
-    // like "find friends-of-friends of node X".
+    // Anchored compatibility cases; general patterns are tested in join.rs.
 
     #[test]
     fn two_hop_path_pattern() {

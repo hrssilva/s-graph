@@ -4,7 +4,9 @@
 //! resident backend. `file`/`compressed`-feature backends live in
 //! [`crate::storage_file`]/[`crate::storage_compressed`].
 
-use crate::tree::{read_var_at, write_var_at, WORD_RECORD_BYTES};
+use crate::tree::WORD_RECORD_BYTES;
+#[cfg(feature = "heap")]
+use crate::tree::{read_var_at, write_var_at};
 use std::borrow::Cow;
 
 /// A position in the block-list: which (logical) block, and the byte
@@ -169,6 +171,7 @@ pub struct HeapStorage {
 
 #[cfg(feature = "heap")]
 struct NoopGuard;
+#[cfg(feature = "heap")]
 impl Drop for NoopGuard {
     fn drop(&mut self) {}
 }

@@ -22,7 +22,7 @@
 //! works directly. The one place this costs something `FileStorage`
 //! doesn't pay: a `Vec::insert` shifts every later logical block index by
 //! one, which would silently desynchronize any *cached* entry keyed by
-//! the old index -- see [`CompressedStorage::invalidate_shifted`] for why
+//! the old index -- see `CompressedStorage::invalidate_shifted` for why
 //! this is sound (root-to-here cache entries are always non-decreasing in
 //! block index, so popping the cache down to below the shift point is
 //! sufficient).
@@ -43,7 +43,7 @@
 //! decompress felt acutely.
 //!
 //! The fix, below: compress each block as many small independent
-//! [`COMPRESS_CHUNK_BYTES`]-sized windows instead of one blob (mirroring
+//! `COMPRESS_CHUNK_BYTES`-sized windows instead of one blob (mirroring
 //! `FileStorage`'s own `READ_CHUNK_BYTES` `pread` windowing), so a touch
 //! decompresses one small chunk, not the whole block. Measured after:
 //! `contains()` 9.4x faster, row queries 4.8x faster, inserts 6.7x
@@ -80,7 +80,7 @@ use std::cell::{Cell, RefCell};
 const COMPRESS_CHUNK_BYTES: usize = 4096;
 
 struct CompressedBlock {
-    /// LZ4-compressed independently per [`COMPRESS_CHUNK_BYTES`]-aligned
+    /// LZ4-compressed independently per `COMPRESS_CHUNK_BYTES`-aligned
     /// window of this block's uncompressed content: `chunks[i]` covers
     /// uncompressed bytes `[i*COMPRESS_CHUNK_BYTES,
     /// min((i+1)*COMPRESS_CHUNK_BYTES, uncompressed_len))`.
@@ -95,7 +95,7 @@ struct CompressedBlock {
     capacity: usize,
 }
 
-/// Splits `content` into [`COMPRESS_CHUNK_BYTES`]-aligned windows and
+/// Splits `content` into `COMPRESS_CHUNK_BYTES`-aligned windows and
 /// compresses each independently -- the one place chunking policy lives.
 fn chunk_and_compress(content: &[u8]) -> Vec<Vec<u8>> {
     content.chunks(COMPRESS_CHUNK_BYTES).map(lz4_flex::compress).collect()
@@ -163,7 +163,7 @@ pub struct CompressedStorage {
 }
 
 impl CompressedStorage {
-    /// Ensures [`Self::block_stack`] has `block`'s decompressed content
+    /// Ensures `Self::block_stack` has `block`'s decompressed content
     /// covering `[offset, offset + len)` at its top -- the same
     /// push-on-descend/pop-on-backtrack policy as `FileStorage`'s own
     /// cache, just decompressing chunk(s) instead of `pread`ing.
@@ -296,7 +296,7 @@ impl BlockStorage for CompressedStorage {
     fn block_count(&self) -> usize {
         self.blocks.len()
     }
-    /// Bypasses [`Self::block_stack`] entirely, like
+    /// Bypasses `Self::block_stack` entirely, like
     /// `FileStorage::slot_read_exact` does for its own bulk reads: a
     /// listing query is one-shot by nature and typically wants most/all
     /// of a spanned block's content anyway.

@@ -2,7 +2,7 @@
 //! build (in-RAM, parallel-fan-out, and RAM-bounded/external-bucketing
 //! variants), and [`RadixTreeDfsInterleavedVarSkipUnrolledGeneric`]
 //! itself -- `contains`/`query_two_bound`/`query_one_bound`'s descent,
-//! `insert`/`insert_batch`'s O(height) trail walk, and serialization.
+//! `insert`/`insert_batch`'s ancestor trail, and serialization.
 //! Generic over [`crate::storage::BlockStorage`]; see [`crate::Heap`],
 //! [`crate::File`], [`crate::Compressed`] for the concrete backends.
 
@@ -51,6 +51,7 @@ fn push_var(buf: &mut Vec<u8>, width: u8, val: u64) {
 }
 
 #[inline]
+#[cfg(any(feature = "heap", feature = "file", feature = "compressed", feature = "parallel"))]
 pub(crate) fn write_var_at(buf: &mut [u8], pos: usize, width: u8, val: u64) {
     debug_assert!(width == 8 || val < (1u64 << (8 * width as u32)), "value {val} does not fit in {width} bytes");
     match width {
@@ -63,6 +64,7 @@ pub(crate) fn write_var_at(buf: &mut [u8], pos: usize, width: u8, val: u64) {
 }
 
 #[inline]
+#[cfg(any(feature = "heap", feature = "file", feature = "compressed"))]
 pub(crate) fn read_var_at(buf: &[u8], pos: usize, width: u8) -> u64 {
     match width {
         1 => buf[pos] as u64,
@@ -140,6 +142,7 @@ fn dimension_sizes_from(triples: &[Triple]) -> [u64; NUM_DIMS] {
 }
 
 fn total_bits_needed(dimension_sizes: [u64; NUM_DIMS]) -> [u8; NUM_DIMS] {
+    assert!(dimension_sizes.iter().all(|&n| (1..=1u64 << 32).contains(&n)), "domains must fit u32 coordinates and be nonzero");
     let mut bits = [0u8; NUM_DIMS];
     for d in 0..NUM_DIMS {
         let mut cap = 1u64;
@@ -149,6 +152,14 @@ fn total_bits_needed(dimension_sizes: [u64; NUM_DIMS]) -> [u8; NUM_DIMS] {
         }
     }
     bits
+}
+
+fn validate_config(domains: [u64; 3], mut order: [usize; 3], capacity: usize) -> Result<()> {
+    order.sort_unstable();
+    if order != [0, 1, 2] || capacity < 16 || capacity > u32::MAX as usize || domains.iter().any(|&n| n == 0 || n > 1u64 << 32) {
+        return Err(TreeError::InvalidConfig("expected a dimension permutation, domains in 1..=2^32, and block capacity in 16..=u32::MAX".into()));
+    }
+    Ok(())
 }
 
 fn static_schedule(mut remaining: [u8; NUM_DIMS], split: [u8; NUM_DIMS]) -> Vec<[u8; NUM_DIMS]> {
@@ -209,6 +220,7 @@ struct BuildSchedule<'a> {
     level_skip_bytes: &'a [u8],
 }
 
+#[cfg(feature = "parallel")]
 impl BuildSchedule<'_> {
     #[inline]
     fn own_record_bytes(&self, level: usize) -> usize {
@@ -242,22 +254,26 @@ trait RecordSink {
     /// [`FlatBuf`] can therefore just concatenate; [`StorageSink`] has to
     /// walk `bytes` record-by-record to preserve the "a block never
     /// splits a record" invariant real storage depends on.
+    #[cfg(feature = "parallel")]
     fn append_subtree(&mut self, bytes: &[u8], child_level: usize, sched: &BuildSchedule);
 }
 
 /// One subtree's worth of bulk-build output, fully in memory -- the unit
 /// [`build_rec`]'s parallel branches build into before being stitched
 /// into the real [`StorageSink`] by the caller that spawned them.
+#[cfg(feature = "parallel")]
 struct FlatBuf {
     bytes: Vec<u8>,
 }
 
+#[cfg(feature = "parallel")]
 impl FlatBuf {
     fn new() -> Self {
         FlatBuf { bytes: Vec::new() }
     }
 }
 
+#[cfg(feature = "parallel")]
 impl RecordSink for FlatBuf {
     #[inline]
     fn append(&mut self, bytes: &[u8]) -> Pos {
@@ -270,6 +286,7 @@ impl RecordSink for FlatBuf {
         write_var_at(&mut self.bytes, pos.offset + rel_offset, width, val);
     }
     #[inline]
+    #[cfg(feature = "parallel")]
     fn append_subtree(&mut self, bytes: &[u8], _child_level: usize, _sched: &BuildSchedule) {
         self.bytes.extend_from_slice(bytes);
     }
@@ -293,6 +310,7 @@ impl<S: BlockStorage> RecordSink for StorageSink<'_, S> {
     fn patch(&mut self, pos: Pos, rel_offset: usize, width: u8, val: u64) {
         self.storage.patch_appended(pos, rel_offset, width, val);
     }
+    #[cfg(feature = "parallel")]
     fn append_subtree(&mut self, bytes: &[u8], child_level: usize, sched: &BuildSchedule) {
         replay_records(bytes, 0, child_level, sched, &mut |record| {
             self.storage.append_record(record, self.block_capacity);
@@ -304,6 +322,7 @@ impl<S: BlockStorage> RecordSink for StorageSink<'_, S> {
 /// [`build_rec`] call into a [`FlatBuf`]) in the same DFS-preorder its
 /// own build produced it in, calling `emit` once per node record.
 /// Returns the cursor position just past the subtree it walked.
+#[cfg(feature = "parallel")]
 fn replay_records(buf: &[u8], off: usize, level: usize, sched: &BuildSchedule, emit: &mut impl FnMut(&[u8])) -> usize {
     let word = u64::from_le_bytes(buf[off..off + WORD_RECORD_BYTES].try_into().unwrap());
     let is_last = level == sched.height - 1;
@@ -321,6 +340,7 @@ fn replay_records(buf: &[u8], off: usize, level: usize, sched: &BuildSchedule, e
 /// Minimum point count a subtree needs before the bulk build considers
 /// splitting its children across `rayon` tasks worth the overhead of a
 /// task spawn plus a small heap-allocated [`FlatBuf`] per branch.
+#[cfg(any(feature = "parallel", all(test, feature = "heap")))]
 const BUILD_PARALLEL_MIN_POINTS: usize = 100_000;
 
 /// A single free function, not a closure re-derived at each call site:
@@ -423,7 +443,8 @@ fn build_children<Sink: RecordSink>(
     let mut rest_points: &mut [(u32, u32, u32)] = points;
     let mut rest_scratch: &mut [(u32, u32, u32)] = scratch;
     let mut prev = 0usize;
-    let mut branches: Vec<([u64; NUM_DIMS], &mut [(u32, u32, u32)], &mut [(u32, u32, u32)])> = Vec::with_capacity(active.len());
+    type BuildBranch<'a> = ([u64; NUM_DIMS], &'a mut [Triple], &'a mut [Triple]);
+    let mut branches: Vec<BuildBranch<'_>> = Vec::with_capacity(active.len());
     for &(qi, _, qend) in active {
         let (child_points, remainder_points) = rest_points.split_at_mut(qend - prev);
         let (child_scratch, remainder_scratch) = rest_scratch.split_at_mut(qend - prev);
@@ -533,8 +554,8 @@ fn open_spill_file() -> StdFile {
 }
 
 /// Caller-supplied bound on how much bulk-build state is ever allowed to
-/// be resident in RAM at once, gating [`build_external`]'s spill-to-disk
-/// decision the same way [`BUILD_PARALLEL_MIN_POINTS`] gates the in-RAM
+/// be resident in RAM at once, gating `build_external`'s spill-to-disk
+/// decision the same way `BUILD_PARALLEL_MIN_POINTS` gates the in-RAM
 /// path's fan-out: a plain point-count comparison, never anything
 /// dataset-shape-aware.
 ///
@@ -638,7 +659,7 @@ impl SpillBucket {
         if !raw.is_empty() {
             self.file.read_exact_at(&mut raw, 0).unwrap_or_else(|e| panic!("failed to read back bulk-build spill bucket: {e}"));
         }
-        raw.chunks_exact(SPILL_RECORD_BYTES).map(decode_spill_record).collect()
+        raw.as_chunks::<SPILL_RECORD_BYTES>().0.iter().map(|row| decode_spill_record(row)).collect()
     }
 
     /// Streams this bucket's content back in `io_buffer_bytes`-sized
@@ -658,7 +679,7 @@ fn decode_spill_record(c: &[u8]) -> Triple {
 }
 
 /// Chunked reader for [`SpillBucket::into_stream`] -- an `Iterator` so it
-/// can feed straight back into [`build_external`]/[`distribute_to_buckets`]
+/// can feed straight back into `build_external`/[`distribute_to_buckets`]
 /// without ever holding more than one `chunk_bytes`-sized buffer.
 struct SpillBucketReader {
     file: StdFile,
@@ -828,7 +849,7 @@ fn flush_taken_batch_sequential<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_D
 /// path" and "still too big, keep spilling": reads `bucket` back if its
 /// own count already fits `budget`, handing off to the existing,
 /// completely unmodified [`build_rec`] -- or recurses into
-/// [`build_external`] one level deeper otherwise.
+/// `build_external` one level deeper otherwise.
 fn build_subtree_bounded<Sink: RecordSink>(bucket: SpillBucket, lo: [u64; NUM_DIMS], level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64) -> u64 {
     if bucket.count as usize <= budget.max_resident_points {
         let mut points = bucket.into_vec();
@@ -903,6 +924,7 @@ impl ConstrainedFrame {
 
 pub struct RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S: BlockStorage> {
     storage: S,
+    block_index: crate::block_index::BlockIndex,
     block_capacity: usize,
     node_count: u64,
     level_skip_bytes: Vec<u8>,
@@ -928,6 +950,74 @@ pub type File = RadixTreeDfsInterleavedVarSkipUnrolledGeneric<FileStorage>;
 #[cfg(feature = "compressed")]
 pub type Compressed = RadixTreeDfsInterleavedVarSkipUnrolledGeneric<CompressedStorage>;
 
+#[derive(Clone, Copy)]
+struct ScanFrame {
+    lo: [u64; 3],
+    remaining: u64,
+    child: Pos,
+}
+
+impl ScanFrame {
+    const EMPTY: Self = Self { lo: [0; 3], remaining: 0, child: Pos::START };
+}
+
+/// Allocation-free, filtered DFS traversal. Order is Morton order, not
+/// lexicographic order. Borrows the tree, preventing mutation while scanning.
+pub struct Scan<'a, S: BlockStorage> {
+    tree: &'a RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>,
+    frames: [ScanFrame; MAX_HEIGHT],
+    masks: [u64; MAX_HEIGHT],
+    depth: usize,
+    single: bool,
+}
+
+impl<S: BlockStorage> Iterator for Scan<'_, S> {
+    type Item = Triple;
+
+    fn next(&mut self) -> Option<Triple> {
+        if std::mem::take(&mut self.single) {
+            return Some((0, 0, 0));
+        }
+        while self.depth != 0 {
+            let level = self.depth - 1;
+            let frame = &mut self.frames[level];
+            if frame.remaining == 0 {
+                self.depth -= 1;
+                continue;
+            }
+            let qi = frame.remaining.trailing_zeros() as usize;
+            frame.remaining &= frame.remaining - 1;
+            let last = self.depth == self.tree.height as usize;
+            let child = frame.child;
+            if !last {
+                frame.child = self.tree.child_span_end(child, level + 1);
+            }
+            if self.masks[level] & (1u64 << qi) == 0 {
+                continue;
+            }
+            let lo = advance_lo(frame.lo, self.tree.level_dim_bits[level], self.tree.level_shifts_cache[level], qi, self.tree.level_child_cell_bits_cache[level]);
+            if last {
+                return Some((lo[0] as u32, lo[1] as u32, lo[2] as u32));
+            }
+            self.frames[self.depth] = ScanFrame {
+                lo,
+                remaining: self.tree.block_read_u64(child.block, child.offset),
+                child: self.tree.advance(child, self.tree.own_record_bytes(level + 1)),
+            };
+            self.depth += 1;
+        }
+        None
+    }
+}
+
+impl<S: BlockStorage> std::iter::FusedIterator for Scan<'_, S> {}
+
+impl<S: BlockStorage> Drop for Scan<'_, S> {
+    fn drop(&mut self) {
+        let _guard = self.tree.storage.begin_top_level_call();
+    }
+}
+
 #[cfg(feature = "file")]
 impl RadixTreeDfsInterleavedVarSkipUnrolledGeneric<FileStorage> {
     /// Bytes actually occupied in the backing file -- disk-space
@@ -938,6 +1028,32 @@ impl RadixTreeDfsInterleavedVarSkipUnrolledGeneric<FileStorage> {
 }
 
 impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
+    /// Streams matching triples without allocating an adjacency list or sorting.
+    /// `None` is a wildcard in any coordinate; every stored triple occurs once.
+    pub fn scan(&self, bounds: [Option<u32>; 3]) -> Scan<'_, S> {
+        let mut scan = Scan { tree: self, frames: [ScanFrame::EMPTY; MAX_HEIGHT], masks: [0; MAX_HEIGHT], depth: 0, single: false };
+        if bounds.iter().enumerate().any(|(d, v)| v.is_some_and(|v| v as u64 >= self.dimension_sizes[d])) {
+            return scan;
+        }
+        if self.height == 0 {
+            scan.single = self.single_point_exists;
+            return scan;
+        }
+        let mut lo = [0; 3];
+        for (level, mask) in scan.masks[..self.height as usize].iter_mut().enumerate() {
+            let bits = self.level_child_cell_bits_cache[level];
+            *mask = bound_mask(self.level_dim_bits[level], self.level_shifts_cache[level], lo, bits, |d| bounds[d]);
+            for d in 0..3 {
+                if let Some(v) = bounds[d] {
+                    lo[d] += ((v as u64 - lo[d]) >> bits[d]) << bits[d];
+                }
+            }
+        }
+        scan.frames[0] = ScanFrame { lo: [0; 3], remaining: self.block_read_u64(0, 0), child: self.advance(Pos::START, self.own_record_bytes(0)) };
+        scan.depth = 1;
+        scan
+    }
+
     pub fn default_split() -> [u8; NUM_DIMS] {
         [BASE / NUM_DIMS as u8; NUM_DIMS]
     }
@@ -948,7 +1064,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// every single build. A caller who still needs the original data
     /// after building just clones before calling.
     ///
-    /// `split` must sum to at most [`BASE`] (6) bits per level; a caller-
+    /// `split` must sum to at most `BASE` (6) bits per level; a caller-
     /// supplied value that doesn't is rejected with
     /// [`TreeError::InvalidConfig`] rather than silently producing a
     /// schedule that overflows a node's 64-way branching budget. Use
@@ -959,11 +1075,15 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     pub fn build_with_order(triples: Vec<Triple>, split: [u8; NUM_DIMS], dim_order: [usize; NUM_DIMS], block_capacity: usize) -> Result<Self> {
+        validate_config(dimension_sizes_from(&triples), dim_order, block_capacity)?;
         let split_sum: u32 = split.iter().map(|&s| s as u32).sum();
         if split_sum > BASE as u32 {
             return Err(TreeError::InvalidConfig(format!("split {split:?} sums to {split_sum} bits, exceeding the {BASE}-bit-per-level branching budget")));
         }
         let dimension_sizes = dimension_sizes_from(&triples);
+        if total_bits_needed(dimension_sizes).iter().zip(split).any(|(&bits, step)| bits != 0 && step == 0) {
+            return Err(TreeError::InvalidConfig("split must advance every nontrivial dimension".into()));
+        }
         let level_dim_bits = static_schedule(total_bits_needed(dimension_sizes), split);
         Ok(Self::build_from_schedule(triples, dimension_sizes, level_dim_bits, dim_order, block_capacity))
     }
@@ -1019,11 +1139,15 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     fn build_bounded_from_schedule<I: Iterator<Item = Triple>>(triples: I, dimension_sizes: [u64; NUM_DIMS], level_dim_bits: Vec<[u8; NUM_DIMS]>, dim_order: [usize; NUM_DIMS], block_capacity: usize, budget: BulkBuildBudget) -> Self {
+        validate_config(dimension_sizes, dim_order, block_capacity).expect("invalid tree configuration");
         debug_assert!(block_capacity >= WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES);
-        let mut triples = triples;
+        let mut triples = triples.inspect(|&(s, p, o)| {
+            assert!([s, p, o].iter().zip(dimension_sizes).all(|(&v, size)| (v as u64) < size), "bounded-build coordinate exceeds domain");
+        });
         if level_dim_bits.is_empty() {
             return RadixTreeDfsInterleavedVarSkipUnrolledGeneric {
                 storage: S::empty(),
+                block_index: crate::block_index::BlockIndex::default(),
                 block_capacity,
                 node_count: 0,
                 level_skip_bytes: Vec::new(),
@@ -1032,7 +1156,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 level_child_cell_bits_cache: Vec::new(),
                 dimension_sizes,
                 dim_order,
-                single_point_exists: triples.next().is_some(),
+                single_point_exists: triples.fold(false, |_, _| true),
                 height: 0,
             };
         }
@@ -1088,6 +1212,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         storage.finish_append(block_capacity);
 
         RadixTreeDfsInterleavedVarSkipUnrolledGeneric {
+            block_index: crate::block_index::BlockIndex::build(&storage),
             storage,
             block_capacity,
             node_count,
@@ -1103,10 +1228,12 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     fn build_from_schedule(triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], level_dim_bits: Vec<[u8; NUM_DIMS]>, dim_order: [usize; NUM_DIMS], block_capacity: usize) -> Self {
+        validate_config(dimension_sizes, dim_order, block_capacity).expect("invalid tree configuration");
         debug_assert!(block_capacity >= WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES);
         if level_dim_bits.is_empty() {
             return RadixTreeDfsInterleavedVarSkipUnrolledGeneric {
                 storage: S::empty(),
+                block_index: crate::block_index::BlockIndex::default(),
                 block_capacity,
                 node_count: 0,
                 level_skip_bytes: Vec::new(),
@@ -1151,6 +1278,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         storage.finish_append(block_capacity);
 
         RadixTreeDfsInterleavedVarSkipUnrolledGeneric {
+            block_index: crate::block_index::BlockIndex::build(&storage),
             storage,
             block_capacity,
             node_count,
@@ -1183,7 +1311,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// or pre-validate without paying for constructing an error value
     /// per candidate -- [`Self::insert`]/[`Self::insert_batch`] already
     /// call this internally and return
-    /// [`TreeError::OutOfDomain`](crate::error::TreeError::OutOfDomain)
+    /// [`TreeError::OutOfDomain`]
     /// on a `false` result, so this is a convenience for the caller, not
     /// a substitute for it being checked.
     #[inline]
@@ -1197,8 +1325,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// bound.
     fn out_of_domain_error(&self, s: u32, p: u32, o: u32) -> TreeError {
         let coords = [s, p, o];
-        for d in 0..NUM_DIMS {
-            if (coords[d] as u64) >= self.dimension_sizes[d] {
+        for (d, &coordinate) in coords.iter().enumerate() {
+            if (coordinate as u64) >= self.dimension_sizes[d] {
                 return TreeError::OutOfDomain(OutOfDomain { dim: d, value: coords[d], domain_size: self.dimension_sizes[d] });
             }
         }
@@ -1240,24 +1368,15 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     #[inline]
-    fn advance(&self, mut pos: Pos, mut n: usize) -> Pos {
-        loop {
-            let bl = self.block_len(pos.block);
-            assert!(pos.offset <= bl, "advance: pos.offset {} > block_len {bl} for block {} (n={n})", pos.offset, pos.block);
-            let avail = bl - pos.offset;
-            if n < avail {
-                pos.offset += n;
-                return pos;
-            }
-            n -= avail;
-            if pos.block + 1 >= self.storage.block_count() {
-                assert_eq!(n, 0, "advance() ran past the end of all blocks (block={}, slot={}, avail={avail})", pos.block, self.storage.debug_slot(pos.block));
-                pos.offset += avail;
-                return pos;
-            }
-            pos.block += 1;
-            pos.offset = 0;
+    fn advance(&self, pos: Pos, n: usize) -> Pos {
+        let len = self.block_len(pos.block);
+        assert!(pos.offset <= len, "invalid block offset");
+        let available = len - pos.offset;
+        if n < available || (n == available && pos.block + 1 == self.storage.block_count()) {
+            return Pos { block: pos.block, offset: pos.offset + n };
         }
+        if n == available && self.block_len(pos.block + 1) != 0 { return Pos { block: pos.block + 1, offset: 0 }; }
+        self.block_index.locate(self.block_index.prefix(pos.block) + pos.offset as u64 + n as u64)
     }
 
     #[inline]
@@ -1331,54 +1450,66 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     pub fn query_two_bound(&self, bound_dims: [usize; 2], bound_vals: [u32; 2], free_dim: usize) -> Vec<u32> {
-        let _guard = self.storage.begin_top_level_call();
         let mut out = Vec::new();
+        self.query_two_bound_into(bound_dims, bound_vals, free_dim, &mut out);
+        out
+    }
+
+    /// Replaces `out`, retaining its allocation for repeated adjacency queries.
+    pub fn query_two_bound_into(&self, bound_dims: [usize; 2], bound_vals: [u32; 2], free_dim: usize, out: &mut Vec<u32>) {
+        let _guard = self.storage.begin_top_level_call();
+        out.clear();
         for i in 0..2 {
             if (bound_vals[i] as u64) >= self.dimension_sizes[bound_dims[i]] {
-                return out;
+                return;
             }
         }
         if self.height == 0 {
             if self.single_point_exists {
                 out.push(0);
             }
-            return out;
+            return;
         }
         let level_masks = self.precompute_level_masks(bound_dims, bound_vals, |d| d == bound_dims[0] || d == bound_dims[1]);
         let unconstrained_from = self.first_fully_open_level(&level_masks);
-        self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], free_dim, unconstrained_from, &mut out);
+        self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], free_dim, unconstrained_from, out);
         out.sort_unstable();
         out.dedup();
-        out
     }
 
     pub fn query_one_bound(&self, bound_dim: usize, bound_val: u32, target_dim: usize) -> Vec<u32> {
-        let _guard = self.storage.begin_top_level_call();
         let mut out = Vec::new();
+        self.query_one_bound_into(bound_dim, bound_val, target_dim, &mut out);
+        out
+    }
+
+    /// Replaces `out`, retaining its allocation for repeated adjacency queries.
+    pub fn query_one_bound_into(&self, bound_dim: usize, bound_val: u32, target_dim: usize, out: &mut Vec<u32>) {
+        let _guard = self.storage.begin_top_level_call();
+        out.clear();
         if (bound_val as u64) >= self.dimension_sizes[bound_dim] {
-            return out;
+            return;
         }
         if self.height == 0 {
             if self.single_point_exists {
                 out.push(0);
             }
-            return out;
+            return;
         }
         let level_masks = self.precompute_level_masks([bound_dim, bound_dim], [bound_val, bound_val], |d| d == bound_dim);
         let unconstrained_from = self.first_fully_open_level(&level_masks);
-        self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], target_dim, unconstrained_from, &mut out);
+        self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], target_dim, unconstrained_from, out);
         out.sort_unstable();
         out.dedup();
-        out
     }
 
     fn first_fully_open_level(&self, level_masks: &[u64; MAX_HEIGHT]) -> usize {
-        for level in 0..self.height as usize {
+        for (level, &mask) in level_masks.iter().enumerate().take(self.height as usize) {
             let dim_bits = self.level_dim_bits[level];
             let bit_sum = (dim_bits[0] + dim_bits[1] + dim_bits[2]) as u32;
             let branching: u64 = 1u64 << bit_sum;
             let full_mask = if branching >= 64 { u64::MAX } else { (1u64 << branching) - 1 };
-            if level_masks[level] == full_mask {
+            if mask == full_mask {
                 return level;
             }
         }
@@ -1389,7 +1520,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         let mut lo = [0u64; NUM_DIMS];
         let mut masks = [0u64; MAX_HEIGHT];
         debug_assert!(self.height as usize <= MAX_HEIGHT);
-        for level in 0..self.height as usize {
+        for (level, mask) in masks.iter_mut().enumerate().take(self.height as usize) {
             let dim_bits = self.level_dim_bits[level];
             let shifts = self.level_shifts_cache[level];
             let child_cell_bits = self.level_child_cell_bits_cache[level];
@@ -1402,7 +1533,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                     Some(bound_vals[1])
                 }
             };
-            masks[level] = bound_mask(dim_bits, shifts, lo, child_cell_bits, bound_val_for);
+            *mask = bound_mask(dim_bits, shifts, lo, child_cell_bits, bound_val_for);
             for d in 0..NUM_DIMS {
                 if is_bound(d) {
                     let bound_val = bound_val_for(d).unwrap();
@@ -1533,15 +1664,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     fn byte_distance(&self, start: Pos, end: Pos) -> usize {
-        if start.block == end.block {
-            return end.offset - start.offset;
-        }
-        let mut total = self.block_len(start.block) - start.offset;
-        for b in (start.block + 1)..end.block {
-            total += self.block_len(b);
-        }
-        total += end.offset;
-        total
+        if start.block == end.block { return end.offset - start.offset; }
+        (self.block_index.prefix(end.block) + end.offset as u64 - self.block_index.prefix(start.block) - start.offset as u64) as usize
     }
 
     fn decode_listing(&self, buf: &[u8], off: usize, lo: u64, level: usize, free_dim: usize, out: &mut Vec<u32>) -> usize {
@@ -1595,11 +1719,11 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
 
     /// Inserts one point. Returns `Ok(true)` if it was newly inserted,
     /// `Ok(false)` if it already existed, or
-    /// [`TreeError::OutOfDomain`](crate::error::TreeError::OutOfDomain)
+    /// [`TreeError::OutOfDomain`]
     /// if the coordinate falls outside the domain established at build
-    /// time. This check is a single, cheap comparison against fields
-    /// already on `self` -- see the crate's own production notes for the
-    /// measurement backing that claim; it is not the O(height) hot loop.
+    /// time. Domain checks precede traversal and mutation. Navigation costs
+    /// O(height log B) in the worst case; block splits also cost O(B), where B
+    /// is the logical block count.
     ///
     /// No `begin_top_level_call` guard here (unlike the read methods):
     /// this needs `&mut self` throughout, which a guard holding a live
@@ -1616,8 +1740,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     /// Sorts `triples` into this tree's own DFS-preorder (Morton/
-    /// interleaved-coordinate) order -- see [`Self::morton_key`] -- then
-    /// inserts them one at a time via [`Self::insert_no_reset`], resetting
+    /// interleaved-coordinate) order -- see `Self::morton_key` -- then
+    /// inserts them one at a time via `Self::insert_no_reset`, resetting
     /// the file backend's block-stack cache only once, after the whole
     /// batch, instead of after every single triple.
     ///
@@ -1625,7 +1749,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// mutation happens: if any one of them is out of bounds, this
     /// returns `Err` and the tree is left completely unchanged (not
     /// partially inserted up to the bad triple) -- both because sorting
-    /// itself would otherwise run [`Self::morton_key`] on an out-of-domain
+    /// itself would otherwise run `Self::morton_key` on an out-of-domain
     /// coordinate, and because a batch call should not have a partial-
     /// failure state a caller has to reason about.
     ///
@@ -1666,8 +1790,10 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 self.dfs_records()
             };
             self.storage.compact_from_records(&records, self.block_capacity);
+            self.block_index.rebuild(&self.storage);
         }
         self.storage.shrink_to_fit();
+        self.block_index.shrink_to_fit();
     }
 
     /// Every node's own `(position, byte length)`, walked in DFS-preorder
@@ -1701,7 +1827,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         let coords = [s as u64, p as u64, o as u64];
         let mut lo = [0u64; NUM_DIMS];
         let mut key = [0u8; MAX_HEIGHT];
-        for level in 0..self.height as usize {
+        for (level, digit) in key.iter_mut().enumerate().take(self.height as usize) {
             let shifts = self.level_shifts_cache[level];
             let child_cell_bits = self.level_child_cell_bits_cache[level];
             let mut qi = 0usize;
@@ -1711,7 +1837,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 qi |= (sub as usize) << shifts[d];
                 next_lo[d] += sub << child_cell_bits[d];
             }
-            key[level] = qi as u8;
+            *digit = qi as u8;
             lo = next_lo;
         }
         key
@@ -1722,6 +1848,9 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// this only asserts it (a cheap, redundant internal sanity check,
     /// not a substitute for the real check both callers already made).
     fn insert_no_reset(&mut self, s: u32, p: u32, o: u32) -> bool {
+        if self.height == 0 {
+            return !std::mem::replace(&mut self.single_point_exists, true);
+        }
         debug_assert!(self.height > 0, "insert() on an empty/degenerate tree is out of scope for this prototype");
         debug_assert!(self.in_bounds(s, p, o), "insert_no_reset({s},{p},{o}) called without an out-of-bounds check by its caller -- internal bug, not a caller-facing error");
         let coords = [s as u64, p as u64, o as u64];
@@ -1732,7 +1861,6 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         // entry ends up needing this in `insert_new_branch`'s ancestor
         // loop anyway.
         let mut trail: [(Pos, usize, u64, u64); MAX_HEIGHT] = [(Pos::START, 0, 0, 0); MAX_HEIGHT];
-        let mut trail_len = 0usize;
 
         for level in 0..self.height as usize {
             let is_last = level == self.height as usize - 1;
@@ -1747,11 +1875,10 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             }
             let skip_width = if level + 2 < self.height as usize { self.level_skip_bytes[level] } else { 0 };
             let (word, skip_old) = self.block_read_word_and_skip(pos.block, pos.offset, skip_width);
-            trail[trail_len] = (pos, level, word, skip_old);
-            trail_len += 1;
+            trail[level] = (pos, level, word, skip_old);
 
             if (word >> qi) & 1 == 0 {
-                self.insert_new_branch(pos, level, qi, word, coords, lo, &trail[..trail_len]);
+                self.insert_new_branch(pos, level, qi, word, coords, lo, &trail[..=level]);
                 return true;
             }
             if is_last {
@@ -1783,7 +1910,15 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         let first_child_pos = self.advance(node_pos, self.own_record_bytes(level));
         let insert_pos = self.advance_past_children(first_child_pos, earlier, level + 1);
 
+        let old_blocks = self.storage.block_count();
         self.storage.insert_bytes(insert_pos, &chain, self.block_capacity);
+        if self.storage.block_count() == old_blocks {
+            self.block_index.grow(insert_pos.block, chain.len());
+        } else {
+            // Splits already shift the backend's block vector. Rebuild in O(B);
+            // the common no-split insertion updates only O(log B) counters.
+            self.block_index.rebuild(&self.storage);
+        }
         self.node_count += (self.height as usize - (level + 1)) as u64;
 
         for &(anc_pos, anc_level, _, skip_old) in trail.iter().rev() {
@@ -1802,14 +1937,15 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     /// Actual allocated-capacity bytes this tree occupies -- see
-    /// [`crate::vec_bytes`]'s own doc comment for what that means in
+    /// `crate::vec_bytes`'s own doc comment for what that means in
     /// practice.
     pub fn mem_size_bytes(&self) -> usize {
-        self.storage.mem_size_bytes() + crate::vec_bytes(&self.level_skip_bytes) + crate::vec_bytes(&self.level_dim_bits) + crate::vec_bytes(&self.level_shifts_cache) + crate::vec_bytes(&self.level_child_cell_bits_cache)
+        self.storage.mem_size_bytes() + self.block_index.mem_size_bytes() + crate::vec_bytes(&self.level_skip_bytes) + crate::vec_bytes(&self.level_dim_bits) + crate::vec_bytes(&self.level_shifts_cache) + crate::vec_bytes(&self.level_child_cell_bits_cache)
     }
 
     pub fn size_breakdown(&self) -> Vec<(&'static str, usize)> {
         let mut v = self.storage.size_breakdown();
+        v.push(("block navigation index", self.block_index.mem_size_bytes()));
         v.push(("level_skip_bytes (O(height))", crate::vec_bytes(&self.level_skip_bytes)));
         v.push(("level_dim_bits (O(height))", crate::vec_bytes(&self.level_dim_bits)));
         v.push(("level_shifts_cache (O(height))", crate::vec_bytes(&self.level_shifts_cache)));
@@ -1845,25 +1981,65 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// Reconstructs a tree from bytes produced by [`Self::serialize`] --
     /// on *any* backend, not just the one that produced them (see
     /// [`crate::serialize`]'s own module docs). Returns
-    /// [`TreeError::CorruptData`](crate::error::TreeError::CorruptData)/
-    /// [`TreeError::UnsupportedVersion`](crate::error::TreeError::UnsupportedVersion)
+    /// [`TreeError::CorruptData`]/
+    /// [`TreeError::UnsupportedVersion`]
     /// rather than panicking: `buf` is untrusted external input by
     /// construction (a file on disk, bytes off the wire), not a value
     /// this process produced itself.
     pub fn deserialize(buf: &[u8]) -> Result<Self> {
-        Self::deserialize_from_reader(&mut std::io::Cursor::new(buf))
+        Self::deserialize_with_limits(buf, crate::serialize::DeserializeLimits::default())
+    }
+
+    pub fn deserialize_with_limits(buf: &[u8], limits: crate::serialize::DeserializeLimits) -> Result<Self> {
+        Self::deserialize_from_reader(&mut std::io::Cursor::new(buf), buf.len() as u64, limits)
     }
 
     pub fn deserialize_from_path(path: &std::path::Path) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        Self::deserialize_from_reader(&mut std::io::BufReader::new(file))
+        Self::deserialize_from_path_with_limits(path, crate::serialize::DeserializeLimits::default())
     }
 
-    fn deserialize_from_reader<R: std::io::Read>(r: &mut R) -> Result<Self> {
+    pub fn deserialize_from_path_with_limits(path: &std::path::Path, limits: crate::serialize::DeserializeLimits) -> Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        Self::deserialize_from_reader(&mut std::io::BufReader::new(file), len, limits)
+    }
+
+    fn deserialize_from_reader<R: std::io::Read>(r: &mut R, input_len: u64, limits: crate::serialize::DeserializeLimits) -> Result<Self> {
+        let corrupt = |s: &str| TreeError::CorruptData(s.into());
         let h = crate::serialize::read_header_from(r)?;
-        let table = crate::serialize::read_block_table_from(r)?;
+        validate_config(h.dimension_sizes, h.dim_order, h.block_capacity).map_err(|_| corrupt("invalid tree configuration"))?;
+        if h.block_capacity > limits.max_block_bytes { return Err(corrupt("block capacity exceeds limit")); }
+        let mut remaining = total_bits_needed(h.dimension_sizes);
+        for (i, &bits) in h.level_dim_bits.iter().enumerate() {
+            let sum: u32 = bits.iter().map(|&b| b as u32).sum();
+            if sum == 0 || sum > BASE as u32 || (0..3).any(|d| bits[d] > remaining[d] || (bits[d] == 0 && remaining[d] != 0)) {
+                return Err(corrupt("invalid bit schedule"));
+            }
+            for d in 0..3 { remaining[d] -= bits[d]; }
+            if h.level_shifts_cache[i] != level_shifts(bits, h.dim_order) || h.level_child_cell_bits_cache[i] != remaining {
+                return Err(corrupt("inconsistent cached schedule"));
+            }
+        }
+        if remaining != [0; 3] || (h.height != 0 && h.single_point_exists) {
+            return Err(corrupt("incomplete schedule or invalid singleton flag"));
+        }
+        if h.height != 0 && h.level_skip_bytes != compute_level_skip_bytes(&h.level_dim_bits, h.height as usize) {
+            return Err(corrupt("invalid skip widths"));
+        }
+        let mut table = crate::serialize::read_block_table_limited(r, limits)?;
+        let used: u64 = table.iter().map(|&(_, n)| n as u64).sum();
+        // Exact version-1 framing, checked before any payload allocation.
+        let expected = 61u64 + 10 * h.height as u64 + 8 * table.len() as u64 + used;
+        if expected != input_len { return Err(corrupt("snapshot length does not match its block table")); }
+        // Earlier file-backend splits could leave empty logical blocks. They
+        // contain no records and can be removed without changing byte spans.
+        table.retain(|&(_, len)| len != 0);
+        if (h.height == 0 && (!table.is_empty() || h.node_count != 0)) || (h.height != 0 && table.is_empty()) {
+            return Err(corrupt("missing root or invalid singleton storage"));
+        }
         let storage = S::read_blocks_from(r, &table)?;
-        Ok(RadixTreeDfsInterleavedVarSkipUnrolledGeneric {
+        let tree = RadixTreeDfsInterleavedVarSkipUnrolledGeneric {
+            block_index: crate::block_index::BlockIndex::build(&storage),
             storage,
             block_capacity: h.block_capacity,
             node_count: h.node_count,
@@ -1875,11 +2051,53 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             dim_order: h.dim_order,
             single_point_exists: h.single_point_exists,
             height: h.height,
-        })
+        };
+        if tree.height != 0 {
+            let mut pos = Pos::START;
+            let mut nodes = 0;
+            let bytes = tree.validate_node(&mut pos, 0, [0; 3], &mut nodes)?;
+            if bytes != used || nodes != tree.node_count { return Err(corrupt("node count or topology mismatch")); }
+        }
+        Ok(tree)
     }
+
+    // Validate physical record boundaries and topology without following any
+    // untrusted skip pointer. Recursion is bounded by the checked height.
+    fn validate_node(&self, pos: &mut Pos, level: usize, lo: [u64; 3], nodes: &mut u64) -> Result<u64> {
+        let corrupt = |s: &str| TreeError::CorruptData(s.into());
+        if pos.block >= self.storage.block_count() { return Err(corrupt("truncated node topology")); }
+        let len = self.own_record_bytes(level);
+        if pos.offset > self.block_len(pos.block) || len > self.block_len(pos.block) - pos.offset {
+            return Err(corrupt("node record crosses a block boundary"));
+        }
+        let word = self.block_read_u64(pos.block, pos.offset);
+        let bits = self.level_dim_bits[level];
+        let branching = 1u32 << bits.iter().map(|&b| b as u32).sum::<u32>();
+        if (word == 0 && level != 0) || (branching < 64 && word >> branching != 0) {
+            return Err(corrupt("invalid existence bitmap"));
+        }
+        let skip = if level + 2 < self.height as usize {
+            Some(self.block_read_var(pos.block, pos.offset + 8, self.level_skip_bytes[level]))
+        } else { None };
+        *nodes += 1;
+        pos.offset += len;
+        if pos.offset == self.block_len(pos.block) { pos.block += 1; pos.offset = 0; }
+        let mut bytes = len as u64;
+        let mut children = word;
+        while children != 0 {
+            let qi = children.trailing_zeros() as usize;
+            children &= children - 1;
+            let next_lo = advance_lo(lo, bits, self.level_shifts_cache[level], qi, self.level_child_cell_bits_cache[level]);
+            if next_lo.iter().zip(self.dimension_sizes).any(|(&v, size)| v >= size) { return Err(corrupt("stored coordinate exceeds domain")); }
+            if level + 1 < self.height as usize { bytes += self.validate_node(pos, level + 1, next_lo, nodes)?; }
+        }
+        if skip.is_some_and(|s| s != bytes) { return Err(corrupt("subtree skip does not match topology")); }
+        Ok(bytes)
+    }
+
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "heap"))]
 mod tests {
     use super::*;
     use crate::test_support::{uniform, zipfian_predicates, NaiveIndex, SplitMix64};
