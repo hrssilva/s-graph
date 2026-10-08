@@ -349,6 +349,17 @@ impl BlockStorage for CompressedStorage {
         self.blocks.insert(pos.block + 1, CompressedBlock { chunks: tail_chunks, uncompressed_len: tail.len(), capacity: tail_cap });
         self.invalidate_shifted(pos.block + 1);
     }
+    /// Mirrors `insert_bytes`'s in-place branch only -- removal never
+    /// needs the overflow/split branches, since it only ever shrinks a
+    /// block.
+    fn remove_bytes(&mut self, pos: Pos, len: usize) {
+        let mut content = decompress_whole(&self.blocks[pos.block]);
+        content.splice(pos.offset..pos.offset + len, std::iter::empty());
+        let new_len = content.len();
+        self.blocks[pos.block].chunks = chunk_and_compress(&content);
+        self.blocks[pos.block].uncompressed_len = new_len;
+        self.invalidate_block(pos.block);
+    }
     fn begin_top_level_call(&self) -> impl Drop + '_ {
         self.stack_cap.set(1);
         CompressedStackCacheGuard(self)

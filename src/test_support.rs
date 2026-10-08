@@ -82,6 +82,12 @@ impl NaiveIndex {
         self.triples.contains(&(s, p, o))
     }
 
+    /// Mirrors `Heap::remove`'s return convention: `true` if it was
+    /// present and is now removed, `false` if it was already absent.
+    pub fn remove(&mut self, s: u32, p: u32, o: u32) -> bool {
+        self.triples.remove(&(s, p, o))
+    }
+
     /// Sorted, deduplicated objects for a fixed (predicate, subject).
     pub fn row(&self, p: u32, s: u32) -> Vec<u32> {
         let mut v: Vec<u32> = self.triples.iter().filter(|&&(ts, tp, _)| ts == s && tp == p).map(|&(_, _, to)| to).collect();

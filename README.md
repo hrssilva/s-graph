@@ -73,11 +73,20 @@ assert!(!tree.insert(0, 0, 1).unwrap()); // false: already present
 // rather filter than handle the error.
 assert!(tree.insert(2, 0, 0).is_err());
 
+// Delete a triple -- full, immediate reclamation: any node left
+// entirely empty by the removal is physically removed too, cascading
+// up to (but never including) the root, not just a bit flip deferred
+// to a separate compaction step. An out-of-domain coordinate here
+// simply can't match anything, so this returns `Ok(false)`, not `Err`.
+assert!(tree.remove(0, 0, 1).unwrap());
+assert!(!tree.contains(0, 0, 1));
+
 // Persist and reload -- the format is backend-agnostic: bytes from a
 // `Heap` deserialize correctly into a `File` or `Compressed` tree too.
 let bytes = tree.serialize();
 let restored = Heap::deserialize(&bytes).unwrap();
-assert!(restored.contains(0, 0, 1));
+assert!(restored.contains(0, 1, 2));
+assert!(!restored.contains(0, 0, 1)); // the removal above survives the round trip too
 ```
 
 Swap `Heap` for `s_graph::File` or `s_graph::Compressed` (behind their
@@ -185,7 +194,11 @@ See [DESIGN.md](DESIGN.md) for complexity, memory, semantics and tradeoffs.
 `deserialize*` return `Result<_, TreeError>`. Read methods
 (`contains`, `query_two_bound`, `query_one_bound`, `predicates_for`)
 return false/empty results for out-of-domain coordinates, which cannot match
-anything. File I/O failures during traversal still panic.
+anything. `remove`/`remove_batch` also return `Result<_, TreeError>` (for
+signature symmetry with `insert`/`insert_batch`), but behave like a read
+method for an out-of-domain coordinate: `Ok(false)`, never `Err` -- removal
+never changes the domain either way, so there's nothing to misrepresent by
+accepting one. File I/O failures during traversal still panic.
 Snapshot loading validates metadata, topology, record boundaries and skip spans.
 Default limits are 1 GiB of block capacity, 1,000,000 blocks and 16 MiB per block;
 use `deserialize_with_limits` / `deserialize_from_path_with_limits` to change them.

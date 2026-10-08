@@ -278,6 +278,24 @@ impl FileStorage {
         self.slot_used_len[slot] = used + bytes.len();
     }
 
+    /// In-place removal of `len` bytes at `offset` within `slot` -- the
+    /// mirror of [`Self::slot_insert_at`]: reads the tail past the
+    /// removed range into a scratch buffer, writes it back shifted left
+    /// by `len` (via [`Self::slot_write_all`], which already patches or
+    /// invalidates the stack cache correctly for a write that over- or
+    /// under-shoots whatever's cached), then shrinks `slot_used_len`.
+    fn slot_remove_at(&mut self, slot: usize, offset: usize, len: usize) {
+        let used = self.slot_used_len[slot];
+        assert!(offset + len <= used, "slot_remove_at: range [{offset}, {}) exceeds used {used} for slot {slot}", offset + len);
+        let tail_len = used - offset - len;
+        if tail_len > 0 {
+            let mut tail_buf = vec![0u8; tail_len];
+            self.slot_read_exact(slot, offset + len, &mut tail_buf);
+            self.slot_write_all(slot, offset, &tail_buf);
+        }
+        self.slot_used_len[slot] = used - len;
+    }
+
     fn slot_extend_from_slice(&mut self, slot: usize, bytes: &[u8]) {
         let used = self.slot_used_len[slot];
         assert!(
@@ -396,6 +414,10 @@ impl BlockStorage for FileStorage {
         if let Some(tail_slot) = tail_slot {
             self.blocks.insert(pos.block + 2, tail_slot);
         }
+    }
+    fn remove_bytes(&mut self, pos: Pos, len: usize) {
+        let slot = self.blocks[pos.block];
+        self.slot_remove_at(slot, pos.offset, len);
     }
     fn begin_top_level_call(&self) -> impl Drop + '_ {
         self.stack_cap.set(1);

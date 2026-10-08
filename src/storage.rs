@@ -83,6 +83,13 @@ pub trait BlockStorage: Sized {
     /// rather than being decomposed further.
     fn insert_bytes(&mut self, pos: Pos, new_bytes: &[u8], block_capacity: usize);
 
+    /// Removes `len` bytes at `pos` -- the mirror of [`Self::insert_bytes`].
+    /// Always shrinks the owning block in place; unlike `insert_bytes`,
+    /// this never needs a split-equivalent (removal can't overflow a
+    /// destination) and never changes [`Self::block_count`], even if the
+    /// block's content becomes empty.
+    fn remove_bytes(&mut self, pos: Pos, len: usize);
+
     /// RAII guard, constructed at the top of every top-level call
     /// (`contains`/`query_two_bound`/`query_one_bound`), dropped at its
     /// end. No-op for `HeapStorage`; pops `FileStorage`'s stack cache
@@ -251,6 +258,22 @@ impl BlockStorage for HeapStorage {
         tail.reserve_exact(block_capacity.saturating_sub(tail.len()));
         block.extend_from_slice(new_bytes);
         self.blocks.insert(pos.block + 1, tail);
+    }
+    /// Unlike `File`/`CompressedStorage` (which track a block's capacity
+    /// separately from its used length, so a zero-content block still
+    /// serializes with a valid nonzero capacity), `HeapStorage::block_table`
+    /// reports `(b.len(), b.len())` -- capacity equals length by
+    /// construction here, so a block emptied down to zero bytes would
+    /// serialize as `cap == 0`, which deserialization correctly rejects
+    /// as corrupt. Drop the block entirely instead of ever leaving that
+    /// state behind; `Self::block_count` changing is exactly the case
+    /// `Tree::remove_cascade` already checks for before deciding whether
+    /// a point update or a full `BlockIndex` rebuild is needed.
+    fn remove_bytes(&mut self, pos: Pos, len: usize) {
+        self.blocks[pos.block].splice(pos.offset..pos.offset + len, std::iter::empty());
+        if self.blocks[pos.block].is_empty() {
+            self.blocks.remove(pos.block);
+        }
     }
     fn begin_top_level_call(&self) -> impl Drop + '_ {
         NoopGuard

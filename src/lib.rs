@@ -31,7 +31,10 @@
 //! on every backend, unlike the from-scratch-rebuild-only structures this
 //! design is descended from. A streaming/parallel/RAM-bounded bulk build
 //! ([`Heap::build_dynamic`], [`Heap::build_dynamic_bounded`]) is also
-//! shared across backends.
+//! shared across backends. [`Heap::remove`]/[`Heap::remove_batch`] delete
+//! a triple with full, immediate cascading reclamation of any node left
+//! entirely empty by the removal -- not a leaf-only bit flip deferred to
+//! a separate compaction step.
 //!
 //! This crate is the productionized form of an exploratory comparison
 //! (see the repository's `examples/` directory and its own `README.md`
@@ -56,6 +59,11 @@
 //!   `query_two_bound`, `query_one_bound`) never need this: an
 //!   out-of-domain query coordinate simply can't match anything, so they
 //!   already return an empty/`false` result rather than erroring.
+//!   [`Heap::remove`]/[`Heap::remove_batch`] also return `Result` (for
+//!   signature symmetry with `insert`/`insert_batch`) but follow the
+//!   read-method rule here, not insert's: `Ok(false)` for an out-of-domain
+//!   coordinate, never `Err`, since removal never changes the domain
+//!   either way.
 //! - **Corrupt or truncated serialized input** ([`Heap::deserialize`]
 //!   and friends) -- this is genuinely untrusted external data (a
 //!   truncated file, a bit-flipped transfer), so it returns `Result`

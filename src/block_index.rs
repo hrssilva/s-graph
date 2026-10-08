@@ -44,6 +44,14 @@ impl BlockIndex {
         }
     }
 
+    pub(crate) fn shrink(&mut self, mut block: usize, bytes: usize) {
+        self.total -= bytes as u64;
+        while block < self.sums.len() {
+            self.sums[block] -= bytes as u64;
+            block |= block + 1;
+        }
+    }
+
     pub(crate) fn prefix(&self, mut blocks: usize) -> u64 {
         let mut sum = 0;
         while blocks != 0 {

@@ -1605,7 +1605,14 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 let shifts = self.level_shifts_cache[level][free_dim];
                 let child_cell_bits = self.level_child_cell_bits_cache[level][free_dim];
                 let word = self.block_read_u64(pos.block, pos.offset);
-                debug_assert!(word != 0, "visited node at level {level} has an empty existence word");
+                // A visited node's word can legitimately be all zero here:
+                // `Self::remove`'s cascade never physically removes the
+                // root's own record even when clearing its last bit
+                // leaves the whole tree empty (there's nothing above the
+                // root to clear a pointing bit in). Every branch below
+                // already handles `word == 0` correctly on its own
+                // (`relevant`/`remaining` both become `0`, so no results
+                // are pushed and the right amount of storage is skipped).
 
                 if is_last {
                     let mut relevant = word & level_masks[level];
@@ -1818,6 +1825,147 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         }
         self.storage.end_insert();
         Ok(inserted)
+    }
+
+    /// Removes `(s, p, o)` if present. Returns `Ok(true)` if it was
+    /// removed, `Ok(false)` if it was absent or out of domain -- an
+    /// out-of-domain coordinate can't match anything, the same rule
+    /// `contains`/`query_two_bound` already document, so this never
+    /// errors on one (unlike `insert`: accepting an invalid coordinate
+    /// here wouldn't misrepresent the domain going forward either way,
+    /// since `remove` never changes it).
+    ///
+    /// O(height) plus the physical cost of shifting whatever content
+    /// follows the removed record within its own block -- full
+    /// cascading reclamation: a leaf (or any ancestor) left entirely
+    /// empty by the removal has its own record physically removed too,
+    /// all the way up to (but never including) the root, with every
+    /// surviving ancestor's own cached skip field decremented to match.
+    /// Does not merge or drop now-underfull blocks; that block-to-block
+    /// rebalancing is separate, not-yet-implemented future work.
+    pub fn remove(&mut self, s: u32, p: u32, o: u32) -> Result<bool> {
+        if !self.in_bounds(s, p, o) {
+            return Ok(false);
+        }
+        if self.height == 0 {
+            return Ok(std::mem::take(&mut self.single_point_exists));
+        }
+        self.storage.set_insert_mode(true);
+        let coords = [s as u64, p as u64, o as u64];
+        let mut lo = [0u64; NUM_DIMS];
+        let mut pos = Pos::START;
+        // Fifth element (vs. insert's own trail): this level's own `qi`
+        // -- `Self::remove_cascade` needs to know which bit to clear at
+        // every level, not just the deepest one.
+        let mut trail: [(Pos, usize, u64, u64, usize); MAX_HEIGHT] = [(Pos::START, 0, 0, 0, 0); MAX_HEIGHT];
+        let mut found = false;
+
+        for level in 0..self.height as usize {
+            let is_last = level == self.height as usize - 1;
+            let shifts = self.level_shifts_cache[level];
+            let child_cell_bits = self.level_child_cell_bits_cache[level];
+            let mut qi = 0usize;
+            let mut next_lo = lo;
+            for d in 0..NUM_DIMS {
+                let sub = (coords[d] - lo[d]) >> child_cell_bits[d];
+                qi |= (sub as usize) << shifts[d];
+                next_lo[d] += sub << child_cell_bits[d];
+            }
+            let skip_width = if level + 2 < self.height as usize { self.level_skip_bytes[level] } else { 0 };
+            let (word, skip_old) = self.block_read_word_and_skip(pos.block, pos.offset, skip_width);
+            trail[level] = (pos, level, word, skip_old, qi);
+
+            if (word >> qi) & 1 == 0 {
+                break;
+            }
+            if is_last {
+                self.remove_cascade(&trail[..=level]);
+                found = true;
+                break;
+            }
+            let earlier = word & ((1u64 << qi) - 1);
+            let first_child_pos = self.advance(pos, self.own_record_bytes(level));
+            pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+            lo = next_lo;
+        }
+        self.storage.end_insert();
+        Ok(found)
+    }
+
+    /// Clears the target bit at `trail`'s deepest (leaf) level, then
+    /// walks the rest of `trail` in reverse (root-ward), mirroring
+    /// `Self::insert_new_branch`'s own ancestor-patch loop but
+    /// subtracting: while every node visited so far was removed in its
+    /// entirety (`still_cascading`), clear this level's own bit for the
+    /// now-dead child below it too, and if this node's word is now also
+    /// zero, remove its own record as well -- except the root (level
+    /// `0`), which is never physically removed even if its word goes to
+    /// zero, since there is nothing above it to clear a pointing bit in.
+    /// The first surviving ancestor stops the bit-clearing; every level
+    /// from there to the root still gets its own cached skip field
+    /// decremented by the total bytes removed below it, exactly as every
+    /// trail entry in `insert_new_branch`'s loop gets patched regardless
+    /// of level.
+    fn remove_cascade(&mut self, trail: &[(Pos, usize, u64, u64, usize)]) {
+        let mut removed_bytes: u64 = 0;
+        let mut still_cascading = true;
+        for &(pos, level, word, skip_old, qi) in trail.iter().rev() {
+            let new_word = if still_cascading { word & !(1u64 << qi) } else { word };
+            if new_word != word {
+                self.block_write_u64_at(pos.block, pos.offset, new_word);
+            }
+            if still_cascading && new_word == 0 && level != 0 {
+                let own_len = self.own_record_bytes(level);
+                let old_blocks = self.storage.block_count();
+                self.storage.remove_bytes(pos, own_len);
+                if self.storage.block_count() == old_blocks {
+                    self.block_index.shrink(pos.block, own_len);
+                } else {
+                    // A backend that drops a block it just emptied (see
+                    // `HeapStorage::remove_bytes`) shifts every later
+                    // logical block index down by one -- cheaper to
+                    // rebuild in O(B) than to track that shift through
+                    // every remaining trail entry.
+                    self.block_index.rebuild(&self.storage);
+                }
+                self.node_count -= 1;
+                removed_bytes += own_len as u64;
+            } else {
+                still_cascading = false;
+                if removed_bytes > 0 && level + 2 < self.height as usize {
+                    let width = self.level_skip_bytes[level];
+                    let skip_offset = pos.offset + WORD_RECORD_BYTES;
+                    self.block_write_var_at(pos.block, skip_offset, width, skip_old - removed_bytes);
+                }
+            }
+        }
+    }
+
+    /// Sorts `triples` into this tree's own DFS-preorder (Morton) order
+    /// -- see `Self::morton_key` -- then removes them one at a time via
+    /// `Self::remove`, mirroring `Self::insert_batch`'s own signature
+    /// and Morton-locality rationale: nearby triples share cache-warm
+    /// descent paths. Unlike `insert_batch`, this does not yet also
+    /// batch the physical per-block shift work across items the way a
+    /// true per-level bulk cascade could -- a known, deliberately
+    /// deferred optimization (most valuable for a large, physically
+    /// clustered batch, e.g. "every edge for one subject"), not a
+    /// correctness gap: each item's removal is independently complete.
+    /// Unlike `insert_batch`, there's no up-front domain validation --
+    /// `remove` never errors on an out-of-domain coordinate, it simply
+    /// can't match anything.
+    pub fn remove_batch(&mut self, triples: &mut [Triple]) -> Result<u64> {
+        if triples.is_empty() {
+            return Ok(0);
+        }
+        triples.sort_unstable_by_key(|&(s, p, o)| self.morton_key(s, p, o));
+        let mut removed = 0u64;
+        for &(s, p, o) in triples.iter() {
+            if self.remove(s, p, o)? {
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 
     /// Reclaims reserved-but-unused block capacity accumulated by
@@ -2280,6 +2428,159 @@ mod tests {
         }
     }
 
+    // ==================== deletion ====================
+
+    #[test]
+    fn remove_absent_triple_is_noop() {
+        let triples = uniform(20, 4, 20, 100, 11);
+        let present: std::collections::HashSet<Triple> = triples.iter().copied().collect();
+        let absent = (0..20u32)
+            .flat_map(|s| (0..4u32).flat_map(move |p| (0..20u32).map(move |o| (s, p, o))))
+            .find(|t| !present.contains(t))
+            .expect("a dense 100-triple sample over a 1600-point domain leaves some point absent");
+
+        let mut heap = Heap::build_dynamic(triples.clone(), 64);
+        let mem_before = heap.mem_size_bytes();
+        let words_before = heap.node_word_count();
+        assert!(!heap.remove(absent.0, absent.1, absent.2).unwrap());
+        assert_eq!(heap.mem_size_bytes(), mem_before);
+        assert_eq!(heap.node_word_count(), words_before);
+        let naive = NaiveIndex::build(&triples);
+        cross_check_tree(&heap, &naive, 20, 4, 20, "heap after no-op remove");
+    }
+
+    #[test]
+    fn remove_out_of_domain_returns_false_not_err() {
+        let triples = vec![(0u32, 0u32, 0u32), (1, 0, 1), (2, 1, 2), (3, 1, 3)];
+        let mut tree = Heap::build_dynamic(triples.clone(), 64);
+        let dom_s = tree.domain_size(0) as u32;
+        assert!(!tree.in_bounds(dom_s, 0, 0));
+        assert!(!tree.remove(dom_s, 0, 0).unwrap());
+        let naive = NaiveIndex::build(&triples);
+        cross_check_tree(&tree, &naive, dom_s, 2, 4, "heap after out-of-domain remove attempt");
+    }
+
+    #[test]
+    fn remove_then_contains_false_matches_naive() {
+        let all = uniform(20, 4, 20, 300, 9009);
+        let mut naive = NaiveIndex::build(&all);
+        let mut heap = Heap::build_dynamic(all, 64);
+        let distinct: Vec<Triple> = (0..20u32).flat_map(|s| (0..4u32).flat_map(move |p| (0..20u32).map(move |o| (s, p, o)))).filter(|&(s, p, o)| naive.contains(s, p, o)).collect();
+        for (s, p, o) in distinct {
+            assert!(heap.remove(s, p, o).unwrap());
+            assert!(!heap.contains(s, p, o));
+            assert!(naive.remove(s, p, o), "naive and tree must agree on what's present before removing it");
+            cross_check_tree(&heap, &naive, 20, 4, 20, "heap after remove");
+        }
+    }
+
+    #[test]
+    fn remove_one_of_two_triples_in_the_same_node_preserves_the_other() {
+        // A domain small enough (3 total coordinate bits) to fit entirely
+        // in one node, guaranteeing both triples live in the exact same
+        // existence word regardless of schedule details.
+        let dimension_sizes = [2u64, 2u64, 2u64];
+        let a: Triple = (0, 0, 0);
+        let b: Triple = (1, 1, 1);
+
+        for (first, second) in [(a, b), (b, a)] {
+            let mut heap = Heap::build_dynamic_empty(dimension_sizes, 64);
+            heap.insert(a.0, a.1, a.2).unwrap();
+            heap.insert(b.0, b.1, b.2).unwrap();
+            assert_eq!(heap.height(), 1, "test assumes the whole domain fits in one node");
+
+            assert!(heap.remove(first.0, first.1, first.2).unwrap());
+            assert!(!heap.contains(first.0, first.1, first.2));
+            assert!(heap.contains(second.0, second.1, second.2), "removing one sibling must not disturb the other");
+
+            let naive = NaiveIndex::build(&[second]);
+            cross_check_tree(&heap, &naive, 2, 2, 2, "heap after removing one of two co-resident triples");
+        }
+    }
+
+    #[test]
+    fn remove_last_triple_in_a_subtree_cascades_up_and_shrinks_storage() {
+        let dimension_sizes = [64u64, 4u64, 64u64];
+        let mut heap = Heap::build_dynamic_empty(dimension_sizes, 64);
+        heap.insert(0, 0, 0).unwrap();
+        heap.insert(63, 3, 63).unwrap();
+        assert!(heap.height() >= 2, "test assumes a multi-level tree");
+
+        let words_before = heap.node_word_count();
+        let mem_before = heap.mem_size_bytes();
+
+        assert!(heap.remove(0, 0, 0).unwrap());
+        assert!(!heap.contains(0, 0, 0));
+        assert!(heap.contains(63, 3, 63));
+        assert!(heap.node_word_count() < words_before, "cascading remove must physically shrink node_word_count, not just flip a bit");
+        assert!(heap.mem_size_bytes() <= mem_before);
+
+        // The root must have survived in a reusable state: further
+        // inserts and removes still work correctly afterward.
+        assert!(heap.insert(10, 1, 10).unwrap());
+        assert!(heap.contains(10, 1, 10));
+        assert!(heap.contains(63, 3, 63));
+        assert!(!heap.contains(0, 0, 0));
+        assert!(heap.remove(63, 3, 63).unwrap());
+        assert!(heap.contains(10, 1, 10));
+        assert!(!heap.contains(63, 3, 63));
+    }
+
+    #[test]
+    fn remove_down_to_a_fully_empty_tree_leaves_root_intact() {
+        let triples = uniform(10, 2, 10, 30, 42);
+        let mut seen: std::collections::HashSet<Triple> = triples.iter().copied().collect();
+        let mut heap = Heap::build_dynamic(seen.iter().copied().collect::<Vec<_>>(), 64);
+        for &t in seen.clone().iter() {
+            assert!(heap.remove(t.0, t.1, t.2).unwrap());
+            seen.remove(&t);
+        }
+        for s in 0..10u32 {
+            for p in 0..2u32 {
+                for o in 0..10u32 {
+                    assert!(!heap.contains(s, p, o), "every triple must be gone after removing them all");
+                }
+            }
+        }
+        // The root survived in a sane, reusable state.
+        assert!(heap.insert(1, 1, 1).unwrap());
+        assert!(heap.contains(1, 1, 1));
+        let naive = NaiveIndex::build(&[(1u32, 1u32, 1u32)]);
+        cross_check_tree(&heap, &naive, 10, 2, 10, "heap after remove-everything-then-insert");
+    }
+
+    #[test]
+    fn remove_matches_naive_across_all_backends() {
+        for cap in TEST_CAPACITIES {
+            let triples = zipfian_predicates(40, 10, 40, 600, 1.2, 0xBADA55 + cap as u64);
+            let mut to_remove = triples.clone();
+            to_remove.truncate(triples.len() / 2);
+            let mut remaining: std::collections::HashSet<Triple> = triples.iter().copied().collect();
+            for t in &to_remove {
+                remaining.remove(t);
+            }
+            let remaining_vec: Vec<Triple> = remaining.into_iter().collect();
+            let naive = NaiveIndex::build(&remaining_vec);
+
+            let mut heap = Heap::build_dynamic(triples.clone(), cap);
+            heap.remove_batch(&mut to_remove.clone()).unwrap();
+            cross_check_tree(&heap, &naive, 40, 10, 40, &format!("heap cap={cap} after remove_batch"));
+
+            #[cfg(feature = "file")]
+            {
+                let mut file = File::build_dynamic(triples.clone(), cap);
+                file.remove_batch(&mut to_remove.clone()).unwrap();
+                cross_check_tree(&file, &naive, 40, 10, 40, &format!("file cap={cap} after remove_batch"));
+            }
+            #[cfg(feature = "compressed")]
+            {
+                let mut compressed = Compressed::build_dynamic(triples.clone(), cap);
+                compressed.remove_batch(&mut to_remove.clone()).unwrap();
+                cross_check_tree(&compressed, &naive, 40, 10, 40, &format!("compressed cap={cap} after remove_batch"));
+            }
+        }
+    }
+
     #[test]
     fn streaming_insert_build_matches_bulk_build_and_naive() {
         for seed in 1..4u64 {
@@ -2374,6 +2675,65 @@ mod tests {
         cross_check_tree(&compressed, &naive, 200, 19, 200, "compressed small-capacity stress (partial domain slice)");
     }
 
+    /// Randomly interleaves inserts and removes against a small-capacity,
+    /// multi-level tree (the same wide domain as the streaming-insert
+    /// stress tests above, forcing a height well past 2 so skip fields
+    /// actually exist and get exercised by the cascading removes'
+    /// ancestor decrements, not just leaf-level bit flips), self-checking
+    /// after every op and fully cross-checking periodically.
+    fn interleaved_insert_remove_stress<S: BlockStorage>(mut tree: RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>, label: &str) {
+        let mut rng = SplitMix64::new(4242);
+        let mut seen: std::collections::HashSet<Triple> = std::collections::HashSet::new();
+        for i in 0..3_000u32 {
+            let s = rng.next_range(200_000) as u32;
+            let p = rng.next_range(19) as u32;
+            let o = rng.next_range(200_000) as u32;
+            if seen.is_empty() || rng.next_f64() < 0.5 {
+                let is_new = tree.insert(s, p, o).unwrap();
+                if is_new {
+                    seen.insert((s, p, o));
+                }
+                if !tree.contains(s, p, o) {
+                    panic!("{label}: self-check failed at op #{i}: insert({s},{p},{o}) not found immediately after");
+                }
+            } else {
+                let idx = rng.next_range(seen.len() as u64) as usize;
+                let target = *seen.iter().nth(idx).unwrap();
+                seen.remove(&target);
+                if !tree.remove(target.0, target.1, target.2).unwrap() {
+                    panic!("{label}: self-check failed at op #{i}: remove({target:?}) reported absent but was tracked as live");
+                }
+                if tree.contains(target.0, target.1, target.2) {
+                    panic!("{label}: self-check failed at op #{i}: remove({target:?}) left it still contains()==true");
+                }
+            }
+            if i % 200 == 199 {
+                let naive = NaiveIndex::build(&seen.iter().copied().collect::<Vec<_>>());
+                cross_check_tree(&tree, &naive, 200, 19, 200, &format!("{label} interleaved stress op #{i} (partial domain slice)"));
+            }
+        }
+    }
+
+    #[test]
+    fn interleaved_insert_remove_stress_small_capacity() {
+        let dimension_sizes = [200_000u64, 19u64, 200_000u64];
+        interleaved_insert_remove_stress(Heap::build_dynamic_empty(dimension_sizes, 64), "heap");
+    }
+
+    #[cfg(feature = "file")]
+    #[test]
+    fn file_interleaved_insert_remove_stress_small_capacity() {
+        let dimension_sizes = [200_000u64, 19u64, 200_000u64];
+        interleaved_insert_remove_stress(File::build_dynamic_empty(dimension_sizes, 64), "file");
+    }
+
+    #[cfg(feature = "compressed")]
+    #[test]
+    fn compressed_interleaved_insert_remove_stress_small_capacity() {
+        let dimension_sizes = [200_000u64, 19u64, 200_000u64];
+        interleaved_insert_remove_stress(Compressed::build_dynamic_empty(dimension_sizes, 64), "compressed");
+    }
+
     #[test]
     fn shrink_to_fit_changes_capacity_not_content() {
         for seed in 1..4u64 {
@@ -2424,6 +2784,28 @@ mod tests {
             }
             let naive_after = NaiveIndex::build(&seen);
             cross_check_tree(&heap_restored, &naive_after, 30, 6, 30, &format!("heap round-trip after insert cap={cap}"));
+        }
+    }
+
+    #[test]
+    fn remove_then_serialize_roundtrip() {
+        for cap in TEST_CAPACITIES {
+            let all = uniform(30, 6, 30, 400, 7070 + cap as u64);
+            let mut seen: std::collections::HashSet<Triple> = all.iter().copied().collect();
+            let mut heap = Heap::build_dynamic(seen.iter().copied().collect::<Vec<_>>(), cap);
+
+            let to_remove: Vec<Triple> = seen.iter().take(seen.len() / 2).copied().collect();
+            for &(s, p, o) in &to_remove {
+                assert!(heap.remove(s, p, o).unwrap());
+                seen.remove(&(s, p, o));
+            }
+
+            let naive = NaiveIndex::build(&seen.iter().copied().collect::<Vec<_>>());
+            cross_check_tree(&heap, &naive, 30, 6, 30, &format!("heap after remove, pre-serialize cap={cap}"));
+
+            let bytes = heap.serialize();
+            let restored = Heap::deserialize(&bytes).unwrap();
+            cross_check_tree(&restored, &naive, 30, 6, 30, &format!("heap after remove, round-tripped cap={cap}"));
         }
     }
 
