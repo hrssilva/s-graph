@@ -86,8 +86,10 @@ pub trait BlockStorage: Sized {
     /// Removes `len` bytes at `pos` -- the mirror of [`Self::insert_bytes`].
     /// Always shrinks the owning block in place; unlike `insert_bytes`,
     /// this never needs a split-equivalent (removal can't overflow a
-    /// destination) and never changes [`Self::block_count`], even if the
-    /// block's content becomes empty.
+    /// destination). Some backends drop a block that becomes entirely
+    /// empty as a result (see `HeapStorage`'s own impl for why), so
+    /// [`Self::block_count`] may or may not change -- callers that care
+    /// must check before/after, exactly as `Tree::remove_cascade` does.
     fn remove_bytes(&mut self, pos: Pos, len: usize);
 
     /// RAII guard, constructed at the top of every top-level call

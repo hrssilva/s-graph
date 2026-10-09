@@ -25,6 +25,11 @@ pub(crate) const BASE: u8 = K_SQUARE.trailing_zeros() as u8;
 pub(crate) const NUM_DIMS: usize = 3; // S, P, O
 pub(crate) const MAX_HEIGHT: usize = 64;
 pub(crate) const WORD_RECORD_BYTES: usize = 8;
+/// One level's entry in `Self::remove`/`Self::remove_batch`'s root-to-
+/// leaf trail: `(position, level, this level's own existence word, its
+/// skip field if it has one, the `qi` used to descend past it)`.
+type RemoveTrailEntry = (Pos, usize, u64, u64, usize);
+type RemoveTrail = [RemoveTrailEntry; MAX_HEIGHT];
 const MAX_SKIP_RECORD_BYTES: usize = 8;
 pub const DEFAULT_BLOCK_CAPACITY: usize = 4096;
 
@@ -1851,14 +1856,30 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             return Ok(std::mem::take(&mut self.single_point_exists));
         }
         self.storage.set_insert_mode(true);
+        let found = if let Some(trail) = self.descend_for_remove(s, p, o) {
+            self.remove_cascade(&trail[..self.height as usize]);
+            true
+        } else {
+            false
+        };
+        self.storage.end_insert();
+        Ok(found)
+    }
+
+    /// Descends from the root to `(s, p, o)`'s slot, recording the full
+    /// root-to-leaf trail -- shared by `Self::remove` (which cascades
+    /// immediately) and `Self::remove_batch` (which defers cascading so
+    /// it can combine it across the whole sorted batch). `None` if the
+    /// point isn't present. Caller must already know `self.height > 0`
+    /// and that `(s, p, o)` is in bounds.
+    fn descend_for_remove(&self, s: u32, p: u32, o: u32) -> Option<RemoveTrail> {
         let coords = [s as u64, p as u64, o as u64];
         let mut lo = [0u64; NUM_DIMS];
         let mut pos = Pos::START;
         // Fifth element (vs. insert's own trail): this level's own `qi`
-        // -- `Self::remove_cascade` needs to know which bit to clear at
-        // every level, not just the deepest one.
-        let mut trail: [(Pos, usize, u64, u64, usize); MAX_HEIGHT] = [(Pos::START, 0, 0, 0, 0); MAX_HEIGHT];
-        let mut found = false;
+        // -- the cascade needs to know which bit to clear at every
+        // level, not just the deepest one.
+        let mut trail: RemoveTrail = [(Pos::START, 0, 0, 0, 0); MAX_HEIGHT];
 
         for level in 0..self.height as usize {
             let is_last = level == self.height as usize - 1;
@@ -1876,20 +1897,17 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             trail[level] = (pos, level, word, skip_old, qi);
 
             if (word >> qi) & 1 == 0 {
-                break;
+                return None;
             }
             if is_last {
-                self.remove_cascade(&trail[..=level]);
-                found = true;
-                break;
+                return Some(trail);
             }
             let earlier = word & ((1u64 << qi) - 1);
             let first_child_pos = self.advance(pos, self.own_record_bytes(level));
             pos = self.advance_past_children(first_child_pos, earlier, level + 1);
             lo = next_lo;
         }
-        self.storage.end_insert();
-        Ok(found)
+        unreachable!("height > 0 checked by caller")
     }
 
     /// Clears the target bit at `trail`'s deepest (leaf) level, then
@@ -1906,7 +1924,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// decremented by the total bytes removed below it, exactly as every
     /// trail entry in `insert_new_branch`'s loop gets patched regardless
     /// of level.
-    fn remove_cascade(&mut self, trail: &[(Pos, usize, u64, u64, usize)]) {
+    fn remove_cascade(&mut self, trail: &[RemoveTrailEntry]) {
         let mut removed_bytes: u64 = 0;
         let mut still_cascading = true;
         for &(pos, level, word, skip_old, qi) in trail.iter().rev() {
@@ -1945,15 +1963,28 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// -- see `Self::morton_key` -- then removes them one at a time via
     /// `Self::remove`, mirroring `Self::insert_batch`'s own signature
     /// and Morton-locality rationale: nearby triples share cache-warm
-    /// descent paths. Unlike `insert_batch`, this does not yet also
-    /// batch the physical per-block shift work across items the way a
-    /// true per-level bulk cascade could -- a known, deliberately
-    /// deferred optimization (most valuable for a large, physically
-    /// clustered batch, e.g. "every edge for one subject"), not a
-    /// correctness gap: each item's removal is independently complete.
-    /// Unlike `insert_batch`, there's no up-front domain validation --
+    /// descent paths.
+    ///
+    /// A true per-level batched cascade (group every node touched by
+    /// the whole sorted batch, apply once, and compact every block
+    /// holding several now-dead records in one combined pass instead
+    /// of one shift per record) was built and measured here, not just
+    /// theorized: it's a real 2-3x win when `block_capacity` is small
+    /// enough that many blocks each hold several dead records (so the
+    /// sequential loop below pays for re-shifting the same block's
+    /// tail repeatedly) -- but at this crate's actual
+    /// [`DEFAULT_BLOCK_CAPACITY`], and for any batch without that kind
+    /// of physical clustering, the batched version's own bookkeeping
+    /// (one descent trail per triple, grouping, a block-indexed map)
+    /// cost more than it recovered, making it *slower* than this plain
+    /// loop in the common case. Reverted in favor of this simpler,
+    /// measured-faster version rather than keeping a second code path
+    /// whose benefit doesn't show up at the capacities this crate
+    /// actually defaults to or measures against in `s-bench`. Unlike
+    /// `insert_batch`, there's no up-front domain validation here --
     /// `remove` never errors on an out-of-domain coordinate, it simply
-    /// can't match anything.
+    /// can't match anything, so an out-of-domain triple is silently not
+    /// found.
     pub fn remove_batch(&mut self, triples: &mut [Triple]) -> Result<u64> {
         if triples.is_empty() {
             return Ok(0);
@@ -2578,6 +2609,48 @@ mod tests {
                 compressed.remove_batch(&mut to_remove.clone()).unwrap();
                 cross_check_tree(&compressed, &naive, 40, 10, 40, &format!("compressed cap={cap} after remove_batch"));
             }
+        }
+    }
+
+    /// Regression test for a real bug found while measuring a (since
+    /// reverted -- see `Self::remove_batch`'s own doc comment) batched
+    /// bulk-removal design: `CompressedStorage::end_insert` popped its
+    /// cache stack back to an unconditional `top = 1` rather than
+    /// `top.min(1)`. A root-level branch that needs a brand-new child
+    /// chain (`height` small enough -- here exactly 2 -- that the root
+    /// itself has no skip field) calls `insert_bytes`, which grows the
+    /// block and calls `invalidate_block`, deactivating that block's
+    /// cache entry (`top` down to 0) -- but with no skip field to
+    /// patch afterward, nothing in the rest of that one `insert()` call
+    /// touches storage again to naturally refresh it. The old
+    /// unconditional `= 1` then resurrected that now-stale, pre-growth
+    /// cached window; a later top-level call (here, a second `insert`,
+    /// then `contains`) reusing it without refetching would read the
+    /// wrong, truncated content -- confirmed by reverting the fix
+    /// locally and watching this exact test fail. `FileStorage` gets
+    /// the same defensive `.min(1)` for consistency, though its
+    /// write-through-to-disk model was never actually exposed to this
+    /// specific hazard.
+    #[test]
+    fn insert_root_level_branch_in_a_height_two_tree_does_not_resurrect_a_stale_cache() {
+        let dims = [16u64, 16u64, 16u64]; // 4+4+4 = 12 bits -> height == 2
+        for cap in TEST_CAPACITIES {
+            macro_rules! check_backend {
+                ($backend:ty) => {{
+                    let mut tree = <$backend>::build_dynamic_empty(dims, cap);
+                    assert_eq!(tree.height(), 2, "test assumes height == 2");
+                    assert!(tree.insert(0, 0, 0).unwrap());
+                    assert!(tree.insert(15, 15, 15).unwrap()); // a second, distinct root-level branch
+                    assert!(tree.contains(0, 0, 0), "{} cap={cap}: stale cache after root-level branch inserts", stringify!($backend));
+                    assert!(tree.contains(15, 15, 15), "{} cap={cap}: stale cache after root-level branch inserts", stringify!($backend));
+                    assert!(!tree.contains(1, 1, 1));
+                }};
+            }
+            check_backend!(Heap);
+            #[cfg(feature = "file")]
+            check_backend!(File);
+            #[cfg(feature = "compressed")]
+            check_backend!(Compressed);
         }
     }
 

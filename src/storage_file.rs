@@ -426,13 +426,20 @@ impl BlockStorage for FileStorage {
     fn set_insert_mode(&self, active: bool) {
         self.stack_cap.set(if active { MAX_HEIGHT } else { 1 });
     }
-    /// Manually pops `FileStorage::block_stack` back down to just the
-    /// root entry, the same place `StackCacheGuard` leaves it for
-    /// read-only calls -- `insert`/`insert_batch` can't hold that guard
-    /// (its `&self` borrow would conflict with the `&mut self` they need
-    /// throughout), so they call this explicitly at every return point.
+    /// Manually pops `FileStorage::block_stack` back down to at most
+    /// just the root entry, the same place `StackCacheGuard` leaves it
+    /// for read-only calls (`.min(1)`, matching that guard's own Drop
+    /// exactly, not an unconditional `= 1` -- nothing here currently
+    /// drives `top` below `1` the way `CompressedStorage::invalidate_block`
+    /// can, but there is no reason for this to be the one place in
+    /// either backend that would silently resurrect a deactivated entry
+    /// if that ever changed) -- `insert`/`insert_batch` can't hold that
+    /// guard (its `&self` borrow would conflict with the `&mut self`
+    /// they need throughout), so they call this explicitly at every
+    /// return point.
     fn end_insert(&self) {
-        self.block_stack.borrow_mut().top = 1;
+        let mut stack = self.block_stack.borrow_mut();
+        stack.top = stack.top.min(1);
     }
 
     fn append_record(&mut self, bytes: &[u8], capacity: usize) -> Pos {

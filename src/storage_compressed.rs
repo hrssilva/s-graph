@@ -367,8 +367,20 @@ impl BlockStorage for CompressedStorage {
     fn set_insert_mode(&self, active: bool) {
         self.stack_cap.set(if active { MAX_HEIGHT } else { 1 });
     }
+    /// Pops the stack back down to at most its root entry, via `.min(1)`
+    /// rather than an unconditional assignment, matching
+    /// `CompressedStackCacheGuard`'s own Drop behavior. An unconditional
+    /// assignment can resurrect an entry that `Self::invalidate_block`
+    /// just deactivated for this same block moments earlier, say when
+    /// the very last op before this call grew or shrank the root's own
+    /// block. Reusing that entry's now-stale cached window on a later
+    /// write would recompress and commit a truncated version of the
+    /// block's real content, which is corrupted storage, not merely a
+    /// wrong read, since `Self::write_block_at` writes its whole cached
+    /// window back as the new truth for whichever chunks it spans.
     fn end_insert(&self) {
-        self.block_stack.borrow_mut().top = 1;
+        let mut stack = self.block_stack.borrow_mut();
+        stack.top = stack.top.min(1);
     }
     fn append_record(&mut self, bytes: &[u8], capacity: usize) -> Pos {
         debug_assert!(bytes.len() <= capacity, "record of {} bytes exceeds block_capacity {capacity}", bytes.len());

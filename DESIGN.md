@@ -16,13 +16,20 @@ Coordinate domains remain fixed after construction. Reserve the required domain
 with `build_dynamic_empty` for streaming insertion. This does not allocate a
 dense vertex table. Domain growth is not implemented.
 
-`remove`/`remove_batch` delete a triple with full, immediate physical
-reclamation: O(height) plus the cost of shifting whatever content follows the
-removed record within its own block, cascading upward through any ancestor
-node left entirely empty by the removal (down to, but never including, the
-root, which survives with an all-zero bitmap rather than being deleted
-itself) and decrementing every surviving ancestor's own cached subtree span to
-match. Block-to-block rebalancing (merging now-underfull blocks after heavy
+`remove` deletes a triple with full, immediate physical reclamation: O(height)
+plus the cost of shifting whatever content follows the removed record within
+its own block, cascading upward through any ancestor node left entirely empty
+by the removal (down to, but never including, the root, which survives with
+an all-zero bitmap rather than being deleted itself) and decrementing every
+surviving ancestor's own cached subtree span to match. `remove_batch` sorts
+into Morton order and calls `remove` once per triple; a true per-level batched
+cascade (combine every node's bit-clears across the whole batch, compact each
+affected block once) was built and measured, not just theorized -- a real
+2-3x win when `block_capacity` is small enough that many blocks each hold
+several dead records, but slower than the plain loop at this crate's actual
+`DEFAULT_BLOCK_CAPACITY` and for any batch without that physical clustering,
+so it was reverted rather than kept as a second, situationally-faster code
+path. Block-to-block rebalancing (merging now-underfull blocks after heavy
 deletion) is not implemented; a block only ever shrinks, never merges with a
 neighbor.
 
