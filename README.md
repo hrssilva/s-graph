@@ -236,6 +236,16 @@ backends, at both the real corpus's own small scale and amplified to
   RadixTree layout variant), kept for its literature grounding and
   measured history. Not part of the public API.
 
+## TODO
+
+- **Domain growth.** Coordinate domains are fixed at construction
+  (`build_dynamic_empty`/`build_dynamic`); there is no way to extend
+  them afterward. Not implemented.
+- **Block-to-block rebalancing.** `remove`/`remove_batch` shrink a
+  block as its content dies but never merge a now-underfull block with
+  a neighbor. Heavy, sustained deletion churn can leave many small
+  blocks behind. Not implemented.
+
 ## Testing
 
 ```sh
