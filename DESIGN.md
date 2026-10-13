@@ -126,6 +126,58 @@ recompile after mutation. Native Heap plans can be shared, with separate
 workspaces; File/Compressed plans inherit their backends' threading restrictions.
 The [literature review](TOPOLOGY_REVIEW.md) describes the relationship to prior work.
 
+## MINUS / anti-join
+
+`graph::join_run_minus`/`try_join_run_minus` suppress a positive join's rows
+for which substituting their bindings into one of a list of ground
+`TriplePattern`s (`MINUS`/`FILTER NOT EXISTS` over one triple pattern each)
+would match. A negative pattern's variables need no special validation --
+every one of `query`'s own variables is already bound (and domain-checked)
+by the time a full row exists, since `NativeJoin` itself already rejects an
+unused one.
+
+This went through two earlier designs, both measured and rejected:
+
+1. **A fused `NOT EXISTS` atom inside `NativeJoin`'s own compiled stage
+   array**, checking each negative pattern via one `contains` call the
+   moment all its variables became final within the positive search,
+   pruning the branch immediately on a match -- avoiding ever opening
+   whatever was left of the positive join below a rejected row. This is
+   sound and was fully implemented and tested, but measured *slower* than
+   either alternative below: this crate's trees are deliberately shallow
+   and wide (at most 6 bits per level, to keep ordinary descents fast), so
+   a shared variable's last bit is rarely pinned down until close to the
+   *final* stage of the schedule regardless of which atom established it
+   -- there is little "early" runway for in-descent pruning to exploit.
+   Worse, the per-candidate `contains` calls this approach makes are each
+   an independent, unshared root-to-leaf descent: in one 2-atom-join
+   benchmark this fired 399,642 times for 9,551 real survivors and was
+   3.4x slower than simply materializing rows and filtering them
+   afterward, let alone the approach below.
+2. **Materialize rows, sort the minus-relevant columns, dedup, one
+   `contains_batch` call** -- correct and much faster (dominated by
+   `contains_batch`'s own already-measured win), but still pays an
+   `O(n log n)` sort over what can be a large pre-dedup candidate count.
+
+The shipped version keeps step 2's shape (collect, dedup, one
+`contains_batch` call, map hits back across every original row) but
+replaces the sort with a direct-indexed bitmap: a positive join commonly
+produces many rows sharing the same minus-relevant values (one variable
+fanning out over others the minus pattern doesn't use), and a flat bitmap
+over the referenced variables' combined domain -- one bit per unique
+combination -- dedups in one O(n) pass with no comparisons at all, falling
+back to a `HashSet` only once that combined domain exceeds
+`MINUS_BITMAP_MAX_BITS` (64 Mi bits / 8 MiB, so an unbounded/very wide
+variable combination doesn't try to allocate a bitmap sized to its full
+cross product). Measured in isolation on an already-materialized row set
+(warmed, best-of-5, to separate this from the join's own row-allocation
+cost): the bitmap dedup is ~3.3x faster than sort-and-dedup and ~3.1x
+faster than a `HashSet`, for the dedup-and-filter step alone. End to end,
+`join_run_minus` measured 1.7x faster than a naive per-row `contains` loop
+on the same 2-atom-join benchmark that broke the fused version.
+Multiple `minus` patterns are applied in sequence, each filtering the
+already-shrunk survivor set from the one before it.
+
 ## Join API and migration
 
 `TriplePattern<P = u32>` preserves constant-predicate syntax; use

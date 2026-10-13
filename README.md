@@ -170,6 +170,15 @@ they no longer execute Leapfrog Triejoin. Reuse `NativeJoin` and its workspace
 for repeated queries. Native joins accept the tree's `BlockStorage` backends;
 `join::PatternBackend` remains the generic scan interface for path algorithms.
 
+`graph::join_run_minus`/`try_join_run_minus` additionally suppress any row
+for which one of a list of ground `TriplePattern`s (`MINUS`/`FILTER NOT
+EXISTS` over a single triple pattern each) would match once the row's own
+bindings are substituted in. Internally: collect the positive join's rows,
+dedup the (often far smaller) set of distinct values each `minus` pattern
+actually needs, check that set with one `contains_batch` call, then filter
+-- not one `contains` call per row. See `DESIGN.md` for why this beat both
+a naive per-row filter and an earlier in-descent fused version.
+
 The materialized `PreparedJoin`, its `JoinOptions`, `RelationLayout` and
 `JoinWorkspace`, and the boxed `GraphBackend`/sorted-neighbor adapters have been
 removed. Migrate prepared queries to `NativeJoin`/`NativeJoinWorkspace`; plans
