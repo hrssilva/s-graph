@@ -38,6 +38,8 @@
 //! point-existence queries (filters, graph diff) by sharing descent work
 //! across queries that land on the same trie node, instead of
 //! independently re-descending from the root for each one.
+//! [`Heap::count_matching`] counts a pattern's matches directly, without
+//! decoding or collecting them the way [`Heap::scan`] must to list them.
 //!
 //! This crate is the productionized form of an exploratory comparison
 //! (see the repository's `examples/` directory and its own `README.md`

@@ -58,6 +58,19 @@ sorting alone already makes most batches share long common prefixes (the
 average gap between consecutive sorted queries is usually far smaller than
 the tree's height), not only genuinely clustered ones.
 
+`count_matching([Option<u32>; 3])` counts matching triples under the same
+bound/wildcard convention as `scan`, without decoding or allocating any
+matching triple's coordinates. A last-level (leaf) node's contribution is
+one `u64::count_ones` on its masked word -- O(1), not one iteration per
+matching bit the way listing pays to decode and collect each one. Internal
+nodes still have to be visited one at a time to reach each child's byte
+position, since no per-node cache of "matches below this point" exists, so
+this is a constant-factor win concentrated at the leaf level, not an
+asymptotic one. Measured against `scan(..).count()` on a 2M-triple tree:
+~1.1-1.5x for a narrow pattern (one or two bound dimensions, few matches,
+internal-node-traversal-dominated) and ~1.9-2.9x for an all-wildcard total
+count (leaf-popcount-dominated), at `block_capacity` 64, 256 and 4096.
+
 `scan([Option<u32>; 3])` streams matching triples in Morton order, with a fixed
 O(maximum trie height) stack and no heap allocation on Heap. File/compressed
 backends may allocate their cache buffers. Scans borrow the tree, preventing

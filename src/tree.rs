@@ -1100,6 +1100,67 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         scan
     }
 
+    /// Counts triples matching `bounds` -- same convention as
+    /// [`Self::scan`]: `None` is a wildcard in any coordinate -- without
+    /// decoding, allocating or even computing the actual coordinates of
+    /// any matching triple, the way [`Self::scan`]/[`Self::query_two_bound`]
+    /// must to list them.
+    ///
+    /// At a last-level (leaf) node, this is `u64::count_ones` on the
+    /// masked word: O(1), not one iteration per matching bit the way
+    /// listing pays to materialize and decode each one. Internal nodes
+    /// still have to be visited one at a time to reach each child's byte
+    /// position -- there is no cached per-node "matches below this
+    /// point" count to skip that with, so this is a constant-factor win
+    /// concentrated at the leaf level (the majority of nodes in a deep
+    /// trie), not an asymptotic one. See `DESIGN.md` for measurements.
+    pub fn count_matching(&self, bounds: [Option<u32>; 3]) -> u64 {
+        let _guard = self.storage.begin_top_level_call();
+        if bounds.iter().enumerate().any(|(d, v)| v.is_some_and(|v| v as u64 >= self.dimension_sizes[d])) {
+            return 0;
+        }
+        if self.height == 0 {
+            // Any `Some(v)` bound dim already passed the check above,
+            // so it's necessarily 0 -- the domain's only valid value --
+            // whether the tree's one possible point matches or not
+            // therefore depends only on whether it exists at all.
+            return self.single_point_exists as u64;
+        }
+        let mut lo = [0u64; NUM_DIMS];
+        let mut masks = [0u64; MAX_HEIGHT];
+        for (level, mask) in masks[..self.height as usize].iter_mut().enumerate() {
+            let bits = self.level_child_cell_bits_cache[level];
+            *mask = bound_mask(self.level_dim_bits[level], self.level_shifts_cache[level], lo, bits, |d| bounds[d]);
+            for d in 0..NUM_DIMS {
+                if let Some(v) = bounds[d] {
+                    lo[d] += ((v as u64 - lo[d]) >> bits[d]) << bits[d];
+                }
+            }
+        }
+        self.count_rec(Pos::START, 0, &masks[..self.height as usize])
+    }
+
+    fn count_rec(&self, pos: Pos, level: usize, masks: &[u64]) -> u64 {
+        let word = self.block_read_u64(pos.block, pos.offset);
+        let mask = masks[level];
+        if level == self.height as usize - 1 {
+            return (word & mask).count_ones() as u64;
+        }
+        let mut remaining = word;
+        let mut child_pos = self.advance(pos, self.own_record_bytes(level));
+        let mut total = 0u64;
+        while remaining != 0 {
+            let qi = remaining.trailing_zeros() as usize;
+            remaining &= remaining - 1;
+            let next_child_pos = self.child_span_end(child_pos, level + 1);
+            if (mask >> qi) & 1 != 0 {
+                total += self.count_rec(child_pos, level + 1, masks);
+            }
+            child_pos = next_child_pos;
+        }
+        total
+    }
+
     pub fn default_split() -> [u8; NUM_DIMS] {
         [BASE / NUM_DIMS as u8; NUM_DIMS]
     }
@@ -2454,6 +2515,7 @@ mod tests {
                 got.sort_unstable();
                 expect.sort_unstable();
                 assert_eq!(got, expect, "query_two_bound(S={s},P={p},free=O) {label}");
+                assert_eq!(tree.count_matching([Some(s), Some(p), None]), expect.len() as u64, "count_matching(S={s},P={p},O=?) {label}");
             }
         }
         let expect_batch: Vec<bool> = all_triples.iter().map(|&(s, p, o)| naive.contains(s, p, o)).collect();
@@ -3224,5 +3286,89 @@ mod tests {
         assert_eq!(out.capacity(), cap_before, "contains_batch_into should not need to reallocate when the buffer already has enough capacity");
         let expect: Vec<bool> = queries.iter().map(|&(s, p, o)| tree.contains(s, p, o)).collect();
         assert_eq!(out, expect);
+    }
+
+    fn all_bound_patterns(s: u32, p: u32, o: u32) -> [[Option<u32>; 3]; 8] {
+        [[None, None, None], [Some(s), None, None], [None, Some(p), None], [None, None, Some(o)], [Some(s), Some(p), None], [Some(s), None, Some(o)], [None, Some(p), Some(o)], [Some(s), Some(p), Some(o)]]
+    }
+
+    #[test]
+    fn count_matching_matches_naive_and_scan_across_all_bound_patterns() {
+        let triples = uniform(30, 5, 30, 3_000, 0xC0117);
+        let naive = NaiveIndex::build(&triples);
+        let probe_s = triples[0].0;
+        let probe_p = triples[0].1;
+        let probe_o = triples[0].2;
+
+        for cap in TEST_CAPACITIES {
+            let heap = Heap::build_dynamic(triples.clone(), cap);
+            for bounds in all_bound_patterns(probe_s, probe_p, probe_o) {
+                let got = heap.count_matching(bounds);
+                let expect_naive = naive.count_matching(bounds);
+                let expect_scan = heap.scan(bounds).count() as u64;
+                assert_eq!(got, expect_naive, "count_matching({bounds:?}) vs naive, heap cap={cap}");
+                assert_eq!(got, expect_scan, "count_matching({bounds:?}) vs scan, heap cap={cap}");
+            }
+            #[cfg(feature = "file")]
+            {
+                let file = File::build_dynamic(triples.clone(), cap);
+                for bounds in all_bound_patterns(probe_s, probe_p, probe_o) {
+                    assert_eq!(file.count_matching(bounds), naive.count_matching(bounds), "count_matching({bounds:?}) vs naive, file cap={cap}");
+                }
+            }
+            #[cfg(feature = "compressed")]
+            {
+                let compressed = Compressed::build_dynamic(triples.clone(), cap);
+                for bounds in all_bound_patterns(probe_s, probe_p, probe_o) {
+                    assert_eq!(compressed.count_matching(bounds), naive.count_matching(bounds), "count_matching({bounds:?}) vs naive, compressed cap={cap}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn count_matching_out_of_domain_bound_is_zero_not_panic() {
+        let tree = Heap::build_dynamic(vec![(0, 0, 0), (1, 1, 1)], 64);
+        assert_eq!(tree.count_matching([Some(99), None, None]), 0);
+        assert_eq!(tree.count_matching([None, Some(99), None]), 0);
+        assert_eq!(tree.count_matching([None, None, Some(99)]), 0);
+    }
+
+    #[test]
+    fn count_matching_all_wildcards_equals_total_distinct_triple_count() {
+        let triples = uniform(40, 6, 40, 5_000, 0xBADD1E);
+        let naive = NaiveIndex::build(&triples);
+        for cap in TEST_CAPACITIES {
+            let heap = Heap::build_dynamic(triples.clone(), cap);
+            assert_eq!(heap.count_matching([None, None, None]), naive.len(), "cap={cap}");
+        }
+    }
+
+    #[test]
+    fn count_matching_matches_contains_on_degenerate_height_zero_tree() {
+        let tree = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        assert_eq!(tree.height(), 0, "test assumes a [1,1,1]-style degenerate domain");
+        assert_eq!(tree.count_matching([None, None, None]), 1);
+        assert_eq!(tree.count_matching([Some(0), Some(0), Some(0)]), 1);
+    }
+
+    #[test]
+    fn count_matching_after_remove_matches_naive() {
+        let triples = uniform(25, 4, 25, 1_500, 0x5EED5);
+        let mut heap = Heap::build_dynamic(triples.clone(), 64);
+        let mut naive = NaiveIndex::build(&triples);
+        let mut live: Vec<Triple> = triples.clone();
+        live.sort_unstable();
+        live.dedup();
+        let mut rng = SplitMix64::new(0x9001);
+        for _ in 0..300.min(live.len()) {
+            let idx = rng.next_range(live.len() as u64) as usize;
+            let (s, p, o) = live.swap_remove(idx);
+            assert!(heap.remove(s, p, o).unwrap());
+            assert!(naive.remove(s, p, o));
+        }
+        for bounds in all_bound_patterns(triples[0].0, triples[0].1, triples[0].2) {
+            assert_eq!(heap.count_matching(bounds), naive.count_matching(bounds), "count_matching({bounds:?}) after removals");
+        }
     }
 }

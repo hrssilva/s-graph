@@ -82,6 +82,16 @@ impl NaiveIndex {
         self.triples.contains(&(s, p, o))
     }
 
+    pub fn len(&self) -> u64 {
+        self.triples.len() as u64
+    }
+
+    /// `count_matching`'s own oracle: `None` is a wildcard in any
+    /// coordinate, same convention as `scan`/`count_matching`.
+    pub fn count_matching(&self, bounds: [Option<u32>; 3]) -> u64 {
+        self.triples.iter().filter(|&&(s, p, o)| bounds[0].is_none_or(|v| v == s) && bounds[1].is_none_or(|v| v == p) && bounds[2].is_none_or(|v| v == o)).count() as u64
+    }
+
     /// Mirrors `Heap::remove`'s return convention: `true` if it was
     /// present and is now removed, `false` if it was already absent.
     pub fn remove(&mut self, s: u32, p: u32, o: u32) -> bool {

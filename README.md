@@ -67,6 +67,10 @@ let predicates_between = tree.predicates_for(0, 1); // subject=0, object=1, pred
 // re-descending from the root per query -- see "Batched reads" below.
 let hits = tree.contains_batch(&[(0, 0, 1), (9, 9, 9)]); // [true, false]
 
+// Count matches without listing them -- `None` is a wildcard, same
+// convention as `scan`.
+let num_edges_of_0 = tree.count_matching([Some(0), None, None]);
+
 // Insert within the declared coordinate domains.
 assert!(tree.insert(1, 1, 1).unwrap()); // true: newly inserted
 assert!(!tree.insert(0, 0, 1).unwrap()); // false: already present
@@ -173,6 +177,8 @@ now borrow the tree rather than own snapshots. No proven WCO executor is current
 provided; proving or improving the native traversal's bound remains open work.
 
 - `tree.scan([s, p, o])`: allocation-free filtered triples in Morton order.
+- `tree.count_matching([s, p, o])`: count of matching triples, same bound/
+  wildcard convention as `scan`, without decoding or collecting any of them.
 - `query_one_bound_into` / `query_two_bound_into`: sorted adjacency in reusable buffers.
 - `path::reachable`: distinct endpoints reachable by walks within min/max hops.
 - `path::shortest_walk`: shortest qualifying walk with nodes and edges reconstructed.
