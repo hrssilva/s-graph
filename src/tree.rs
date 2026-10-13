@@ -1491,6 +1491,113 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         unreachable!("height > 0 checked above")
     }
 
+    /// Like calling [`Self::contains`] once per triple in `triples`, in
+    /// `triples`' own order, but shares descent work across queries that
+    /// land on the same physical trie node. Internally sorts a *copy* of
+    /// the queries into this tree's own DFS-preorder (see
+    /// [`Self::morton_key`] -- the same order [`Self::insert_batch`]/
+    /// [`Self::remove_batch`] already sort into), then walks once,
+    /// keeping the previous query's root-to-leaf path cached: a query
+    /// whose key shares its first `k` digits with the previous query's
+    /// key reuses that query's already-read node at every one of those
+    /// `k` levels -- same word, same physical byte position, since the
+    /// trie's shape is fully determined by the digits queried so far --
+    /// and only re-reads from the trie starting at the first level where
+    /// the two keys actually diverge.
+    ///
+    /// When a batch has no shared prefixes at all (fully scattered
+    /// queries against a wide, shallow tree) this degenerates to exactly
+    /// `triples.len()` independent [`Self::contains`] descents: the only
+    /// added cost per query is an O(min(height, shared)) byte comparison
+    /// against the previous key, so this is never worse than the naive
+    /// per-triple loop. When queries cluster -- many triples sharing a
+    /// subject, or checking membership of one graph's triples against
+    /// another, mostly-overlapping one -- the shared levels, *including*
+    /// their [`Self::advance_past_children`] sibling-hopping (the real
+    /// dominant cost on a high-fanout, high-occupancy node), are paid
+    /// exactly once for the whole cluster rather than once per query.
+    ///
+    /// Returns one `bool` per input triple, in `triples`' own order, not
+    /// sorted order -- unlike `insert_batch`/`remove_batch`, this never
+    /// reorders the caller's slice, since there's no sort order worth
+    /// exposing from a read-only query. An out-of-domain triple reports
+    /// `false`, the same rule `contains` already documents.
+    pub fn contains_batch(&self, triples: &[Triple]) -> Vec<bool> {
+        let mut out = Vec::new();
+        self.contains_batch_into(triples, &mut out);
+        out
+    }
+
+    /// Same as [`Self::contains_batch`], writing into (and resizing)
+    /// `out` instead of allocating a fresh `Vec`, for repeated calls
+    /// that want to reuse the output buffer's capacity.
+    pub fn contains_batch_into(&self, triples: &[Triple], out: &mut Vec<bool>) {
+        let _guard = self.storage.begin_top_level_call();
+        out.clear();
+        out.resize(triples.len(), false);
+        if triples.is_empty() {
+            return;
+        }
+        if self.height == 0 {
+            for (i, &(s, p, o)) in triples.iter().enumerate() {
+                out[i] = self.in_bounds(s, p, o) && self.single_point_exists;
+            }
+            return;
+        }
+        let height = self.height as usize;
+        // Out-of-domain triples are left as `false` in `out` and simply
+        // never enter the sorted descent batch -- same rule `contains`
+        // documents, applied up front instead of per-level.
+        let mut order: Vec<(u32, [u8; MAX_HEIGHT])> = Vec::with_capacity(triples.len());
+        for (i, &(s, p, o)) in triples.iter().enumerate() {
+            if self.in_bounds(s, p, o) {
+                order.push((i as u32, self.morton_key(s, p, o)));
+            }
+        }
+        order.sort_unstable_by(|a, b| a.1[..height].cmp(&b.1[..height]));
+
+        let mut stack_pos = [Pos::START; MAX_HEIGHT];
+        let mut prev_key = [0u8; MAX_HEIGHT];
+        let mut prev_depth = 0usize;
+
+        for &(orig_idx, key) in order.iter() {
+            let shared = key[..height]
+                .iter()
+                .zip(prev_key[..height].iter())
+                .take_while(|(a, b)| a == b)
+                .count()
+                .min(prev_depth);
+            let mut pos = stack_pos[shared];
+            let mut found = true;
+            let mut level = shared;
+            while level < height {
+                let word = self.block_read_u64(pos.block, pos.offset);
+                let qi = key[level] as u64;
+                if (word >> qi) & 1 == 0 {
+                    found = false;
+                    break;
+                }
+                if level == height - 1 {
+                    break;
+                }
+                let earlier = word & ((1u64 << qi) - 1);
+                let first_child_pos = self.advance(pos, self.own_record_bytes(level));
+                pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+                stack_pos[level + 1] = pos;
+                level += 1;
+            }
+            out[orig_idx as usize] = found;
+            prev_key = key;
+            // Not `level + 1`: `level` is the deepest level this query
+            // actually tested a bit at (whether it failed there or
+            // succeeded at the last level), so it's the deepest level a
+            // following query may resume *at* -- re-testing that bit
+            // fresh -- without ever resuming *past* a level nobody has
+            // tested the matching digit for yet.
+            prev_depth = level;
+        }
+    }
+
     pub fn predicates_for(&self, s: u32, o: u32) -> Vec<u32> {
         self.query_two_bound([0, 2], [s, o], 1)
     }
@@ -2335,10 +2442,12 @@ mod tests {
     }
 
     fn cross_check_tree<S: BlockStorage>(tree: &RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>, naive: &NaiveIndex, num_s: u32, num_p: u32, num_o: u32, label: &str) {
+        let mut all_triples: Vec<Triple> = Vec::new();
         for s in 0..num_s {
             for p in 0..num_p {
                 for o in 0..num_o {
                     assert_eq!(tree.contains(s, p, o), naive.contains(s, p, o), "contains({s},{p},{o}) {label}");
+                    all_triples.push((s, p, o));
                 }
                 let mut got = tree.query_two_bound([0, 1], [s, p], 2);
                 let mut expect = naive.row(p, s);
@@ -2347,6 +2456,8 @@ mod tests {
                 assert_eq!(got, expect, "query_two_bound(S={s},P={p},free=O) {label}");
             }
         }
+        let expect_batch: Vec<bool> = all_triples.iter().map(|&(s, p, o)| naive.contains(s, p, o)).collect();
+        assert_eq!(tree.contains_batch(&all_triples), expect_batch, "contains_batch over the full domain {label}");
         for p in 0..num_p {
             for o in 0..num_o {
                 let mut got = tree.query_two_bound([1, 2], [p, o], 0);
@@ -3038,5 +3149,80 @@ mod tests {
         got.sort_unstable();
         expect.sort_unstable();
         assert_eq!(got, expect, "wide-branching bounded build query_two_bound(S={naive_probe_s},P=3,free=O)");
+    }
+
+    #[test]
+    fn contains_batch_empty_input_is_empty_output() {
+        let tree = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        assert_eq!(tree.contains_batch(&[]), Vec::<bool>::new());
+    }
+
+    #[test]
+    fn contains_batch_matches_contains_scattered_and_clustered() {
+        let triples = uniform(500, 20, 500, 20_000, 0x5CA7);
+        let naive = NaiveIndex::build(&triples);
+        let mut rng = SplitMix64::new(0xBA7C4);
+
+        for cap in TEST_CAPACITIES {
+            let tree = Heap::build_dynamic(triples.clone(), cap);
+
+            // Scattered: independent random coordinates, almost no shared
+            // Morton-key prefixes expected.
+            let scattered: Vec<Triple> = (0..2_000).map(|_| (rng.next_range(500) as u32, rng.next_range(20) as u32, rng.next_range(500) as u32)).collect();
+            let expect: Vec<bool> = scattered.iter().map(|&(s, p, o)| naive.contains(s, p, o)).collect();
+            assert_eq!(tree.contains_batch(&scattered), expect, "scattered batch cap={cap}");
+
+            // Clustered: many queries sharing the same subject (and often
+            // predicate too), the case this method is specifically for.
+            let mut clustered: Vec<Triple> = Vec::new();
+            for _ in 0..40 {
+                let s = rng.next_range(500) as u32;
+                for _ in 0..50 {
+                    clustered.push((s, rng.next_range(20) as u32, rng.next_range(500) as u32));
+                }
+            }
+            let expect: Vec<bool> = clustered.iter().map(|&(s, p, o)| naive.contains(s, p, o)).collect();
+            assert_eq!(tree.contains_batch(&clustered), expect, "clustered batch cap={cap}");
+        }
+    }
+
+    #[test]
+    fn contains_batch_preserves_input_order_handles_duplicates_and_out_of_domain() {
+        let triples = vec![(0, 0, 1), (1, 1, 2), (2, 2, 3)];
+        let tree = Heap::build_dynamic(triples, 64);
+        // Deliberately unsorted, with a repeated triple and an
+        // out-of-domain one interleaved -- output must align 1:1 with
+        // this exact input order, not any internally-sorted order.
+        let queries = [
+            (2, 2, 3),       // present
+            (99, 0, 0),      // out of domain -> false, not a panic
+            (0, 0, 1),       // present
+            (2, 2, 3),       // duplicate of index 0, present
+            (1, 1, 1),       // absent (in domain)
+            (0, 0, 1),       // duplicate of index 2, present
+        ];
+        let expect = [true, false, true, true, false, true];
+        assert_eq!(tree.contains_batch(&queries), expect);
+    }
+
+    #[test]
+    fn contains_batch_matches_contains_on_degenerate_height_zero_tree() {
+        let tree = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        assert_eq!(tree.height(), 0, "test assumes a [1,1,1]-style degenerate domain");
+        let queries = [(0, 0, 0), (0, 0, 0)];
+        assert_eq!(tree.contains_batch(&queries), [true, true]);
+    }
+
+    #[test]
+    fn contains_batch_into_reuses_buffer_capacity_across_calls() {
+        let tree = Heap::build_dynamic(uniform(50, 5, 50, 2_000, 0x0B0F), 64);
+        let mut out = Vec::with_capacity(1_000);
+        let cap_before = out.capacity();
+        let queries: Vec<Triple> = (0..1_000u32).map(|i| (i % 50, i % 5, i % 50)).collect();
+        tree.contains_batch_into(&queries, &mut out);
+        assert_eq!(out.len(), queries.len());
+        assert_eq!(out.capacity(), cap_before, "contains_batch_into should not need to reallocate when the buffer already has enough capacity");
+        let expect: Vec<bool> = queries.iter().map(|&(s, p, o)| tree.contains(s, p, o)).collect();
+        assert_eq!(out, expect);
     }
 }

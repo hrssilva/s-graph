@@ -34,7 +34,10 @@
 //! shared across backends. [`Heap::remove`]/[`Heap::remove_batch`] delete
 //! a triple with full, immediate cascading reclamation of any node left
 //! entirely empty by the removal -- not a leaf-only bit flip deferred to
-//! a separate compaction step.
+//! a separate compaction step. [`Heap::contains_batch`] answers many
+//! point-existence queries (filters, graph diff) by sharing descent work
+//! across queries that land on the same trie node, instead of
+//! independently re-descending from the root for each one.
 //!
 //! This crate is the productionized form of an exploratory comparison
 //! (see the repository's `examples/` directory and its own `README.md`

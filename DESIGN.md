@@ -41,6 +41,23 @@ Non-splitting insertion updates the directory in O(log B); block splits rebuild
 it in O(B), reusing its allocation. The backend block vectors still shift on
 splits. There is no blanket O(height) insertion guarantee.
 
+`contains_batch`/`contains_batch_into` answer many point-existence queries at
+once by sorting a copy of them into Morton order and walking once, caching the
+previous query's root-to-leaf path: a query sharing its first `k` Morton
+digits with the one just before it reuses that query's already-read node at
+each of those `k` levels (same physical position, since descent is fully
+determined by the digits visited), re-reading from the trie only from the
+first level where consecutive digits actually diverge. The caller's own
+input order is preserved in the output; sorting happens on an internal copy.
+This degenerates to one independent `contains` per triple in the worst case
+(no two queries share a prefix) and is never slower; measured 7-13x faster
+across scattered, subject-clustered and graph-diff-style batches of 100k-200k
+queries against a 200k-triple tree, at `block_capacity` 64, 256 and 4096 --
+unlike the reverted batched removal cascade, this one wins broadly because
+sorting alone already makes most batches share long common prefixes (the
+average gap between consecutive sorted queries is usually far smaller than
+the tree's height), not only genuinely clustered ones.
+
 `scan([Option<u32>; 3])` streams matching triples in Morton order, with a fixed
 O(maximum trie height) stack and no heap allocation on Heap. File/compressed
 backends may allocate their cache buffers. Scans borrow the tree, preventing

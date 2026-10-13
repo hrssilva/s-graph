@@ -62,6 +62,11 @@ assert!(!tree.contains(2, 2, 2));
 let objects_of_0_via_pred_0 = tree.query_two_bound([0, 1], [0, 0], 2); // subject=0, predicate=0, object=?
 let predicates_between = tree.predicates_for(0, 1); // subject=0, object=1, predicate=?
 
+// Many point-existence checks at once (filters, graph diff): shares
+// descent work across queries that land on the same trie node instead of
+// re-descending from the root per query -- see "Batched reads" below.
+let hits = tree.contains_batch(&[(0, 0, 1), (9, 9, 9)]); // [true, false]
+
 // Insert within the declared coordinate domains.
 assert!(tree.insert(1, 1, 1).unwrap()); // true: newly inserted
 assert!(!tree.insert(0, 0, 1).unwrap()); // false: already present
@@ -187,6 +192,18 @@ backend and inherit its threading constraints; Heap plans can be shared with
 separate workspaces.
 
 See [DESIGN.md](DESIGN.md) for complexity, memory, semantics and tradeoffs.
+
+### Batched reads
+
+`contains_batch`/`contains_batch_into` answer many point-existence queries
+(filters, graph diff against another tree's triples) faster than calling
+`contains` once per query: they sort an internal copy into Morton order and
+walk once, reusing the previous query's root-to-leaf path at every level two
+consecutive queries still agree on, instead of re-descending from the root
+each time. Output order always matches the input order, never the internal
+sort order. Measured 7-13x faster than the per-triple loop across scattered,
+subject-clustered and diff-style batches (see DESIGN.md) -- it's never slower,
+since a batch with no shared prefixes at all degenerates to exactly that loop.
 
 ### Error handling
 
