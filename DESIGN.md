@@ -154,11 +154,38 @@ loaded. Inlining removes that indirection: `stage.writes[..stage.write_count]`
 is already resident the moment `stage` is. Measured on the two join-execution
 benchmarks with the most candidate children (`native triangle`, 154k
 candidates; `native shared predicate path`, 384k candidates): ~7% and ~8-9%
-faster execute time respectively, consistent across repeated runs. The
-remaining self-time is concentrated in `advance_past_children`'s sibling-
-hopping (legitimate occupancy-dependent work) and `prefix_cursor`'s bounds-
-checked byte-to-`u64` read (a cost this crate's no-unsafe-code stance pays
-deliberately).
+faster execute time respectively, consistent across repeated runs.
+
+`Stage`'s `checks` got the identical fix for the identical reason: a
+stage's total bit count across all 3 dimensions is at most 6 (`slots = 1
+<< bits.sum() <= 64`), so at most 6 checks, now a `[Check; 6]` field
+inline on `Stage` instead of a `start..end` slice into a shared
+`Vec<Check>`. Smaller, consistent win: `open()` runs once per stage
+*activation*, not once per surviving candidate the way the write loop
+does, so there's less of it to save -- measured ~2-5% faster execute
+time on the same two benchmarks (A/B against an otherwise-identical
+build with only this one field reverted to the shared-`Vec` shape, back
+to back, to isolate it from both machine-load noise and the `writes` fix
+already measured above). Applied anyway: leaving `checks` as the one
+inconsistent field after fixing `writes` for the exact same reason would
+be the kind of gap that's easy to forget was ever a question.
+
+Re-profiled after both fixes (`perf record --call-graph fp` on a
+200k-triple, 20k-vertex triangle join) to find what's left: `run`'s own
+body is ~72% self-time, of which ~46% is `advance_past_children`/
+`child_span_end` (28% specifically inside the variable-width skip-field
+read, `read_var_at`) and `open` is ~22%, of which ~8% is `prefix_cursor`
+(`read_u64`'s own bounds-checked byte-to-array conversion) and ~3%
+is the remaining `Check`/`Write` array iteration itself (the loop's
+own pointer-increment/bounds-check, not indirection -- that's now as
+cheap as a 0-3/0-6-element array scan gets without `unsafe`). None of
+that looks like the same class of bug: `read_var_at` reads a
+variable-width integer at a position scattered through the tree's own
+byte-packed storage, so the cost is a memory-latency stall on real,
+necessary data, not a wasted allocation or an avoidable indirection --
+the same conclusion [`crate::tree`]'s own skip-pointer design already
+reaches for *why* that cost exists, just confirmed freshly instead of
+assumed to still hold after this round's changes.
 
 By induction, surviving prefixes agree on all shared known bits. Every complete
 binding identifies an occupied leaf in each atom, and incompatible prefixes are
@@ -212,7 +239,8 @@ itself.
 `0..num_vars`. Invalid queries return `TreeError::InvalidConfig`.
 `graph::join_run` compiles and collects a native join, while `try_join_run` also
 returns validation errors. Historical `ltj_run`/`try_ltj_run` names are aliases
-for these native helpers and do not execute Leapfrog Triejoin.
+for these native helpers and do not execute Leapfrog Triejoin. Both return
+`JoinRows`, not `Vec<Vec<u32>>` -- see "Allocation convention" below.
 
 The materialized prepared executor, packing layouts, preparation options and
 boxed sorted-neighbor adapters have been removed. Callers use `NativeJoin` with
@@ -222,6 +250,84 @@ available for custom scan backends used by path and automaton algorithms.
 There is currently no join executor with an established WCO bound. Projection
 with duplicate elimination, aggregation, optional matches and query-language bag
 semantics remain outside this full-binding set operator.
+
+## Allocation convention: borrow by default, let the caller own
+
+Audited every public function returning owned data for the same question
+`contains_batch_into`/`query_two_bound_into` already answer: does this
+*have* to allocate per call, or can the caller supply/reuse the buffer and
+decide for themselves whether to keep a copy? The crate already follows
+this almost everywhere, not just where this round of work landed:
+
+- `NativeJoin::visit`/`visit_with_stats` hand each result row to the
+  caller's closure as a borrowed `&[u32]`, zero allocation after
+  workspace warmup -- the caller copies only if and when it wants to keep
+  a row past the callback.
+- `contains_batch_into`, `query_two_bound_into`, `query_one_bound_into`,
+  `predicates_for_into` take `out: &mut Vec<_>` and retain its capacity
+  across calls; `_into`-less siblings are thin "allocate fresh and
+  delegate" convenience wrappers over them, not separate implementations.
+- `enumerate_paths` reuses one `GraphPath` buffer for the whole DFS
+  (push/pop backtracking) and emits it to the caller's closure as `&GraphPath`
+  at every qualifying depth -- no per-path allocation, the same shape as
+  `NativeJoin::visit`'s per-row emission.
+- `bfs_sequential`'s frontier and neighbor-list buffers are reused across
+  the whole walk; only the one `dist: Vec<i32>` result (unavoidably
+  O(num_nodes), not O(one allocation per emitted anything)) is owned.
+
+`graph::join_run`/`try_join_run` (and their historical aliases
+`ltj_run`/`try_ltj_run`) used to be the one exception: collecting into
+`Vec<Vec<u32>>` meant one heap allocation per matching row by
+construction of that return type. They now collect into `JoinRows`
+instead -- every row's bindings pushed into one flat `Vec<u32>` via
+`extend_from_slice` during the same `NativeJoin::visit` call these
+helpers already wrapped, with a separate `rows: usize` count (not
+derived from `data.len() / row_width`, since `row_width` is legitimately
+0 for a fully-ground query with no variables -- one matching row with no
+bindings is a real, distinct result from zero matching rows).
+`JoinRows::rows()` borrows each row as `&[u32]`, the same shape
+`NativeJoin::visit` hands its caller; `JoinRows::to_vec_rows()` is the
+escape hatch back to one owned `Vec<u32>` per row, for a caller that
+genuinely wants that. This is strictly an allocation-count change, not a
+semantic one: still collects everything before returning (unlike
+`visit`, still no early exit or bounded memory), still the "don't want
+to think about a workspace" convenience path its own doc comment points
+away from for repeated or large queries.
+
+A second pass looked past the public, per-query/per-row API at the
+storage backends underneath every one of them, for the same per-call
+"allocates a scratch buffer, uses it once, throws it away" shape:
+
+- `FileStorage::slot_insert_at`/`slot_remove_at` (every `insert`/`remove`
+  on the `File` backend shifts a block's tail through exactly this kind
+  of scratch buffer) and `CompressedStorage::insert_bytes`/`remove_bytes`
+  (every `insert`/`remove` on the `Compressed` backend decompresses a
+  whole block into one) both used to allocate that buffer fresh on every
+  call. Both now reuse a `scratch: Vec<u8>` field instead, retaining its
+  capacity across calls -- the same convention as everywhere else in
+  this list, just one level down, in backend code instead of tree code.
+- Measured honestly, not assumed: unlike `contains_batch`/`join_run`,
+  where the sort/collection step this fixed was *the* dominant cost,
+  here it wasn't. `File`'s `insert`/`remove` is dominated by its
+  `pread`/`pwrite` syscalls (tens of microseconds each); `Compressed`'s
+  by the LZ4 decompress-mutate-recompress CPU work (tens to over a
+  hundred microseconds per call, decompressing/recompressing a whole
+  block on every single mutation). Both fixes measured within noise of
+  the unfixed version on their own backend's `insert`/`remove` -- still
+  worth keeping (never worse, strictly fewer allocator calls, consistent
+  with the rest of this convention), just not a result to overstate.
+- `HeapStorage::insert_bytes`/`remove_bytes` needed no equivalent fix:
+  both already shift a block's tail in place via `Vec::splice` on the
+  block's own existing allocation, with no separate scratch buffer at
+  all -- the in-RAM backend's structure already avoided this pattern.
+- Not touched: `CompressedStorage::chunk_and_compress`'s own
+  `Vec<Vec<u8>>` of freshly-compressed chunks. That's the backend's
+  actual stored representation being rebuilt, not a throwaway
+  intermediate -- reusing old chunk buffers would mean changing how
+  `lz4_flex` is called (writing into a caller-supplied destination
+  instead of returning a fresh one), a bigger, riskier change to a
+  backend whose own module docs already record multiple reverted cache
+  designs here, not attempted without a concrete, measured case for it.
 
 ## Paths
 

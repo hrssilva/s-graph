@@ -101,11 +101,16 @@ fn chunk_and_compress(content: &[u8]) -> Vec<Vec<u8>> {
     content.chunks(COMPRESS_CHUNK_BYTES).map(lz4_flex::compress).collect()
 }
 
-/// Decompresses one block's *entire* content, concatenating every chunk
-/// -- bypasses the windowed cache entirely, for call sites that already
-/// need the whole block regardless of the windowing optimization.
-fn decompress_whole(cb: &CompressedBlock) -> Vec<u8> {
-    let mut out = Vec::with_capacity(cb.uncompressed_len);
+/// Decompresses one block's *entire* content into `out` (cleared first),
+/// concatenating every chunk -- bypasses the windowed cache entirely,
+/// for call sites that already need the whole block regardless of the
+/// windowing optimization. A separate function from `decompress_whole`
+/// so `insert_bytes`/`remove_bytes` can pass in `CompressedStorage::scratch`
+/// and reuse its allocation across calls, instead of allocating a fresh
+/// `Vec` for a buffer that's immediately discarded once it's recompressed.
+fn decompress_whole_into(cb: &CompressedBlock, out: &mut Vec<u8>) {
+    out.clear();
+    out.reserve(cb.uncompressed_len);
     for (i, chunk) in cb.chunks.iter().enumerate() {
         let start = i * COMPRESS_CHUNK_BYTES;
         let this_len = (cb.uncompressed_len - start).min(COMPRESS_CHUNK_BYTES);
@@ -119,6 +124,13 @@ fn decompress_whole(cb: &CompressedBlock) -> Vec<u8> {
             lz4_flex::decompress_into(chunk, &mut out[old_len..]).expect("corrupt compressed block");
         }
     }
+}
+
+/// Decompresses one block's *entire* content into a fresh `Vec`; see
+/// [`decompress_whole_into`] for the buffer-reusing version.
+fn decompress_whole(cb: &CompressedBlock) -> Vec<u8> {
+    let mut out = Vec::new();
+    decompress_whole_into(cb, &mut out);
     out
 }
 
@@ -160,6 +172,10 @@ pub struct CompressedStorage {
     /// The streaming bulk-build path's currently-open block, held
     /// **uncompressed** and not yet committed.
     build_pending: Option<Vec<u8>>,
+    /// Reused across `insert_bytes`/`remove_bytes` calls for the
+    /// decompress-mutate-recompress round trip -- every `insert`/`remove`
+    /// on this backend used to decompress into a fresh `Vec`, every time.
+    scratch: Vec<u8>,
 }
 
 impl CompressedStorage {
@@ -321,12 +337,14 @@ impl BlockStorage for CompressedStorage {
     fn insert_bytes(&mut self, pos: Pos, new_bytes: &[u8], block_capacity: usize) {
         let cb_len = self.blocks[pos.block].uncompressed_len;
         if cb_len + new_bytes.len() <= block_capacity {
-            let mut content = decompress_whole(&self.blocks[pos.block]);
+            let mut content = std::mem::take(&mut self.scratch);
+            decompress_whole_into(&self.blocks[pos.block], &mut content);
             content.splice(pos.offset..pos.offset, new_bytes.iter().copied());
             let new_len = content.len();
             self.blocks[pos.block].chunks = chunk_and_compress(&content);
             self.blocks[pos.block].uncompressed_len = new_len;
             self.invalidate_block(pos.block);
+            self.scratch = content;
             return;
         }
         if pos.offset == cb_len {
@@ -336,13 +354,15 @@ impl BlockStorage for CompressedStorage {
             self.invalidate_shifted(pos.block + 1);
             return;
         }
-        let mut content = decompress_whole(&self.blocks[pos.block]);
+        let mut content = std::mem::take(&mut self.scratch);
+        decompress_whole_into(&self.blocks[pos.block], &mut content);
         let tail: Vec<u8> = content.split_off(pos.offset);
         content.extend_from_slice(new_bytes);
         let new_len = content.len();
         self.blocks[pos.block].chunks = chunk_and_compress(&content);
         self.blocks[pos.block].uncompressed_len = new_len;
         self.invalidate_block(pos.block);
+        self.scratch = content;
 
         let tail_cap = block_capacity.max(tail.len());
         let tail_chunks = chunk_and_compress(&tail);
@@ -353,12 +373,14 @@ impl BlockStorage for CompressedStorage {
     /// needs the overflow/split branches, since it only ever shrinks a
     /// block.
     fn remove_bytes(&mut self, pos: Pos, len: usize) {
-        let mut content = decompress_whole(&self.blocks[pos.block]);
+        let mut content = std::mem::take(&mut self.scratch);
+        decompress_whole_into(&self.blocks[pos.block], &mut content);
         content.splice(pos.offset..pos.offset + len, std::iter::empty());
         let new_len = content.len();
         self.blocks[pos.block].chunks = chunk_and_compress(&content);
         self.blocks[pos.block].uncompressed_len = new_len;
         self.invalidate_block(pos.block);
+        self.scratch = content;
     }
     fn begin_top_level_call(&self) -> impl Drop + '_ {
         self.stack_cap.set(1);
@@ -430,7 +452,7 @@ impl BlockStorage for CompressedStorage {
         *self.block_stack.get_mut() = CompressedBlockStack::new();
     }
     fn empty() -> Self {
-        CompressedStorage { blocks: Vec::new(), block_stack: RefCell::new(CompressedBlockStack::new()), stack_cap: Cell::new(1), build_pending: None }
+        CompressedStorage { blocks: Vec::new(), block_stack: RefCell::new(CompressedBlockStack::new()), stack_cap: Cell::new(1), build_pending: None, scratch: Vec::new() }
     }
     fn shrink_to_fit(&mut self) {
         for b in &mut self.blocks {
@@ -445,6 +467,7 @@ impl BlockStorage for CompressedStorage {
             e.buf.shrink_to_fit();
         }
         stack.entries.shrink_to_fit();
+        self.scratch.shrink_to_fit();
     }
     /// Same greedy record-granular repacking as `HeapStorage`'s own
     /// `compact_from_records`, plus a one-entry "last decompressed
@@ -502,13 +525,14 @@ impl BlockStorage for CompressedStorage {
             let chunks = chunk_and_compress(&v);
             blocks.push(CompressedBlock { chunks, uncompressed_len: len, capacity });
         }
-        Ok(CompressedStorage { blocks, block_stack: RefCell::new(CompressedBlockStack::new()), stack_cap: Cell::new(1), build_pending: None })
+        Ok(CompressedStorage { blocks, block_stack: RefCell::new(CompressedBlockStack::new()), stack_cap: Cell::new(1), build_pending: None, scratch: Vec::new() })
     }
 
     fn mem_size_bytes(&self) -> usize {
         self.blocks.capacity() * std::mem::size_of::<CompressedBlock>()
             + self.blocks.iter().map(|b| b.chunks.capacity() * std::mem::size_of::<Vec<u8>>() + b.chunks.iter().map(|c| c.capacity()).sum::<usize>()).sum::<usize>()
             + self.cache_bytes()
+            + self.scratch.capacity()
     }
     fn size_breakdown(&self) -> Vec<(&'static str, usize)> {
         let chunk_vec_overhead: usize = self.blocks.iter().map(|b| b.chunks.capacity() * std::mem::size_of::<Vec<u8>>()).sum();
@@ -517,6 +541,7 @@ impl BlockStorage for CompressedStorage {
             ("blocks: outer Vec<CompressedBlock> bookkeeping", self.blocks.capacity() * std::mem::size_of::<CompressedBlock>()),
             ("blocks: per-block Vec<Vec<u8>> chunk-pointer overhead", chunk_vec_overhead),
             ("blocks: compressed chunk content (sum)", chunk_content),
+            ("scratch (insert/remove decompress buffer)", self.scratch.capacity()),
             ("block_stack (decompressed window cache)", self.cache_bytes()),
         ]
     }

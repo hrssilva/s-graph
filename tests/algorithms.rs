@@ -77,20 +77,20 @@ fn join_regressions_and_validation() {
     let constants = JoinQuery { num_vars: 0, patterns: vec![TriplePattern { subject: C(0), predicate: 0, object: C(2) }] };
     assert!(join_run(&constants, &tree).is_empty());
     let diagonal = JoinQuery { num_vars: 1, patterns: vec![TriplePattern { subject: V(0), predicate: 1, object: V(0) }] };
-    assert_eq!(join_run(&diagonal, &tree), vec![vec![2]]);
+    assert_eq!(join_run(&diagonal, &tree).to_vec_rows(), vec![vec![2]]);
     let disconnected = JoinQuery {
         num_vars: 2,
         patterns: vec![TriplePattern { subject: C(0), predicate: 0, object: V(1) }, TriplePattern { subject: V(0), predicate: 1, object: V(0) }],
     };
-    assert_eq!(join_run(&disconnected, &tree), vec![vec![2, 1]]);
+    assert_eq!(join_run(&disconnected, &tree).to_vec_rows(), vec![vec![2, 1]]);
     let invalid = JoinQuery { num_vars: 1, patterns: vec![TriplePattern { subject: V(1), predicate: 0, object: C(0) }] };
     assert!(try_join_run(&invalid, &tree).is_err());
     assert_eq!(s_graph::graph::ltj_run(&unanchored, &tree), join_run(&unanchored, &tree));
     assert!(s_graph::graph::try_ltj_run(&invalid, &tree).is_err());
     let empty: JoinQuery = JoinQuery { num_vars: 0, patterns: vec![] };
-    assert_eq!(join_run(&empty, &tree), vec![Vec::<u32>::new()]);
+    assert_eq!(join_run(&empty, &tree).to_vec_rows(), vec![Vec::<u32>::new()]);
     let max = Heap::build_dynamic(vec![(u32::MAX, 0, u32::MAX)], 32);
-    assert_eq!(join_run(&unanchored, &max), vec![vec![u32::MAX, u32::MAX]]);
+    assert_eq!(join_run(&unanchored, &max).to_vec_rows(), vec![vec![u32::MAX, u32::MAX]]);
 }
 
 fn check_scan<S: s_graph::BlockStorage>(tree: &s_graph::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>, triples: &[Triple]) {

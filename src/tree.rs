@@ -1793,6 +1793,13 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         self.query_two_bound([0, 2], [s, o], 1)
     }
 
+    /// Replaces `out`, retaining its allocation for repeated adjacency
+    /// queries -- the same buffer-reuse convention as
+    /// [`Self::query_two_bound_into`], which this delegates to.
+    pub fn predicates_for_into(&self, s: u32, o: u32, out: &mut Vec<u32>) {
+        self.query_two_bound_into([0, 2], [s, o], 1, out);
+    }
+
     pub fn query_two_bound(&self, bound_dims: [usize; 2], bound_vals: [u32; 2], free_dim: usize) -> Vec<u32> {
         let mut out = Vec::new();
         self.query_two_bound_into(bound_dims, bound_vals, free_dim, &mut out);

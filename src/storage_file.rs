@@ -159,6 +159,10 @@ pub struct FileStorage {
     /// Buffering one block's worth of records in RAM before issuing a
     /// single batched `pwrite` avoids a `pwrite` syscall per node record.
     build_pending: Option<Vec<u8>>,
+    /// Reused across [`Self::slot_insert_at`]/[`Self::slot_remove_at`]
+    /// calls -- every `insert`/`remove` on this backend used to allocate
+    /// a fresh tail-shifting scratch buffer, every time.
+    scratch: Vec<u8>,
 }
 
 impl FileStorage {
@@ -270,9 +274,10 @@ impl FileStorage {
         );
         let tail_len = used - offset;
         if tail_len > 0 {
-            let mut tail_buf = vec![0u8; tail_len];
-            self.slot_read_exact(slot, offset, &mut tail_buf);
-            self.slot_write_all(slot, offset + bytes.len(), &tail_buf);
+            self.scratch.clear();
+            self.scratch.resize(tail_len, 0);
+            self.file.read_exact_at(&mut self.scratch, self.slot_start[slot] + offset as u64).unwrap_or_else(|e| panic!("file-backed block read failed: {e}"));
+            self.slot_write_all(slot, offset + bytes.len(), &self.scratch);
         }
         self.slot_write_all(slot, offset, bytes);
         self.slot_used_len[slot] = used + bytes.len();
@@ -289,9 +294,10 @@ impl FileStorage {
         assert!(offset + len <= used, "slot_remove_at: range [{offset}, {}) exceeds used {used} for slot {slot}", offset + len);
         let tail_len = used - offset - len;
         if tail_len > 0 {
-            let mut tail_buf = vec![0u8; tail_len];
-            self.slot_read_exact(slot, offset + len, &mut tail_buf);
-            self.slot_write_all(slot, offset, &tail_buf);
+            self.scratch.clear();
+            self.scratch.resize(tail_len, 0);
+            self.file.read_exact_at(&mut self.scratch, self.slot_start[slot] + (offset + len) as u64).unwrap_or_else(|e| panic!("file-backed block read failed: {e}"));
+            self.slot_write_all(slot, offset, &self.scratch);
         }
         self.slot_used_len[slot] = used - len;
     }
@@ -399,10 +405,11 @@ impl BlockStorage for FileStorage {
             None
         } else {
             let tail_len = used - pos.offset;
-            let mut tail_buf = vec![0u8; tail_len];
-            self.slot_read_exact(slot, pos.offset, &mut tail_buf);
+            self.scratch.clear();
+            self.scratch.resize(tail_len, 0);
+            self.file.read_exact_at(&mut self.scratch, self.slot_start[slot] + pos.offset as u64).unwrap_or_else(|e| panic!("file-backed block read failed: {e}"));
             let new_slot = self.allocate_slot(capacity);
-            self.slot_write_all(new_slot, 0, &tail_buf);
+            self.slot_write_all(new_slot, 0, &self.scratch);
             self.slot_used_len[new_slot] = tail_len;
             self.slot_used_len[slot] = pos.offset;
             Some(new_slot)
@@ -487,6 +494,7 @@ impl BlockStorage for FileStorage {
             block_stack: RefCell::new(BlockStack::new()),
             stack_cap: Cell::new(1),
             build_pending: None,
+            scratch: Vec::new(),
         }
     }
     fn shrink_to_fit(&mut self) {
@@ -495,6 +503,7 @@ impl BlockStorage for FileStorage {
         self.slot_used_len.shrink_to_fit();
         self.blocks.shrink_to_fit();
         self.block_stack.get_mut().entries.shrink_to_fit();
+        self.scratch.shrink_to_fit();
     }
     fn compact_from_records(&mut self, records: &[(Pos, usize)], block_capacity: usize) {
         if records.is_empty() {
@@ -604,11 +613,17 @@ impl BlockStorage for FileStorage {
             block_stack: RefCell::new(BlockStack::new()),
             stack_cap: Cell::new(1),
             build_pending: None,
+            scratch: Vec::new(),
         })
     }
 
     fn mem_size_bytes(&self) -> usize {
-        crate::vec_bytes(&self.slot_start) + crate::vec_bytes(&self.slot_capacity) + crate::vec_bytes(&self.slot_used_len) + crate::vec_bytes(&self.blocks) + self.stack_cache_bytes()
+        crate::vec_bytes(&self.slot_start)
+            + crate::vec_bytes(&self.slot_capacity)
+            + crate::vec_bytes(&self.slot_used_len)
+            + crate::vec_bytes(&self.blocks)
+            + self.stack_cache_bytes()
+            + crate::vec_bytes(&self.scratch)
     }
     fn size_breakdown(&self) -> Vec<(&'static str, usize)> {
         vec![
@@ -617,6 +632,7 @@ impl BlockStorage for FileStorage {
             ("slot_used_len (O(slots))", crate::vec_bytes(&self.slot_used_len)),
             ("blocks: logical-to-slot indirection (O(blocks))", crate::vec_bytes(&self.blocks)),
             ("block_stack (windowed read cache)", self.stack_cache_bytes()),
+            ("scratch (insert/remove tail-shift buffer)", crate::vec_bytes(&self.scratch)),
         ]
     }
 }

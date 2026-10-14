@@ -27,24 +27,117 @@ impl From<u32> for Term {
     fn from(value: u32) -> Self { Self::Const(value) }
 }
 
+/// Rows collected by [`join_run`]/[`try_join_run`]: every row's bindings
+/// live back to back in one flat buffer, each row a `row_width()`-wide
+/// borrowed slice -- one allocation for the whole result set rather than
+/// one `Vec<u32>` per row (what this type replaced). Bindings are indexed
+/// by variable ID; result order is unspecified, matching `NativeJoin`'s
+/// own contract.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct JoinRows {
+    data: Vec<u32>,
+    row_width: usize,
+    rows: usize,
+}
+
+impl JoinRows {
+    pub fn len(&self) -> usize {
+        self.rows
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows == 0
+    }
+
+    /// Bindings per row -- `query.num_vars` for the query this collected.
+    pub fn row_width(&self) -> usize {
+        self.row_width
+    }
+
+    pub fn get(&self, index: usize) -> Option<&[u32]> {
+        if index >= self.rows {
+            return None;
+        }
+        Some(if self.row_width == 0 { &[] } else { &self.data[index * self.row_width..(index + 1) * self.row_width] })
+    }
+
+    /// Borrowed rows in collection order.
+    pub fn rows(&self) -> Rows<'_> {
+        Rows { data: &self.data, row_width: self.row_width, remaining: self.rows }
+    }
+
+    /// Copies every row into its own owned `Vec<u32>` -- the shape this
+    /// type replaces. An escape hatch for a caller that genuinely wants
+    /// per-row ownership, not the default.
+    pub fn to_vec_rows(&self) -> Vec<Vec<u32>> {
+        self.rows().map(<[u32]>::to_vec).collect()
+    }
+}
+
+impl std::ops::Index<usize> for JoinRows {
+    type Output = [u32];
+    fn index(&self, index: usize) -> &[u32] {
+        self.get(index).expect("row index out of bounds")
+    }
+}
+
+impl<'a> IntoIterator for &'a JoinRows {
+    type Item = &'a [u32];
+    type IntoIter = Rows<'a>;
+    fn into_iter(self) -> Rows<'a> {
+        self.rows()
+    }
+}
+
+/// Borrowing iterator over a [`JoinRows`]'s rows; see [`JoinRows::rows`].
+pub struct Rows<'a> {
+    data: &'a [u32],
+    row_width: usize,
+    remaining: usize,
+}
+
+impl<'a> Iterator for Rows<'a> {
+    type Item = &'a [u32];
+    fn next(&mut self) -> Option<&'a [u32]> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        if self.row_width == 0 {
+            return Some(&[]);
+        }
+        let (row, rest) = self.data.split_at(self.row_width);
+        self.data = rest;
+        Some(row)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for Rows<'_> {}
+
 /// Compile and collect a native prefix join. For repeated execution or bounded
 /// output memory, use [`crate::join::NativeJoin`] and its workspace directly.
 /// Invalid queries panic; [`try_join_run`] returns validation errors instead.
 /// Bindings are indexed by variable ID; result order is unspecified.
-pub fn join_run<S: BlockStorage, P: Copy + Into<Term>>(query: &JoinQuery<P>, tree: &RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>) -> Vec<Vec<u32>> {
+pub fn join_run<S: BlockStorage, P: Copy + Into<Term>>(query: &JoinQuery<P>, tree: &RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>) -> JoinRows {
     try_join_run(query, tree).expect("invalid join query")
 }
 
 /// Fallible native prefix-join collection helper.
-pub fn try_join_run<S: BlockStorage, P: Copy + Into<Term>>(query: &JoinQuery<P>, tree: &RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>) -> crate::Result<Vec<Vec<u32>>> {
+pub fn try_join_run<S: BlockStorage, P: Copy + Into<Term>>(query: &JoinQuery<P>, tree: &RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S>) -> crate::Result<JoinRows> {
     let plan = crate::join::NativeJoin::new(query, tree)?;
     let mut workspace = crate::join::NativeJoinWorkspace::default();
-    let mut out = Vec::new();
+    let mut data = Vec::new();
+    let mut rows = 0usize;
     let _: std::ops::ControlFlow<()> = plan.visit(&mut workspace, |row| {
-        out.push(row.to_vec());
+        data.extend_from_slice(row);
+        rows += 1;
         std::ops::ControlFlow::Continue(())
     });
-    Ok(out)
+    Ok(JoinRows { data, row_width: query.num_vars, rows })
 }
 
 /// Historical name for [`join_run`]; executes the native prefix algorithm.
@@ -101,7 +194,7 @@ mod tests {
         assert!(!expected.is_empty(), "test dataset/query produced zero matches -- not exercising real join logic");
 
         let heap = crate::Heap::build_dynamic(triples.to_vec(), 4096);
-        assert_eq!(sorted(ltj_run(query, &heap)), expected, "Heap join mismatch");
+        assert_eq!(sorted(ltj_run(query, &heap).to_vec_rows()), expected, "Heap join mismatch");
     }
 
     // Anchored compatibility cases; general patterns are tested in tests/native_join.rs.

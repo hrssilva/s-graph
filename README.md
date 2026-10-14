@@ -120,7 +120,10 @@ let query = JoinQuery {
         TriplePattern { subject: Term::Var(0), predicate: 1, object: Term::Var(1) },
     ],
 };
-let bindings = join_run(&query, &tree); // Vec<Vec<u32>>, one Vec per match, indexed by variable
+let bindings = join_run(&query, &tree); // JoinRows: one flat buffer, each row a borrowed &[u32]
+for row in bindings.rows() {
+    // row: &[u32], indexed by variable ID
+}
 
 // BFS / shortest hop-count reachability.
 let dist = bfs_sequential(&tree, /* start */ 0, /* predicate filter */ None);
@@ -164,7 +167,10 @@ uneven split schedules can delay pruning. `visit_with_stats` reports node
 openings and surviving child choices. `allocated_bytes` reports retained vector
 capacity for the plan or workspace; backend cache memory is separate.
 
-`graph::join_run` and `graph::try_join_run` compile and collect native joins.
+`graph::join_run` and `graph::try_join_run` compile and collect native joins
+into a `JoinRows`: one flat `Vec<u32>` for the whole result set, each row a
+borrowed `&[u32]` via `.rows()` -- not one `Vec` per row. Call
+`.to_vec_rows()` for owned per-row `Vec<u32>`s if you actually want that.
 The historical names `ltj_run` and `try_ltj_run` are aliases for those helpers;
 they no longer execute Leapfrog Triejoin. Reuse `NativeJoin` and its workspace
 for repeated queries. Native joins accept the tree's `BlockStorage` backends;

@@ -15,6 +15,7 @@ use crate::tree::{PrefixCursor, RadixTreeDfsInterleavedVarSkipUnrolledGeneric as
 use crate::{BlockStorage, Result, TreeError};
 use std::ops::ControlFlow;
 
+#[derive(Clone, Copy, Default)]
 struct Check {
     variable: usize,
     bit: u32,
@@ -40,10 +41,18 @@ struct Write {
 /// storage means `stage.writes[..stage.write_count]` is already resident
 /// the moment `stage` itself is loaded, and the fixed max length of 3 lets
 /// the compiler unroll/bound the loop instead of touching a second buffer.
+///
+/// `checks` gets the same treatment, for the same reason -- a stage's
+/// total bit count across all 3 dimensions is at most 6 (`slots = 1 <<
+/// bits.sum() <= 64`), so at most 6 checks, one per bit whose variable is
+/// already known from an earlier stage. Smaller win than `writes`' (`open`
+/// runs once per stage activation, not once per surviving candidate the
+/// way the write loop does), but the same architectural fix for the same
+/// reason, not left inconsistent just because it mattered less here.
 struct Stage {
     mask: u64,
-    check_start: usize,
-    check_end: usize,
+    checks: [Check; 6],
+    check_count: u8,
     writes: [Write; 3],
     write_count: u8,
     level: usize,
@@ -95,7 +104,6 @@ pub struct NativeJoinStats {
 pub struct NativeJoin<'a, S: BlockStorage> {
     tree: &'a Tree<S>,
     stages: Vec<Stage>,
-    checks: Vec<Check>,
     atoms: usize,
     variables: usize,
     empty: bool,
@@ -158,7 +166,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
             }
         }
 
-        let mut plan = Self { tree, stages: Vec::new(), checks: Vec::new(), atoms: atoms.len(), variables: query.num_vars, empty };
+        let mut plan = Self { tree, stages: Vec::new(), atoms: atoms.len(), variables: query.num_vars, empty };
         if empty || atoms.is_empty() {
             return Ok(plan);
         }
@@ -168,9 +176,10 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
             for atom in &atoms {
                 let slots = 1u32 << bits.iter().sum::<u8>();
                 let mut mask = if slots == 64 { u64::MAX } else { (1u64 << slots) - 1 };
-                let check_start = plan.checks.len();
                 let mut owners = [(usize::MAX, 0u32, 0u64); 6];
                 let mut owner_count = 0;
+                let mut checks = [Check::default(); 6];
+                let mut check_count = 0u8;
                 let mut writes = [Write::default(); 3];
                 let mut write_count = 0u8;
                 for d in 0..3 {
@@ -188,7 +197,8 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
                                 {
                                     mask &= !(ones ^ previous);
                                 } else if known[v] & bit != 0 {
-                                    plan.checks.push(Check { variable: v, bit, ones });
+                                    checks[check_count as usize] = Check { variable: v, bit, ones };
+                                    check_count += 1;
                                 } else {
                                     owners[owner_count] = (v, bit, ones);
                                     owner_count += 1;
@@ -204,7 +214,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
                         write_count += 1;
                     }
                 }
-                plan.stages.push(Stage { mask, check_start, check_end: plan.checks.len(), writes, write_count, level });
+                plan.stages.push(Stage { mask, checks, check_count, writes, write_count, level });
             }
         }
         debug_assert!(known.iter().all(|&mask| mask == u32::MAX));
@@ -213,7 +223,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
 
     /// Allocated plan vector capacity, excluding the borrowed tree and struct.
     pub fn allocated_bytes(&self) -> usize {
-        crate::vec_bytes(&self.stages) + crate::vec_bytes(&self.checks)
+        crate::vec_bytes(&self.stages)
     }
 
     /// Stream full bindings in variable-ID order. After workspace warmup this
@@ -304,7 +314,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
         let pos = if depth < self.atoms { Pos::START } else { ws.frames[depth - self.atoms].cursor.position() };
         let cursor = self.tree.prefix_cursor(pos, stage.level);
         let mut remaining = cursor.unskipped & stage.mask;
-        for check in &self.checks[stage.check_start..stage.check_end] {
+        for check in &stage.checks[..stage.check_count as usize] {
             remaining &= if ws.bindings[check.variable] & check.bit != 0 { check.ones } else { !check.ones };
         }
         ws.frames[depth] = Frame { cursor, remaining };
