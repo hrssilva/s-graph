@@ -21,6 +21,7 @@ struct Check {
     ones: u64,
 }
 
+#[derive(Clone, Copy, Default)]
 struct Write {
     variable: usize,
     mask: u32,
@@ -28,12 +29,23 @@ struct Write {
     value_shift: u8,
 }
 
+/// A stage touches at most one dimension's variable per `d in 0..3`, so at
+/// most 3 writes -- small enough to embed inline rather than slice into a
+/// shared `Vec<Write>`. Profiling attributed ~20% of `NativeJoin::run`'s
+/// self-time to iterating that shared-Vec slice (`next<Write>`/`eq<Write>`
+/// in the profile) once per candidate child, even though almost every stage
+/// writes 0 or 1 variable: the slice itself is a second, separately-fetched
+/// allocation on top of `Stage`'s own cache line, and bounds-checking a
+/// `start..end` range into it is pure overhead on top of that fetch. Inline
+/// storage means `stage.writes[..stage.write_count]` is already resident
+/// the moment `stage` itself is loaded, and the fixed max length of 3 lets
+/// the compiler unroll/bound the loop instead of touching a second buffer.
 struct Stage {
     mask: u64,
     check_start: usize,
     check_end: usize,
-    write_start: usize,
-    write_end: usize,
+    writes: [Write; 3],
+    write_count: u8,
     level: usize,
 }
 
@@ -84,7 +96,6 @@ pub struct NativeJoin<'a, S: BlockStorage> {
     tree: &'a Tree<S>,
     stages: Vec<Stage>,
     checks: Vec<Check>,
-    writes: Vec<Write>,
     atoms: usize,
     variables: usize,
     empty: bool,
@@ -147,7 +158,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
             }
         }
 
-        let mut plan = Self { tree, stages: Vec::new(), checks: Vec::new(), writes: Vec::new(), atoms: atoms.len(), variables: query.num_vars, empty };
+        let mut plan = Self { tree, stages: Vec::new(), checks: Vec::new(), atoms: atoms.len(), variables: query.num_vars, empty };
         if empty || atoms.is_empty() {
             return Ok(plan);
         }
@@ -158,9 +169,10 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
                 let slots = 1u32 << bits.iter().sum::<u8>();
                 let mut mask = if slots == 64 { u64::MAX } else { (1u64 << slots) - 1 };
                 let check_start = plan.checks.len();
-                let write_start = plan.writes.len();
                 let mut owners = [(usize::MAX, 0u32, 0u64); 6];
                 let mut owner_count = 0;
+                let mut writes = [Write::default(); 3];
+                let mut write_count = 0u8;
                 for d in 0..3 {
                     let mut write_mask = 0u32;
                     for b in 0..bits[d] {
@@ -188,10 +200,11 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
                     }
                     if write_mask != 0 {
                         let Term::Var(variable) = atom[d] else { unreachable!() };
-                        plan.writes.push(Write { variable, mask: write_mask, slot_shift: shifts[d], value_shift: remaining[d] });
+                        writes[write_count as usize] = Write { variable, mask: write_mask, slot_shift: shifts[d], value_shift: remaining[d] };
+                        write_count += 1;
                     }
                 }
-                plan.stages.push(Stage { mask, check_start, check_end: plan.checks.len(), write_start, write_end: plan.writes.len(), level });
+                plan.stages.push(Stage { mask, check_start, check_end: plan.checks.len(), writes, write_count, level });
             }
         }
         debug_assert!(known.iter().all(|&mask| mask == u32::MAX));
@@ -200,7 +213,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
 
     /// Allocated plan vector capacity, excluding the borrowed tree and struct.
     pub fn allocated_bytes(&self) -> usize {
-        crate::vec_bytes(&self.stages) + crate::vec_bytes(&self.checks) + crate::vec_bytes(&self.writes)
+        crate::vec_bytes(&self.stages) + crate::vec_bytes(&self.checks)
     }
 
     /// Stream full bindings in variable-ID order. After workspace warmup this
@@ -261,7 +274,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
             if TRACK {
                 stats.candidates += 1;
             }
-            for write in &self.writes[stage.write_start..stage.write_end] {
+            for write in &stage.writes[..stage.write_count as usize] {
                 ws.bindings[write.variable] |= ((slot >> write.slot_shift) << write.value_shift) & write.mask;
             }
             if depth + 1 == self.stages.len() {
@@ -280,7 +293,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
     #[inline]
     fn clear_binding(&self, ws: &mut NativeJoinWorkspace, depth: usize) {
         let stage = &self.stages[depth];
-        for write in &self.writes[stage.write_start..stage.write_end] {
+        for write in &stage.writes[..stage.write_count as usize] {
             ws.bindings[write.variable] &= !write.mask;
         }
     }

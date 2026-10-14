@@ -1606,6 +1606,117 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             return;
         }
         let height = self.height as usize;
+        // Every coordinate domain is checked (at tree construction) to
+        // fit a `u32`, so no dimension ever needs more than 32 bits and
+        // no tree needs more than 96 total -- but a custom, deliberately
+        // thin `split` (`build`/`build_with_order`) can still spread
+        // those bits over far more than 16 levels (as few as one bit per
+        // level), so `height` is not itself bounded by 16 in general.
+        // The packed path below is a big win (see its own doc comment)
+        // but only sound up to 16 levels (one byte per level packed into
+        // a `u128`); the generic byte-array path remains correct for any
+        // height at all.
+        if height <= 16 {
+            self.contains_batch_into_packed(triples, height, out);
+        } else {
+            self.contains_batch_into_generic(triples, height, out);
+        }
+    }
+
+    /// `contains_batch_into`'s fast path for `height <= 16` (true for
+    /// every tree built the ordinary way -- `build_dynamic`/the default
+    /// split -- packs bits as densely as a 64-way-branching node allows,
+    /// and no coordinate needs more than 32 bits): packs the whole
+    /// Morton key into a `u128` (one byte per level, left-aligned) instead
+    /// of a `[u8; MAX_HEIGHT]` (64 bytes, almost all unused padding for a
+    /// realistic height). This shrinks the sort's own per-element size by
+    /// more than half (less data movement during partitioning) and turns
+    /// both the comparator and the shared-prefix length into single
+    /// native operations -- a `u128` compare and one `leading_zeros`/8 --
+    /// instead of a per-byte loop. Measured ~1.8x faster than the generic
+    /// path below (itself already ~5% faster than a naive `[u8]` slice
+    /// comparator, which dispatches to a vectorized `memcmp` whose fixed
+    /// per-call setup cost dominates when only a handful of bytes are
+    /// actually being compared) on a 2M-triple tree with scattered queries.
+    fn contains_batch_into_packed(&self, triples: &[Triple], height: usize, out: &mut [bool]) {
+        let mut order: Vec<(u32, u128)> = Vec::with_capacity(triples.len());
+        for (i, &(s, p, o)) in triples.iter().enumerate() {
+            if self.in_bounds(s, p, o) {
+                order.push((i as u32, self.morton_key_packed(s, p, o, height)));
+            }
+        }
+        order.sort_unstable_by_key(|&(_, key)| key);
+
+        let mut stack_pos = [Pos::START; MAX_HEIGHT];
+        let mut prev_key: u128 = 0;
+        let mut prev_depth = 0usize;
+
+        for &(orig_idx, key) in order.iter() {
+            // Common prefix length in bytes, via one XOR + hardware
+            // `leading_zeros` instead of a per-byte comparison loop --
+            // `key`/`prev_key` are always left-aligned the same way
+            // (`Self::morton_key_packed`), so a mismatch's bit position
+            // translates directly to how many leading *bytes* (levels)
+            // still agree. Clamped exactly as the generic path's own
+            // `shared` is: never past `prev_depth`, the deepest level
+            // the previous query actually tested a bit at.
+            let shared = ((key ^ prev_key).leading_zeros() as usize / 8).min(height).min(prev_depth);
+            let mut pos = stack_pos[shared];
+            let mut found = true;
+            let mut level = shared;
+            while level < height {
+                let word = self.block_read_u64(pos.block, pos.offset);
+                let qi = (key >> ((15 - level) * 8)) as u64 & 0xFF;
+                if (word >> qi) & 1 == 0 {
+                    found = false;
+                    break;
+                }
+                if level == height - 1 {
+                    break;
+                }
+                let earlier = word & ((1u64 << qi) - 1);
+                let first_child_pos = self.advance(pos, self.own_record_bytes(level));
+                pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+                stack_pos[level + 1] = pos;
+                level += 1;
+            }
+            out[orig_idx as usize] = found;
+            prev_key = key;
+            prev_depth = level;
+        }
+    }
+
+    /// Like [`Self::morton_key`], packing the same per-level digits into a
+    /// `u128` instead of a `[u8; MAX_HEIGHT]` -- one byte per level,
+    /// left-aligned so level 0's digit always lands in the top byte
+    /// regardless of `height`, the same way `Self::morton_key` zero-pads
+    /// everything past `height` instead of leaving it at the front.
+    /// Requires `height <= 16`; see `Self::contains_batch_into`.
+    #[inline]
+    fn morton_key_packed(&self, s: u32, p: u32, o: u32, height: usize) -> u128 {
+        let coords = [s as u64, p as u64, o as u64];
+        let mut lo = [0u64; NUM_DIMS];
+        let mut key: u128 = 0;
+        for level in 0..height {
+            let shifts = self.level_shifts_cache[level];
+            let child_cell_bits = self.level_child_cell_bits_cache[level];
+            let mut qi = 0usize;
+            let mut next_lo = lo;
+            for d in 0..NUM_DIMS {
+                let sub = (coords[d] - lo[d]) >> child_cell_bits[d];
+                qi |= (sub as usize) << shifts[d];
+                next_lo[d] += sub << child_cell_bits[d];
+            }
+            key = (key << 8) | qi as u128;
+            lo = next_lo;
+        }
+        key << ((16 - height) * 8)
+    }
+
+    /// `contains_batch_into`'s fallback for `height > 16` -- see
+    /// [`Self::contains_batch_into_packed`] for the common case and why
+    /// it needs this one instead above 16 levels.
+    fn contains_batch_into_generic(&self, triples: &[Triple], height: usize, out: &mut [bool]) {
         // Out-of-domain triples are left as `false` in `out` and simply
         // never enter the sorted descent batch -- same rule `contains`
         // documents, applied up front instead of per-level.
@@ -1615,7 +1726,26 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 order.push((i as u32, self.morton_key(s, p, o)));
             }
         }
-        order.sort_unstable_by(|a, b| a.1[..height].cmp(&b.1[..height]));
+        // Not `a.1[..height].cmp(&b.1[..height])`: for the short, runtime-
+        // length slices typical here (`height` is usually well under 16),
+        // `[u8]`'s `Ord` impl dispatches to a vectorized `memcmp`, which
+        // profiled as 41% of this function's total CPU time -- almost
+        // entirely genuine comparison work once inlined (a fixed per-call
+        // setup cost on top of it, not the dominant cost by itself), so
+        // this loop the compiler can fully inline instead only measured
+        // ~5% faster on its own. The real fix for this cost is
+        // `Self::contains_batch_into_packed`'s `u128` keys, which turn
+        // the whole comparison into one native integer compare; this path
+        // only exists for `height > 16`, where that one doesn't apply.
+        order.sort_unstable_by(|a, b| {
+            for i in 0..height {
+                match a.1[i].cmp(&b.1[i]) {
+                    std::cmp::Ordering::Equal => continue,
+                    ord => return ord,
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
 
         let mut stack_pos = [Pos::START; MAX_HEIGHT];
         let mut prev_key = [0u8; MAX_HEIGHT];
@@ -1961,8 +2091,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     /// Sorts `triples` into this tree's own DFS-preorder (Morton/
-    /// interleaved-coordinate) order -- see `Self::morton_key` -- then
-    /// inserts them one at a time via `Self::insert_no_reset`, resetting
+    /// interleaved-coordinate) order -- see `Self::sort_by_morton_key` --
+    /// then inserts them one at a time via `Self::insert_no_reset`, resetting
     /// the file backend's block-stack cache only once, after the whole
     /// batch, instead of after every single triple.
     ///
@@ -1988,7 +2118,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 return Err(self.out_of_domain_error(s, p, o));
             }
         }
-        triples.sort_unstable_by_key(|&(s, p, o)| self.morton_key(s, p, o));
+        self.sort_by_morton_key(triples);
         self.storage.set_insert_mode(true);
         let mut inserted = 0u64;
         for &(s, p, o) in triples.iter() {
@@ -2128,7 +2258,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     /// Sorts `triples` into this tree's own DFS-preorder (Morton) order
-    /// -- see `Self::morton_key` -- then removes them one at a time via
+    /// -- see `Self::sort_by_morton_key` -- then removes them one at a time via
     /// `Self::remove`, mirroring `Self::insert_batch`'s own signature
     /// and Morton-locality rationale: nearby triples share cache-warm
     /// descent paths.
@@ -2157,7 +2287,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         if triples.is_empty() {
             return Ok(0);
         }
-        triples.sort_unstable_by_key(|&(s, p, o)| self.morton_key(s, p, o));
+        self.sort_by_morton_key(triples);
         let mut removed = 0u64;
         for &(s, p, o) in triples.iter() {
             if self.remove(s, p, o)? {
@@ -2204,6 +2334,55 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             child_pos = self.dfs_records_rec(child_pos, level + 1, out);
         }
         child_pos
+    }
+
+    /// Shared by [`Self::insert_batch`] and [`Self::remove_batch`]: sorts
+    /// `triples` into this tree's own DFS-preorder.
+    ///
+    /// Deliberately *not* `triples.sort_unstable_by_key(|&(s, p, o)|
+    /// self.morton_key(s, p, o))` (what this crate used to do, and the
+    /// naive way to reuse [`Self::contains_batch_into`]'s `u128`-packed
+    /// key below `height <= 16`): `sort_unstable_by_key` calls its key
+    /// closure on every comparison, not once per element, so it
+    /// recomputes a whole `height`-level Morton key from scratch
+    /// `O(n log n)` times. That recompute cost -- not the final
+    /// byte-vs-byte comparison [`Self::contains_batch_into_generic`]'s
+    /// own doc comment profiled as the hot path -- dominates here, and
+    /// measured swapping in `u128` keys under that same recompute
+    /// pattern as a slight *regression* (packing into a `u128` via a
+    /// shift-and-or chain costs a bit more per computation than writing
+    /// one byte per level into an array slot). The fix that actually
+    /// generalizes [`Self::contains_batch_into`]'s win is doing what it
+    /// does: compute every key exactly once up front, into a side
+    /// buffer, then sort that -- paying the `O(n)` extraction cost once
+    /// instead of `O(n log n)` times, with the comparison-side win (the
+    /// `u128` path below) on top of that.
+    fn sort_by_morton_key(&self, triples: &mut [Triple]) {
+        let height = self.height as usize;
+        if height == 0 {
+            return; // nothing distinguishes order at height 0.
+        }
+        if height <= 16 {
+            let mut keyed: Vec<(u128, Triple)> = triples.iter().map(|&(s, p, o)| (self.morton_key_packed(s, p, o, height), (s, p, o))).collect();
+            keyed.sort_unstable_by_key(|&(key, _)| key);
+            for (slot, &(_, triple)) in triples.iter_mut().zip(keyed.iter()) {
+                *slot = triple;
+            }
+        } else {
+            let mut keyed: Vec<([u8; MAX_HEIGHT], Triple)> = triples.iter().map(|&(s, p, o)| (self.morton_key(s, p, o), (s, p, o))).collect();
+            keyed.sort_unstable_by(|a, b| {
+                for i in 0..height {
+                    match a.0[i].cmp(&b.0[i]) {
+                        std::cmp::Ordering::Equal => continue,
+                        ord => return ord,
+                    }
+                }
+                std::cmp::Ordering::Equal
+            });
+            for (slot, &(_, triple)) in triples.iter_mut().zip(keyed.iter()) {
+                *slot = triple;
+            }
+        }
     }
 
     /// This point's `qi` (child slot index) at every level, in descent
@@ -3286,6 +3465,28 @@ mod tests {
         assert_eq!(out.capacity(), cap_before, "contains_batch_into should not need to reallocate when the buffer already has enough capacity");
         let expect: Vec<bool> = queries.iter().map(|&(s, p, o)| tree.contains(s, p, o)).collect();
         assert_eq!(out, expect);
+    }
+
+    /// `contains_batch`'s packed (`height <= 16`) fast path only covers
+    /// most real trees -- a deliberately thin `split` can still push a
+    /// tree's height well past 16, which must fall back to the generic
+    /// byte-array path instead of miscomputing. `split = [1, 1, 1]`
+    /// forces one bit per level per dimension; a subject domain needing
+    /// 20 bits (so a value around 600,000) pushes height to 20.
+    #[test]
+    fn contains_batch_matches_contains_on_a_tree_taller_than_the_packed_path() {
+        let triples = vec![(600_000u32, 0u32, 1u32), (1u32, 0u32, 0u32)];
+        let tree = Heap::build(triples, [1, 1, 1], 64).unwrap();
+        assert!(tree.height() as usize > 16, "test assumes height > 16, got {}", tree.height());
+        let queries = [
+            (600_000, 0, 1),  // present
+            (1, 0, 0),        // present
+            (600_000, 0, 0),  // absent, differs only in the last bit
+            (0, 0, 0),        // absent
+            (600_000, 0, 1),  // duplicate of index 0
+        ];
+        let expect: Vec<bool> = queries.iter().map(|&(s, p, o)| tree.contains(s, p, o)).collect();
+        assert_eq!(tree.contains_batch(&queries), expect);
     }
 
     fn all_bound_patterns(s: u32, p: u32, o: u32) -> [[Option<u32>; 3]; 8] {

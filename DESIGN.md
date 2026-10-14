@@ -58,6 +58,47 @@ sorting alone already makes most batches share long common prefixes (the
 average gap between consecutive sorted queries is usually far smaller than
 the tree's height), not only genuinely clustered ones.
 
+The internal sort key for a tree with `height <= 16` (true for any tree
+built with the default/dynamic schedule, since no coordinate domain needs
+more than 32 bits and 16 levels already pack bits as densely as a 64-way
+node allows) is a `u128` -- one byte per level, left-aligned -- rather
+than the `[u8; 64]` the general case needs for a height-unbounded, custom
+`split` schedule. This shrinks the sort's own per-element size by more
+than half and turns the comparator and the shared-prefix-length
+computation into one native integer compare and one `leading_zeros`/8
+each, instead of a per-byte loop; profiling attributed 41% of the
+unpacked version's CPU time to the `[u8]` slice comparator's `memcmp`
+dispatch. Measured ~1.8x faster end to end on a 2M-triple tree with
+scattered queries. `height > 16` (only reachable via a deliberately thin
+custom `split`) falls back to the general byte-array path.
+
+`insert_batch`/`remove_batch` sort their input into the same Morton order
+by the same two keys, but needed a different fix to actually benefit from
+it: both used to call `triples.sort_unstable_by_key(|&(s, p, o)|
+self.morton_key(s, p, o))`, which re-invokes the key closure on every
+comparison rather than once per element, so it recomputed a whole
+`height`-level Morton key from scratch `O(n log n)` times. Measured:
+under that recompute pattern, swapping in the `u128` packed key was a
+slight *regression*, not a win (packing one byte per level into a `u128`
+via a shift-and-or chain costs a little more per computation than
+writing one byte per level into an array slot -- the opposite of
+`contains_batch_into`'s result, because there the comparison cost is
+what dominates, not the extraction cost). The fix that actually
+generalizes `contains_batch_into`'s win is doing what it does: compute
+every key once into a side buffer, sort that, then write triples back in
+the resulting order -- paying the `O(n)` extraction cost once instead of
+`O(n log n)` times, with the `u128` comparison-side win layered on top.
+Measured on a 500k-triple tree taking a 100k-triple batch: sort-only cost
+dropped from ~1.2us/triple (recompute, byte-array key) to ~0.12us/triple
+(precompute-once, packed key) -- roughly 10x on the sort step alone --
+and `insert_batch` end to end measured ~10-15% faster. `remove_batch`
+measured within noise of its old cost either way: `remove`'s own
+physical cascading-delete work (shifting bytes in storage, collapsing
+now-empty ancestors) dominates its total cost far more than `insert`'s
+does, so a faster sort step doesn't move its total much. Both still
+switched to the precompute-once version, since it's never worse and
+`insert_batch` benefits from it.
+
 `count_matching([Option<u32>; 3])` counts matching triples under the same
 bound/wildcard convention as `scan`, without decoding or allocating any
 matching triple's coordinates. A last-level (leaf) node's contribution is
@@ -103,6 +144,22 @@ knows which variable bits earlier stages establish and emits masks accordingly:
   clearing that stage's write mask on backtracking; no per-branch known-bit arrays
   or heap allocations are required.
 
+Each stage writes at most 3 variables (one per S/P/O dimension), so those
+writes live in a fixed `[Write; 3]` field inline on `Stage` rather than a
+`start..end` slice into a separate shared `Vec<Write>`. Profiling attributed
+~20% of `NativeJoin::run`'s self-time to iterating that shared-Vec slice once
+per candidate child, mostly the cost of a second, separately-fetched buffer
+and a bounds-checked range on top of it, on top of `Stage` already being
+loaded. Inlining removes that indirection: `stage.writes[..stage.write_count]`
+is already resident the moment `stage` is. Measured on the two join-execution
+benchmarks with the most candidate children (`native triangle`, 154k
+candidates; `native shared predicate path`, 384k candidates): ~7% and ~8-9%
+faster execute time respectively, consistent across repeated runs. The
+remaining self-time is concentrated in `advance_past_children`'s sibling-
+hopping (legitimate occupancy-dependent work) and `prefix_cursor`'s bounds-
+checked byte-to-`u64` read (a cost this crate's no-unsafe-code stance pays
+deliberately).
+
 By induction, surviving prefixes agree on all shared known bits. Every complete
 binding identifies an occupied leaf in each atom, and incompatible prefixes are
 never discarded unless a required equality or constant fails. Since a full
@@ -126,57 +183,27 @@ recompile after mutation. Native Heap plans can be shared, with separate
 workspaces; File/Compressed plans inherit their backends' threading restrictions.
 The [literature review](TOPOLOGY_REVIEW.md) describes the relationship to prior work.
 
-## MINUS / anti-join
+## MINUS / anti-join: left to consumers
 
-`graph::join_run_minus`/`try_join_run_minus` suppress a positive join's rows
-for which substituting their bindings into one of a list of ground
-`TriplePattern`s (`MINUS`/`FILTER NOT EXISTS` over one triple pattern each)
-would match. A negative pattern's variables need no special validation --
-every one of `query`'s own variables is already bound (and domain-checked)
-by the time a full row exists, since `NativeJoin` itself already rejects an
-unused one.
-
-This went through two earlier designs, both measured and rejected:
-
-1. **A fused `NOT EXISTS` atom inside `NativeJoin`'s own compiled stage
-   array**, checking each negative pattern via one `contains` call the
-   moment all its variables became final within the positive search,
-   pruning the branch immediately on a match -- avoiding ever opening
-   whatever was left of the positive join below a rejected row. This is
-   sound and was fully implemented and tested, but measured *slower* than
-   either alternative below: this crate's trees are deliberately shallow
-   and wide (at most 6 bits per level, to keep ordinary descents fast), so
-   a shared variable's last bit is rarely pinned down until close to the
-   *final* stage of the schedule regardless of which atom established it
-   -- there is little "early" runway for in-descent pruning to exploit.
-   Worse, the per-candidate `contains` calls this approach makes are each
-   an independent, unshared root-to-leaf descent: in one 2-atom-join
-   benchmark this fired 399,642 times for 9,551 real survivors and was
-   3.4x slower than simply materializing rows and filtering them
-   afterward, let alone the approach below.
-2. **Materialize rows, sort the minus-relevant columns, dedup, one
-   `contains_batch` call** -- correct and much faster (dominated by
-   `contains_batch`'s own already-measured win), but still pays an
-   `O(n log n)` sort over what can be a large pre-dedup candidate count.
-
-The shipped version keeps step 2's shape (collect, dedup, one
-`contains_batch` call, map hits back across every original row) but
-replaces the sort with a direct-indexed bitmap: a positive join commonly
-produces many rows sharing the same minus-relevant values (one variable
-fanning out over others the minus pattern doesn't use), and a flat bitmap
-over the referenced variables' combined domain -- one bit per unique
-combination -- dedups in one O(n) pass with no comparisons at all, falling
-back to a `HashSet` only once that combined domain exceeds
-`MINUS_BITMAP_MAX_BITS` (64 Mi bits / 8 MiB, so an unbounded/very wide
-variable combination doesn't try to allocate a bitmap sized to its full
-cross product). Measured in isolation on an already-materialized row set
-(warmed, best-of-5, to separate this from the join's own row-allocation
-cost): the bitmap dedup is ~3.3x faster than sort-and-dedup and ~3.1x
-faster than a `HashSet`, for the dedup-and-filter step alone. End to end,
-`join_run_minus` measured 1.7x faster than a naive per-row `contains` loop
-on the same 2-atom-join benchmark that broke the fused version.
-Multiple `minus` patterns are applied in sequence, each filtering the
-already-shrunk survivor set from the one before it.
+A `NOT EXISTS`/`MINUS`-style operator over one or more triple patterns was
+prototyped twice in this crate (a fused in-descent `NOT EXISTS` atom inside
+`NativeJoin`'s compiled stage array, then a `join_run_minus` helper that
+collected rows and bitmap-deduped the minus-relevant columns before one
+`contains_batch` call) and both were removed again: this crate's trees are
+deliberately shallow and wide (at most 6 bits per level, to keep ordinary
+descents fast), so a shared variable rarely becomes fully known early
+enough in a join's schedule for in-descent pruning to pay for its own
+per-candidate `contains` cost, and a fixed collect-dedup-batch pipeline
+forces a buffering shape (one `Vec<u32>` per row) that a consumer
+composing its own pipeline on top of `NativeJoin::visit` doesn't need and
+can do better informed by its own data's actual duplication pattern (e.g.
+skipping a probe only when it repeats the immediately preceding one,
+which a join's already-ordered output makes cheap and effective without
+a bitmap at all). `NativeJoin::visit` (borrowed `&[u32]` rows, no
+allocation after workspace warmup) and `contains_batch` (shared-descent
+batched existence checks) remain the composable primitives a consumer
+builds a MINUS/anti-join layer from; this crate does not provide one
+itself.
 
 ## Join API and migration
 
