@@ -153,43 +153,61 @@ fn restriction_allows_zero(r: DimRestriction) -> bool {
     }
 }
 
+/// Clips `[val_lo, val_hi]` to the value span this level's node covers
+/// for one dimension (`[lo_d, lo_d + width * 2^cell_bits - 1]`) and
+/// returns the resulting contiguous sub-index run as `(start, len)`,
+/// or `None` if the range misses the span entirely. The clip against
+/// `covered_hi` is what keeps this safe against an out-of-domain
+/// `val_hi` -- the sub-index is always derived from the clipped value,
+/// never the raw input, so `start + len` can never exceed `width`.
 #[inline]
-fn full_sub_mask(width: u32) -> u64 {
-    if width >= 64 { u64::MAX } else { (1u64 << width) - 1 }
-}
-
-/// Clips `[val_lo, val_hi]` to the value span this level's node
-/// covers for one dimension (`[lo_d, lo_d + width * 2^cell_bits - 1]`)
-/// and returns the resulting contiguous run of sub-indices as a
-/// bitmask (`0` if the range misses the span entirely). The clip
-/// against `covered_hi` is what keeps this safe against an
-/// out-of-domain `val_hi` -- the sub-index is always derived from the
-/// clipped value, never the raw input, so it can never exceed `width`.
-#[inline]
-fn contiguous_run(val_lo: u32, val_hi: u32, lo_d: u64, cell_bits: u8, width: u32) -> u64 {
+fn contiguous_range(val_lo: u32, val_hi: u32, lo_d: u64, cell_bits: u8, width: u32) -> Option<(u32, u32)> {
     let cell = 1u64 << cell_bits;
     let covered_hi = lo_d + (width as u64) * cell - 1;
     let clipped_lo = (val_lo as u64).max(lo_d);
     let clipped_hi = (val_hi as u64).min(covered_hi);
     if clipped_lo > clipped_hi {
-        return 0;
+        return None;
     }
     let sub_lo = ((clipped_lo - lo_d) >> cell_bits) as u32;
     let sub_hi = ((clipped_hi - lo_d) >> cell_bits) as u32;
-    full_sub_mask(sub_hi - sub_lo + 1) << sub_lo
+    Some((sub_lo, sub_hi - sub_lo + 1))
 }
 
-/// One dimension's contribution to [`restriction_mask`]: which of this
-/// level's `width` sub-indices does `restriction` allow, given this
-/// node's own position `lo_d` in that dimension.
+/// Expands `mask` into `run_len` copies, each `1 << shift` bits apart,
+/// starting at sub-index `start` -- i.e. the OR of `mask << ((start +
+/// k) << shift)` for every `k` in `0..run_len`. Builds it via repeated
+/// doubling (double-and-add on `run_len`'s own bits, the standard fast-
+/// exponentiation shape) in `O(log run_len)` iterations instead of one
+/// shift-and-OR per copy (`O(run_len)`, up to 64 for a `Free`
+/// dimension at this crate's max branching) -- this is the loop
+/// `restriction_mask` used to run once per copy; measured at ~35% of
+/// `Range`/`Multi` restricted descent's self-time (see `DESIGN.md`)
+/// before this, concentrated exactly here since `Free`/wide `Range`
+/// dimensions are the common case.
 #[inline]
-fn restriction_sub_mask(restriction: DimRestriction, lo_d: u64, cell_bits: u8, width: u32) -> u64 {
-    match restriction {
-        DimRestriction::Free => full_sub_mask(width),
-        DimRestriction::Exact(v) => 1u64 << ((v as u64 - lo_d) >> cell_bits),
-        DimRestriction::Range(a, b) => contiguous_run(a, b, lo_d, cell_bits, width),
-        DimRestriction::Multi(ranges) => ranges.iter().fold(0u64, |acc, &(a, b)| acc | contiguous_run(a, b, lo_d, cell_bits, width)),
+fn expand_run(mask: u64, start: u32, run_len: u32, shift: u8) -> u64 {
+    if run_len == 0 {
+        return 0;
     }
+    let mut block = mask << ((start as u64) << shift);
+    let mut block_size: u64 = 1;
+    let mut remaining = run_len;
+    let mut offset: u64 = 0;
+    let mut acc = 0u64;
+    loop {
+        if remaining & 1 == 1 {
+            acc |= block << (offset << shift);
+            offset += block_size;
+        }
+        remaining >>= 1;
+        if remaining == 0 {
+            break;
+        }
+        block |= block << (block_size << shift);
+        block_size *= 2;
+    }
+    acc
 }
 
 /// The `DimRestriction`-based generalization of [`bound_mask`] below:
@@ -204,15 +222,18 @@ fn restriction_mask(dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], lo: [u64; 
     let mut mask: u64 = 1;
     for d in 0..NUM_DIMS {
         let width = 1u32 << dim_bits[d];
-        let sub_bits = restriction_sub_mask(restrictions[d], lo[d], child_cell_bits[d], width);
-        let mut new_mask = 0u64;
-        let mut bits = sub_bits;
-        while bits != 0 {
-            let sub = bits.trailing_zeros() as u64;
-            bits &= bits - 1;
-            new_mask |= mask << (sub << shifts[d]);
-        }
-        mask = new_mask;
+        mask = match restrictions[d] {
+            DimRestriction::Free => expand_run(mask, 0, width, shifts[d]),
+            DimRestriction::Exact(v) => mask << (((v as u64 - lo[d]) >> child_cell_bits[d]) << shifts[d]),
+            DimRestriction::Range(a, b) => match contiguous_range(a, b, lo[d], child_cell_bits[d], width) {
+                Some((start, run_len)) => expand_run(mask, start, run_len, shifts[d]),
+                None => 0,
+            },
+            DimRestriction::Multi(ranges) => ranges.iter().fold(0u64, |acc, &(a, b)| match contiguous_range(a, b, lo[d], child_cell_bits[d], width) {
+                Some((start, run_len)) => acc | expand_run(mask, start, run_len, shifts[d]),
+                None => acc,
+            }),
+        };
     }
     mask
 }
@@ -283,28 +304,36 @@ fn static_schedule(mut remaining: [u8; NUM_DIMS], split: [u8; NUM_DIMS]) -> Vec<
     level_dim_bits
 }
 
-/// Used by `build_dynamic`/`build_dynamic_bounded`. Each
-/// level's `BASE`-bit budget is split among whichever dimensions still
-/// have unconsumed bits ("active"), weighted by each active dimension's
-/// *own remaining bit count* rather than split evenly -- a dimension
-/// that exhausts early (small domain, e.g. a predicate) still drops out
-/// and its share is picked up by whichever dimensions remain active,
-/// exactly as the even-split version this replaced already did; only the
-/// per-level ratio changed. Was an even split (`budget / active.len()`)
-/// until measured: for domains where the dimension a caller later pins
-/// alone (e.g. subject, in `restricted_descent*([Exact(s), Free, Free],
-/// ..)`) has a bit count comparable to the free dimensions', an even
-/// split spreads that dimension's identity across nearly the entire
-/// tree height, so a node partway down mixes together every entity
-/// sharing the path's bits so far, not just the one a later query pins
-/// -- see `DESIGN.md`'s `one-Exact` investigation for the full
-/// mechanism. Weighting by size resolves large dimensions' identity
-/// faster in practice (fewer distinct values still sharing a given
-/// prefix at a given depth) without needing any dimension to formally
-/// hit zero bits early, at no height cost (same height as the even
-/// split, confirmed at 2M/20M triples) and only a small, measured
-/// mutation-cost increase (`insert`/`remove` ~7-15% slower) against a
-/// multi-x improvement on every query shape measured.
+/// Used by `build_dynamic`/`build_dynamic_bounded`. Each level's
+/// `BASE`-bit budget is split *evenly* across whichever dimensions
+/// still have unconsumed bits ("active"); a dimension that exhausts
+/// early (small domain, e.g. a predicate) drops out and its share is
+/// picked up by whichever dimensions remain active.
+///
+/// Briefly weighted each active dimension's share by its own remaining
+/// bit count instead of splitting evenly -- measured as a multi-x win
+/// on every query shape tested (see `DESIGN.md`'s `one-Exact`
+/// investigation), but every one of those benchmarks used *symmetric*
+/// domains (equal subject/object size). A real store-team workload
+/// with asymmetric domains (far fewer distinct subjects than objects)
+/// hit the case that testing never covered: weighting by size means
+/// whichever dimension happens to be *larger* takes more levels to
+/// fully resolve regardless of its bigger per-level share (more total
+/// bits still needs more total capacity), so pinning the larger
+/// dimension got dramatically *slower* (`scan(?,?,o)` 3.2-4.3x) at the
+/// same time pinning the smaller one got faster -- a 16x slowdown on
+/// joins that chain through the now-expensive dimension, confirmed by
+/// reproducing it directly (`20,000` subjects against `2,000,000`
+/// objects: weighted gave 3.22ms for an object-bound scan returning a
+/// handful of rows against 704us for a subject-bound scan returning
+/// hundreds, backwards from what a general-purpose default can ever
+/// assume is safe). Reverted to even split, which treats both
+/// directions identically regardless of which happens to be larger in
+/// a caller's actual data -- confirmed to exactly reproduce this
+/// crate's pre-change baseline on the same asymmetric case. A weighting
+/// heuristic that's actually safe across domain shapes remains
+/// unsolved, not attempted again without validating against asymmetric
+/// domains from the start.
 fn dynamic_schedule(mut remaining: [u8; NUM_DIMS]) -> Vec<[u8; NUM_DIMS]> {
     let mut level_dim_bits = Vec::new();
     while remaining.iter().any(|&r| r > 0) {
@@ -315,13 +344,12 @@ fn dynamic_schedule(mut remaining: [u8; NUM_DIMS]) -> Vec<[u8; NUM_DIMS]> {
             if active.is_empty() || budget == 0 {
                 break;
             }
-            let total_active: u32 = active.iter().map(|&d| remaining[d] as u32).sum();
+            let share = (budget / active.len() as u8).max(1);
             let mut progressed = false;
             for &d in &active {
                 if budget == 0 {
                     break;
                 }
-                let share = ((budget as u32 * remaining[d] as u32) / total_active.max(1)).max(1) as u8;
                 let take = share.min(remaining[d]).min(budget);
                 if take > 0 {
                     this_level[d] += take;
@@ -4043,6 +4071,41 @@ mod tests {
         expect.sort_unstable();
         expect.dedup();
         assert_eq!(got, expect, "a range straddling the domain edge must clip to the in-domain portion, not panic or overshoot");
+    }
+
+    /// `expand_run`'s doubling construction against a naive reference
+    /// (one shift-and-OR per copy, exactly what it replaced) across
+    /// every `(start, run_len, shift)` combination that can actually
+    /// occur in real use: a dimension's own word position is always
+    /// `sub << shift` for `sub` in `0..width`, and `width << shift`
+    /// (the whole dimension's span within the word) can never exceed
+    /// 64 bits total -- so `start + run_len` is bounded by `64 >>
+    /// shift`, not 64 independent of `shift`. Includes the full-width
+    /// edge case at each shift (`start=0, run_len=64>>shift`) the
+    /// doubling loop's `remaining`-bit decomposition has to handle
+    /// without overflow.
+    #[test]
+    fn expand_run_matches_naive_reference_at_every_run_and_shift() {
+        fn naive(mask: u64, start: u32, run_len: u32, shift: u8) -> u64 {
+            let mut acc = 0u64;
+            for k in 0..run_len {
+                acc |= mask << (((start + k) as u64) << shift);
+            }
+            acc
+        }
+        for shift in 0u8..=6 {
+            let max_width = 64u32 >> shift;
+            for start in 0..max_width {
+                for run_len in 0..=(max_width - start) {
+                    let mask = 0xA5u64; // an arbitrary non-trivial bit pattern, not just a single bit
+                    assert_eq!(
+                        expand_run(mask, start, run_len, shift),
+                        naive(mask, start, run_len, shift),
+                        "start={start} run_len={run_len} shift={shift}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

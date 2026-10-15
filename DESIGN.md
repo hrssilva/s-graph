@@ -452,7 +452,10 @@ specifically, with this restructuring an independent, stacking
 improvement on every shape at every scale measured.
 
 **Generalizing the schedule fix: weight by size instead of picking a
-caller-specified split.** The `[3,1,2]`/`[4,1,1]` experiments above
+caller-specified split.** (**Reverted** -- see "Reverted: the
+size-weighted schedule" further below. Kept here as the historical
+record of what was measured and why it looked like a strict win on the
+data tested; it wasn't one in general.) The `[3,1,2]`/`[4,1,1]` experiments above
 required a caller to already know which dimension their workload
 usually pins alone, and `[4,1,1]`'s dramatic `one-Exact` win came with
 a real cost (height 16, `contains` 63% slower) because `static_schedule`
@@ -499,9 +502,117 @@ Giving the larger dimensions more bits per level resolves their
 identity faster in practice -- fewer distinct values still mixed
 together at any given depth -- which shrinks the real sibling count at
 every node along the way, independent of whether any dimension's bit
-budget has formally reached zero yet. This is now `build_dynamic`'s
-only schedule; the static-split experiments remain documented above as
-what was tried first and what they cost, not as a live recommendation.
+budget has formally reached zero yet. This held up at every scale and
+every query shape *tested* -- but, as the revert note below covers,
+every one of those tests used symmetric domains, which turned out to
+be exactly the blind spot that mattered. The static-split experiments
+remain documented above as what was tried first and what they cost,
+not as a live recommendation.
+
+### Re-profiling after both fixes, and a smaller-than-hoped win in `restriction_mask`
+
+Re-profiled `two-Exact`/`one-Exact`/`Range` after the `remaining & mask`
+restructuring and the size-weighted schedule landed, to see where the
+remaining cost sits once the two big fixes stopped dominating it.
+Normalized to exclude build-time contamination (query time didn't
+fully dominate build time in this run, so `build_rec` and friends still
+show up at 20-33% of raw samples): `two-Exact`'s cost is now mostly
+`BlockIndex::locate` (52% of query-only time, *up* from 42% before --
+everything else shrank more than it did), `one-Exact`'s is mostly
+`child_span_end` (51%) plus, newly visible, `restricted_descent_into`'s
+own `sort_unstable`/`dedup`/push bookkeeping (29%, not prominent before
+because the traversal used to dwarf it), and `Range`'s is mostly
+`restriction_mask` (35%, unchanged by either fix -- neither touched it).
+
+`restriction_mask`'s per-dimension expansion loop built a mask by OR-ing
+one shifted copy of the running `mask` per allowed sub-index --
+`O(run_len)` shift-and-OR operations, up to 64 for a `Free` dimension
+at this crate's max per-level branching. Replaced with `expand_run`
+(`src/tree.rs`), which builds the same result via repeated doubling
+(the standard double-and-add construction used for fast exponentiation)
+in `O(log run_len)` -- `Free`/`Range` always produce a single
+contiguous run so they take this path directly; `Multi` decomposes into
+its separate ranges and takes it once per range. Verified exhaustively,
+not just via the existing end-to-end `Range`/`Multi` tests (which may
+not reliably exercise every `(start, run_len, shift)` combination,
+particularly the full-width edge case at `run_len = 64`): a new test
+compares `expand_run` against a naive one-shift-per-copy reference
+across every valid combination the real bit-packing can produce
+(`start + run_len <= 64 >> shift`, `shift` 0..=6), not a sample of them.
+
+Measured (A/B, same tree, same queries, 20,000,000 triples): `Range`
+went from 24,649 ns/call to 22,525 ns/call -- a real but modest 8.6%,
+well short of what `restriction_mask`'s 35%-of-self-time share might
+suggest. Why the gap: that 35% was measured against real per-level
+widths, and with the schedule now splitting its 6-bit budget across up
+to three active dimensions, a single dimension's own width at a given
+level is usually small (2-3 bits, width 4-8) -- the `O(run_len)` vs.
+`O(log run_len)` difference is real at that size but nowhere near the
+difference it'd make at the rare width-64 case (a single dimension
+alone with the whole budget, only once the others have exhausted).
+Kept anyway: the replacement is a strict improvement with no case where
+it's slower (same result, fewer operations, verified exhaustively), it
+just isn't the large lever its profiled share implied in isolation.
+
+The other two findings -- `locate`'s cost for `two-Exact` and
+`restricted_descent_into`'s collection overhead for `one-Exact` -- are
+not yet acted on. `locate`'s absolute cost is small now (~1.3us/call
+within an already-~2.5us total), putting a batched/shared `BlockIndex`
+search deep in diminishing-returns territory for the benefit it would
+need to justify touching a function this central again, especially
+given the `Pos.abs` attempt's own lesson earlier in this file.
+`restricted_descent_into`'s `sort_unstable`/`dedup` cost is real but the
+absolute counts involved (tens of entries at this benchmark's density)
+are already small -- `_visit` already exists as the escape hatch for a
+caller who doesn't need sorted, deduplicated output and wants to skip
+this cost entirely.
+
+### Reverted: the size-weighted schedule, after a real-world regression report
+
+A downstream store team reported that upgrading to this crate's
+`94b8945` ("optimized child selection and bit spread" -- the size-
+weighted schedule plus the `remaining & mask` restructuring, both
+above) made subject-bound lookups and subject-pinned joins 2-5x
+faster, exactly as measured here, but made free-subject lookups 3-4x
+slower and joins that chain through an object (e.g. `?a p1 ?b . ?b
+type C0`) 13-16x slower -- 112ms to 7.8s on one of their real queries.
+They'd already ruled out `block_capacity` (switching it back to 4096
+didn't change the result) and confirmed it was the tree code, not
+their own.
+
+The reason every benchmark in this file's `one-Exact` investigation
+missed this: all of them used *symmetric* domains -- subject and
+object domains of equal size. The store's real data doesn't: far
+fewer distinct subjects than objects, the ordinary RDF shape where many
+triples share a subject and objects range over both entity references
+and literal-like values. Reproduced directly on a 20,000-subject,
+2,000,000-object synthetic dataset built the same way as every other
+benchmark here: under the size-weighted schedule, `scan(?,?,o)`
+(object bound) cost 3.22ms/call against `scan(s,?,?)` (subject bound)
+at 704us/call -- a 4.6x gap in the same direction as the report, despite
+the object-bound query returning far fewer rows. Reverting the
+schedule to even-split reproduced this crate's own pre-change baseline
+(`ba9d07c`) on the same data almost exactly (within 1-2%, i.e. no
+difference) and made the two directions symmetric again (1.59ms vs.
+2.08ms, no large gap either way). The mechanism: weighting by remaining
+size means whichever dimension is *larger* still takes more levels to
+fully resolve, bigger per-level share or not, since it simply has more
+total bits to get through -- so pinning the larger dimension got
+*slower* under the weighted schedule, backwards from what the
+`one-Exact` investigation's symmetric benchmarks could ever reveal,
+since neither dimension was ever the clearly-larger one there.
+
+Reverted `dynamic_schedule` to the even split (`src/tree.rs`'s doc
+comment on it carries this same account). The `remaining & mask`
+restructuring shipped in the same commit was not implicated and was
+kept: it doesn't change which nodes get visited or depend on domain
+shape, only how cheaply existing navigation happens, and `scan` itself
+(which doesn't go through `query_rec` at all) reproduced the original
+baseline exactly once the schedule was reverted, confirming the
+restructuring was never the source of this regression. A per-dimension
+weighting heuristic that's actually safe across asymmetric domains
+remains unsolved -- this crate's default needs to be safe for data it
+has never seen, not just the shape it happened to get tested against.
 
 ## Native prefix joins
 
