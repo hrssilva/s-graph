@@ -58,8 +58,10 @@ let mut tree = Heap::build_dynamic(triples, /* block_capacity */ 4096);
 assert!(tree.contains(0, 0, 1));
 assert!(!tree.contains(2, 2, 2));
 
-// Row/column-style bound queries.
-let objects_of_0_via_pred_0 = tree.query_two_bound([0, 1], [0, 0], 2); // subject=0, predicate=0, object=?
+// Row/column-style restricted queries: a per-dimension restriction
+// (`Exact`, `Range`, `Multi`, or `Free`) plus which dimension to emit.
+use s_graph::tree::DimRestriction;
+let objects_of_0_via_pred_0 = tree.restricted_descent([DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free], 2); // subject=0, predicate=0, object=?
 let predicates_between = tree.predicates_for(0, 1); // subject=0, object=1, predicate=?
 
 // Many point-existence checks at once (filters, graph diff): shares
@@ -192,7 +194,19 @@ provided; proving or improving the native traversal's bound remains open work.
 - `tree.scan([s, p, o])`: allocation-free filtered triples in Morton order.
 - `tree.count_matching([s, p, o])`: count of matching triples, same bound/
   wildcard convention as `scan`, without decoding or collecting any of them.
-- `query_one_bound_into` / `query_two_bound_into`: sorted adjacency in reusable buffers.
+- `restricted_descent` / `restricted_descent_into`: one method for every
+  bound/one-bound/range-restricted adjacency query -- a `[DimRestriction; 3]`
+  (`Free`, `Exact(v)`, `Range(lo, hi)`, or `Multi(&[(lo, hi)])` per
+  dimension) plus which dimension to emit, sorted adjacency in reusable
+  buffers. Replaces the old `query_two_bound`/`query_one_bound` method
+  pair -- those restricted to exact values only; this adds real
+  range/set restrictions, pruned at native tree speed instead of a
+  `scan` plus manual filter.
+- `restricted_descent_visit` / `predicates_for_visit`: streamed adjacency
+  with the same pruning as the `_into` forms but no sort, no dedup, and
+  real early exit (`LIMIT`/`ASK`) via a `ControlFlow`-returning callback
+  -- stopping early skips the rest of the traversal entirely, not just
+  the rest of the collecting.
 - `path::reachable`: distinct endpoints reachable by walks within min/max hops.
 - `path::shortest_walk`: shortest qualifying walk with nodes and edges reconstructed.
 - `path::enumerate_paths`: streamed walks, trails or simple paths, with optional target.
@@ -228,7 +242,7 @@ since a batch with no shared prefixes at all degenerates to exactly that loop.
 
 `insert`/`insert_batch`, `build`/`build_with_order`, and
 `deserialize*` return `Result<_, TreeError>`. Read methods
-(`contains`, `query_two_bound`, `query_one_bound`, `predicates_for`)
+(`contains`, `restricted_descent`, `predicates_for`)
 return false/empty results for out-of-domain coordinates, which cannot match
 anything. `remove`/`remove_batch` also return `Result<_, TreeError>` (for
 signature symmetry with `insert`/`insert_batch`), but behave like a read

@@ -61,7 +61,7 @@
 //!   [`Heap::insert_batch`], and [`Heap::build_with_order`]'s `split`
 //!   parameter). Check [`Heap::in_bounds`] up front if you'd rather
 //!   filter than handle the error. Read methods (`contains`,
-//!   `query_two_bound`, `query_one_bound`) never need this: an
+//!   `restricted_descent`) never need this: an
 //!   out-of-domain query coordinate simply can't match anything, so they
 //!   already return an empty/`false` result rather than erroring.
 //!   [`Heap::remove`]/[`Heap::remove_batch`] also return `Result` (for

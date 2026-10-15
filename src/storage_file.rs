@@ -119,7 +119,7 @@ impl BlockStack {
 }
 
 /// RAII guard, constructed at the top of every top-level read-only call
-/// (`contains`/`query_two_bound`/`query_one_bound`), that pops
+/// (`contains`/`restricted_descent`), that pops
 /// `FileStorage::block_stack` back down to just its root entry when
 /// that call returns -- on every exit path, since this runs on drop.
 /// `insert`/`insert_batch` don't use this and pop the same way manually

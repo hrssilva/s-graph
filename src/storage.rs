@@ -93,7 +93,7 @@ pub trait BlockStorage: Sized {
     fn remove_bytes(&mut self, pos: Pos, len: usize);
 
     /// RAII guard, constructed at the top of every top-level call
-    /// (`contains`/`query_two_bound`/`query_one_bound`), dropped at its
+    /// (`contains`/`restricted_descent`), dropped at its
     /// end. No-op for `HeapStorage`; pops `FileStorage`'s stack cache
     /// back to just the root.
     fn begin_top_level_call(&self) -> impl Drop + '_;

@@ -17,6 +17,7 @@ use crate::storage_file::FileStorage;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::fs::{File as StdFile, OpenOptions};
+use std::ops::ControlFlow;
 use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -31,7 +32,19 @@ pub(crate) const WORD_RECORD_BYTES: usize = 8;
 type RemoveTrailEntry = (Pos, usize, u64, u64, usize);
 type RemoveTrail = [RemoveTrailEntry; MAX_HEIGHT];
 const MAX_SKIP_RECORD_BYTES: usize = 8;
-pub const DEFAULT_BLOCK_CAPACITY: usize = 4096;
+/// Was `4096` until measured against `BlockIndex::locate`'s cost: for a
+/// 2,000,000-triple, 50,000x200x50,000-domain tree, raising
+/// `block_capacity` from 4096 to 65,536 cut `BlockIndex::locate` from
+/// 42% to well under 10% of self-time in a two-`Exact` restricted
+/// descent and roughly halved its wall-clock cost, because fewer,
+/// larger blocks mean both fewer cross-block jumps and a shallower
+/// Fenwick search on the jumps that still happen. Not raised further:
+/// `insert`/`remove` cost rises sharply past this point (splicing a
+/// block's tail scales with how much is in the block), and 65,536 is
+/// close to where the read-side win plateaus but well before the
+/// mutation-side cost does -- see `DESIGN.md`'s block-capacity
+/// measurements for the full curve in both directions.
+pub const DEFAULT_BLOCK_CAPACITY: usize = 65536;
 
 /// One `(subject, predicate, object)` triple.
 pub type Triple = (u32, u32, u32);
@@ -115,6 +128,95 @@ fn level_shifts(dim_bits: [u8; NUM_DIMS], dim_order: [usize; NUM_DIMS]) -> [u8; 
     shifts
 }
 
+/// A per-dimension constraint for [`RadixTreeDfsInterleavedVarSkipUnrolledGeneric::restricted_descent_visit`]:
+/// no constraint, one exact value, an inclusive value range, or a
+/// small union of inclusive ranges. `Multi`'s ranges may overlap or
+/// be given out of order -- contributions are OR'd together, so
+/// neither affects correctness, only how much redundant clipping work
+/// is done. `Multi` borrows the caller's slice: nothing here ever
+/// allocates.
+#[derive(Clone, Copy)]
+pub enum DimRestriction<'a> {
+    Free,
+    Exact(u32),
+    Range(u32, u32),
+    Multi(&'a [(u32, u32)]),
+}
+
+#[inline]
+fn restriction_allows_zero(r: DimRestriction) -> bool {
+    match r {
+        DimRestriction::Free => true,
+        DimRestriction::Exact(v) => v == 0,
+        DimRestriction::Range(a, _) => a == 0,
+        DimRestriction::Multi(ranges) => ranges.iter().any(|&(a, _)| a == 0),
+    }
+}
+
+#[inline]
+fn full_sub_mask(width: u32) -> u64 {
+    if width >= 64 { u64::MAX } else { (1u64 << width) - 1 }
+}
+
+/// Clips `[val_lo, val_hi]` to the value span this level's node
+/// covers for one dimension (`[lo_d, lo_d + width * 2^cell_bits - 1]`)
+/// and returns the resulting contiguous run of sub-indices as a
+/// bitmask (`0` if the range misses the span entirely). The clip
+/// against `covered_hi` is what keeps this safe against an
+/// out-of-domain `val_hi` -- the sub-index is always derived from the
+/// clipped value, never the raw input, so it can never exceed `width`.
+#[inline]
+fn contiguous_run(val_lo: u32, val_hi: u32, lo_d: u64, cell_bits: u8, width: u32) -> u64 {
+    let cell = 1u64 << cell_bits;
+    let covered_hi = lo_d + (width as u64) * cell - 1;
+    let clipped_lo = (val_lo as u64).max(lo_d);
+    let clipped_hi = (val_hi as u64).min(covered_hi);
+    if clipped_lo > clipped_hi {
+        return 0;
+    }
+    let sub_lo = ((clipped_lo - lo_d) >> cell_bits) as u32;
+    let sub_hi = ((clipped_hi - lo_d) >> cell_bits) as u32;
+    full_sub_mask(sub_hi - sub_lo + 1) << sub_lo
+}
+
+/// One dimension's contribution to [`restriction_mask`]: which of this
+/// level's `width` sub-indices does `restriction` allow, given this
+/// node's own position `lo_d` in that dimension.
+#[inline]
+fn restriction_sub_mask(restriction: DimRestriction, lo_d: u64, cell_bits: u8, width: u32) -> u64 {
+    match restriction {
+        DimRestriction::Free => full_sub_mask(width),
+        DimRestriction::Exact(v) => 1u64 << ((v as u64 - lo_d) >> cell_bits),
+        DimRestriction::Range(a, b) => contiguous_run(a, b, lo_d, cell_bits, width),
+        DimRestriction::Multi(ranges) => ranges.iter().fold(0u64, |acc, &(a, b)| acc | contiguous_run(a, b, lo_d, cell_bits, width)),
+    }
+}
+
+/// The `DimRestriction`-based generalization of [`bound_mask`] below:
+/// same cartesian-product construction (expand the running `mask` by
+/// every dimension's allowed sub-indices in turn), but computed fresh
+/// from this node's actual `lo`, so it stays correct for a `Range`/
+/// `Multi` restriction whose matching sub-indices lead to children
+/// with different `lo` -- see `restricted_descent_visit`'s doc comment
+/// for why a precomputed per-level array (what `bound_mask` feeds)
+/// can't express that.
+fn restriction_mask(dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], lo: [u64; NUM_DIMS], child_cell_bits: [u8; NUM_DIMS], restrictions: &[DimRestriction; NUM_DIMS]) -> u64 {
+    let mut mask: u64 = 1;
+    for d in 0..NUM_DIMS {
+        let width = 1u32 << dim_bits[d];
+        let sub_bits = restriction_sub_mask(restrictions[d], lo[d], child_cell_bits[d], width);
+        let mut new_mask = 0u64;
+        let mut bits = sub_bits;
+        while bits != 0 {
+            let sub = bits.trailing_zeros() as u64;
+            bits &= bits - 1;
+            new_mask |= mask << (sub << shifts[d]);
+        }
+        mask = new_mask;
+    }
+    mask
+}
+
 fn bound_mask(dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], lo: [u64; NUM_DIMS], child_cell_bits: [u8; NUM_DIMS], bound_val_for: impl Fn(usize) -> Option<u32>) -> u64 {
     let mut mask: u64 = 1;
     for d in 0..NUM_DIMS {
@@ -181,6 +283,28 @@ fn static_schedule(mut remaining: [u8; NUM_DIMS], split: [u8; NUM_DIMS]) -> Vec<
     level_dim_bits
 }
 
+/// Used by `build_dynamic`/`build_dynamic_bounded`. Each
+/// level's `BASE`-bit budget is split among whichever dimensions still
+/// have unconsumed bits ("active"), weighted by each active dimension's
+/// *own remaining bit count* rather than split evenly -- a dimension
+/// that exhausts early (small domain, e.g. a predicate) still drops out
+/// and its share is picked up by whichever dimensions remain active,
+/// exactly as the even-split version this replaced already did; only the
+/// per-level ratio changed. Was an even split (`budget / active.len()`)
+/// until measured: for domains where the dimension a caller later pins
+/// alone (e.g. subject, in `restricted_descent*([Exact(s), Free, Free],
+/// ..)`) has a bit count comparable to the free dimensions', an even
+/// split spreads that dimension's identity across nearly the entire
+/// tree height, so a node partway down mixes together every entity
+/// sharing the path's bits so far, not just the one a later query pins
+/// -- see `DESIGN.md`'s `one-Exact` investigation for the full
+/// mechanism. Weighting by size resolves large dimensions' identity
+/// faster in practice (fewer distinct values still sharing a given
+/// prefix at a given depth) without needing any dimension to formally
+/// hit zero bits early, at no height cost (same height as the even
+/// split, confirmed at 2M/20M triples) and only a small, measured
+/// mutation-cost increase (`insert`/`remove` ~7-15% slower) against a
+/// multi-x improvement on every query shape measured.
 fn dynamic_schedule(mut remaining: [u8; NUM_DIMS]) -> Vec<[u8; NUM_DIMS]> {
     let mut level_dim_bits = Vec::new();
     while remaining.iter().any(|&r| r > 0) {
@@ -191,12 +315,13 @@ fn dynamic_schedule(mut remaining: [u8; NUM_DIMS]) -> Vec<[u8; NUM_DIMS]> {
             if active.is_empty() || budget == 0 {
                 break;
             }
-            let share = (budget / active.len() as u8).max(1);
+            let total_active: u32 = active.iter().map(|&d| remaining[d] as u32).sum();
             let mut progressed = false;
             for &d in &active {
                 if budget == 0 {
                     break;
                 }
+                let share = ((budget as u32 * remaining[d] as u32) / total_active.max(1)).max(1) as u8;
                 let take = share.min(remaining[d]).min(budget);
                 if take > 0 {
                     this_level[d] += take;
@@ -925,6 +1050,21 @@ impl ConstrainedFrame {
     const EMPTY: ConstrainedFrame = ConstrainedFrame { lo: 0, remaining: 0, child_pos: Pos::START };
 }
 
+/// `ConstrainedFrame`'s counterpart for `query_rec_restricted`: carries
+/// every dimension's `lo` (like `ScanFrame`), not just the emitted
+/// dimension's, because a `Range`/`Multi` restriction needs a node's
+/// real position in every restricted dimension to compute its mask.
+#[derive(Clone, Copy)]
+struct RestrictedFrame {
+    lo: [u64; NUM_DIMS],
+    remaining: u64,
+    child_pos: Pos,
+}
+
+impl RestrictedFrame {
+    const EMPTY: RestrictedFrame = RestrictedFrame { lo: [0; NUM_DIMS], remaining: 0, child_pos: Pos::START };
+}
+
 // ==================== the generic tree ====================
 
 pub struct RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S: BlockStorage> {
@@ -940,6 +1080,13 @@ pub struct RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S: BlockStorage> {
     dim_order: [usize; NUM_DIMS],
     single_point_exists: bool,
     height: u32,
+    /// Reused across `insert_batch`/`remove_batch` calls by
+    /// `sort_by_morton_key`'s `height <= 16` path; see that function's
+    /// own doc comment. At most one of this and `morton_sort_generic`
+    /// ever grows, since `height` is fixed once a tree is built.
+    morton_sort_packed: Vec<(u128, Triple)>,
+    /// Same reuse, for `sort_by_morton_key`'s `height > 16` fallback.
+    morton_sort_generic: Vec<([u8; MAX_HEIGHT], Triple)>,
 }
 
 /// The in-RAM backend: fastest, full RAM footprint, no slot indirection.
@@ -1043,6 +1190,29 @@ impl RadixTreeDfsInterleavedVarSkipUnrolledGeneric<FileStorage> {
     /// counterpart to [`Self::mem_size_bytes`]'s RAM-only number.
     pub fn disk_bytes(&self) -> u64 {
         self.storage.file_len
+    }
+}
+
+/// Reusable scratch storage for [`RadixTreeDfsInterleavedVarSkipUnrolledGeneric::contains_batch_into`]'s
+/// internal sort. Holds both the `height <= 16` and `height > 16`
+/// shapes; only one of the two ever grows for a given tree, since
+/// `height` doesn't change between calls. Use one workspace per
+/// concurrent call.
+#[derive(Default)]
+pub struct ContainsBatchWorkspace {
+    packed: Vec<(u32, u128)>,
+    generic: Vec<(u32, [u8; MAX_HEIGHT])>,
+}
+
+impl ContainsBatchWorkspace {
+    /// Allocated vector capacity, excluding the workspace struct itself.
+    pub fn allocated_bytes(&self) -> usize {
+        crate::vec_bytes(&self.packed) + crate::vec_bytes(&self.generic)
+    }
+
+    /// Discard capacity retained from earlier batches.
+    pub fn release(&mut self) {
+        *self = Self::default();
     }
 }
 
@@ -1265,6 +1435,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 dim_order,
                 single_point_exists: triples.fold(false, |_, _| true),
                 height: 0,
+                morton_sort_packed: Vec::new(),
+                morton_sort_generic: Vec::new(),
             };
         }
         let height = level_dim_bits.len() as u32;
@@ -1331,6 +1503,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             dim_order,
             single_point_exists: false,
             height,
+            morton_sort_packed: Vec::new(),
+            morton_sort_generic: Vec::new(),
         }
     }
 
@@ -1351,6 +1525,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 dim_order,
                 single_point_exists: !triples.is_empty(),
                 height: 0,
+                morton_sort_packed: Vec::new(),
+                morton_sort_generic: Vec::new(),
             };
         }
         let height = level_dim_bits.len() as u32;
@@ -1397,6 +1573,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             dim_order,
             single_point_exists: false,
             height,
+            morton_sort_packed: Vec::new(),
+            morton_sort_generic: Vec::new(),
         }
     }
 
@@ -1585,14 +1763,17 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// `false`, the same rule `contains` already documents.
     pub fn contains_batch(&self, triples: &[Triple]) -> Vec<bool> {
         let mut out = Vec::new();
-        self.contains_batch_into(triples, &mut out);
+        self.contains_batch_into(triples, &mut out, &mut ContainsBatchWorkspace::default());
         out
     }
 
     /// Same as [`Self::contains_batch`], writing into (and resizing)
-    /// `out` instead of allocating a fresh `Vec`, for repeated calls
-    /// that want to reuse the output buffer's capacity.
-    pub fn contains_batch_into(&self, triples: &[Triple], out: &mut Vec<bool>) {
+    /// `out` instead of allocating a fresh `Vec`, and sorting through
+    /// `scratch` instead of an allocation private to this call -- for
+    /// repeated calls that want to reuse both buffers' capacity. Use
+    /// one `scratch` per concurrent call, same rule as
+    /// [`crate::native_join::NativeJoinWorkspace`].
+    pub fn contains_batch_into(&self, triples: &[Triple], out: &mut Vec<bool>, scratch: &mut ContainsBatchWorkspace) {
         let _guard = self.storage.begin_top_level_call();
         out.clear();
         out.resize(triples.len(), false);
@@ -1617,9 +1798,9 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         // a `u128`); the generic byte-array path remains correct for any
         // height at all.
         if height <= 16 {
-            self.contains_batch_into_packed(triples, height, out);
+            self.contains_batch_into_packed(triples, height, out, &mut scratch.packed);
         } else {
-            self.contains_batch_into_generic(triples, height, out);
+            self.contains_batch_into_generic(triples, height, out, &mut scratch.generic);
         }
     }
 
@@ -1638,8 +1819,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// comparator, which dispatches to a vectorized `memcmp` whose fixed
     /// per-call setup cost dominates when only a handful of bytes are
     /// actually being compared) on a 2M-triple tree with scattered queries.
-    fn contains_batch_into_packed(&self, triples: &[Triple], height: usize, out: &mut [bool]) {
-        let mut order: Vec<(u32, u128)> = Vec::with_capacity(triples.len());
+    fn contains_batch_into_packed(&self, triples: &[Triple], height: usize, out: &mut [bool], order: &mut Vec<(u32, u128)>) {
+        order.clear();
         for (i, &(s, p, o)) in triples.iter().enumerate() {
             if self.in_bounds(s, p, o) {
                 order.push((i as u32, self.morton_key_packed(s, p, o, height)));
@@ -1716,11 +1897,11 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// `contains_batch_into`'s fallback for `height > 16` -- see
     /// [`Self::contains_batch_into_packed`] for the common case and why
     /// it needs this one instead above 16 levels.
-    fn contains_batch_into_generic(&self, triples: &[Triple], height: usize, out: &mut [bool]) {
+    fn contains_batch_into_generic(&self, triples: &[Triple], height: usize, out: &mut [bool], order: &mut Vec<(u32, [u8; MAX_HEIGHT])>) {
         // Out-of-domain triples are left as `false` in `out` and simply
         // never enter the sorted descent batch -- same rule `contains`
         // documents, applied up front instead of per-level.
-        let mut order: Vec<(u32, [u8; MAX_HEIGHT])> = Vec::with_capacity(triples.len());
+        order.clear();
         for (i, &(s, p, o)) in triples.iter().enumerate() {
             if self.in_bounds(s, p, o) {
                 order.push((i as u32, self.morton_key(s, p, o)));
@@ -1790,68 +1971,152 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     pub fn predicates_for(&self, s: u32, o: u32) -> Vec<u32> {
-        self.query_two_bound([0, 2], [s, o], 1)
+        self.restricted_descent([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Exact(o)], 1)
     }
 
     /// Replaces `out`, retaining its allocation for repeated adjacency
     /// queries -- the same buffer-reuse convention as
-    /// [`Self::query_two_bound_into`], which this delegates to.
+    /// [`Self::restricted_descent_into`], which this delegates to.
     pub fn predicates_for_into(&self, s: u32, o: u32, out: &mut Vec<u32>) {
-        self.query_two_bound_into([0, 2], [s, o], 1, out);
+        self.restricted_descent_into([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Exact(o)], 1, out);
     }
 
-    pub fn query_two_bound(&self, bound_dims: [usize; 2], bound_vals: [u32; 2], free_dim: usize) -> Vec<u32> {
+    /// Streaming form of [`Self::predicates_for`] -- see
+    /// [`Self::restricted_descent_visit`], which this delegates to, for
+    /// what that buys (and gives up) relative to the bulk forms above.
+    pub fn predicates_for_visit<T>(&self, s: u32, o: u32, emit: impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
+        self.restricted_descent_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Exact(o)], 1, emit)
+    }
+
+    /// Splits `restrictions` into the shape the old static-precompute
+    /// engine (`precompute_level_masks`/`query_rec`) needs: at most two
+    /// `Exact` dimensions plus any number of `Free` ones. `None` means
+    /// a real `Range`/`Multi` restriction is present and the dynamic
+    /// engine (`query_rec_restricted`) is required instead.
+    fn exact_bound_dims(restrictions: &[DimRestriction; NUM_DIMS]) -> Option<([usize; 2], [u32; 2])> {
+        // `usize::MAX` is never a real dimension index (0..NUM_DIMS),
+        // so an unused slot's `d == dims[i]` check is always false --
+        // the clean version of `query_one_bound_visit`'s old
+        // `[bound_dim, bound_dim]` duplicate-the-one-real-slot trick.
+        let mut dims = [usize::MAX; 2];
+        let mut vals = [0u32; 2];
+        let mut count = 0;
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) => {
+                    if count == 2 {
+                        return None;
+                    }
+                    dims[count] = d;
+                    vals[count] = v;
+                    count += 1;
+                }
+                DimRestriction::Free => {}
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => return None,
+            }
+        }
+        Some((dims, vals))
+    }
+
+    pub fn restricted_descent(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
         let mut out = Vec::new();
-        self.query_two_bound_into(bound_dims, bound_vals, free_dim, &mut out);
+        self.restricted_descent_into(restrictions, emit_dim, &mut out);
         out
     }
 
-    /// Replaces `out`, retaining its allocation for repeated adjacency queries.
-    pub fn query_two_bound_into(&self, bound_dims: [usize; 2], bound_vals: [u32; 2], free_dim: usize, out: &mut Vec<u32>) {
-        let _guard = self.storage.begin_top_level_call();
+    /// Replaces `out`, retaining its allocation for repeated adjacency
+    /// queries. Sorted and deduplicated -- see
+    /// [`Self::restricted_descent_visit`] for a streaming form without
+    /// either guarantee, which this collects through.
+    pub fn restricted_descent_into(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, out: &mut Vec<u32>) {
         out.clear();
-        for i in 0..2 {
-            if (bound_vals[i] as u64) >= self.dimension_sizes[bound_dims[i]] {
-                return;
-            }
-        }
-        if self.height == 0 {
-            if self.single_point_exists {
-                out.push(0);
-            }
-            return;
-        }
-        let level_masks = self.precompute_level_masks(bound_dims, bound_vals, |d| d == bound_dims[0] || d == bound_dims[1]);
-        let unconstrained_from = self.first_fully_open_level(&level_masks);
-        self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], free_dim, unconstrained_from, out);
+        let _: ControlFlow<()> = self.restricted_descent_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            ControlFlow::Continue(())
+        });
         out.sort_unstable();
         out.dedup();
     }
 
-    pub fn query_one_bound(&self, bound_dim: usize, bound_val: u32, target_dim: usize) -> Vec<u32> {
-        let mut out = Vec::new();
-        self.query_one_bound_into(bound_dim, bound_val, target_dim, &mut out);
-        out
-    }
-
-    /// Replaces `out`, retaining its allocation for repeated adjacency queries.
-    pub fn query_one_bound_into(&self, bound_dim: usize, bound_val: u32, target_dim: usize, out: &mut Vec<u32>) {
+    /// Streams every value of dimension `emit_dim` reachable under
+    /// `restrictions`, in tree order, stopping as soon as `emit`
+    /// returns `Break` -- nothing past the break point is ever read or
+    /// decoded. One method covering what used to be two:
+    /// `query_two_bound_visit` (two `Exact` restrictions, `emit_dim`
+    /// left `Free`) and `query_one_bound_visit` (one `Exact`, `emit_dim`
+    /// left `Free`, and the third dimension *also* left `Free` but
+    /// never decoded) are both special cases of this descent, plus real
+    /// `Range`/`Multi` restrictions neither of those could express --
+    /// e.g. a SPARQL-style numeric range or an `IN (...)` list on one
+    /// triple position, pruned at native tree speed instead of falling
+    /// back to [`Self::scan`] plus a manual filter.
+    ///
+    /// `restrictions[emit_dim]` is normally `Free`; giving it something
+    /// else is allowed but degenerate -- it just gates whether the one
+    /// allowed value is ever emitted at all.
+    ///
+    /// Trades away two things the bulk forms above guarantee and this
+    /// does not: output order (not sorted), and uniqueness. Duplicates
+    /// are structurally impossible when every *other* dimension is
+    /// pinned to exactly one value (`Exact`) -- there's only one
+    /// descent path left, so a value is only ever reachable once --
+    /// but become an expected, common outcome as soon as a dimension
+    /// other than `emit_dim` is `Free`, `Range`, or `Multi`: every
+    /// distinct value that other dimension can legitimately take
+    /// produces its own path to the same `emit_dim` value (the same
+    /// way streaming [`Self::scan`] yields several full triples that
+    /// agree on the column a caller actually wants and differ only in
+    /// a column neither pinned nor requested).
+    ///
+    /// # Why `Range`/`Multi` need a different engine than `Exact`/`Free`,
+    /// and why both still exist
+    ///
+    /// The old `query_two_bound`/`query_one_bound` engine precomputed
+    /// one `level_masks[64]` array top-down, before traversal started,
+    /// by advancing a single `lo` through *the one* sub-index each
+    /// bound dimension's exact value falls into at each level -- valid
+    /// because an exact value picks exactly one descent path, so
+    /// there's only one possible `lo` to precompute every later level's
+    /// mask from. A `Range`/`Multi` restriction can match several
+    /// sub-indices at a level, each leading to a child with a
+    /// *different* `lo` -- so there is no longer one flat array that's
+    /// correct for every node at that level; some siblings now need
+    /// different masks for their own descendants. `query_rec_restricted`
+    /// computes each node's mask from its own actual position instead,
+    /// which is what makes `Range`/`Multi` correct, but it's measurably
+    /// slower per node than a plain array index -- benchmarked (see
+    /// `DESIGN.md`) at roughly 1.1x for a two-`Exact` query and 1.6x
+    /// for a one-`Exact` query, where most of the traversal never
+    /// leaves the precomputed-array-shaped part of the descent at all.
+    /// So this method dispatches: when every restriction is `Exact`/
+    /// `Free` (everything the old methods could express), it still runs
+    /// the old engine internally; `query_rec_restricted` only runs when
+    /// a `Range`/`Multi` is actually present. The *public* surface is
+    /// one method either way.
+    pub fn restricted_descent_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
         let _guard = self.storage.begin_top_level_call();
-        out.clear();
-        if (bound_val as u64) >= self.dimension_sizes[bound_dim] {
-            return;
+        for (d, r) in restrictions.iter().enumerate() {
+            if let DimRestriction::Exact(v) = *r
+                && (v as u64) >= self.dimension_sizes[d]
+            {
+                return ControlFlow::Continue(());
+            }
         }
         if self.height == 0 {
-            if self.single_point_exists {
-                out.push(0);
+            let allowed = (0..NUM_DIMS).all(|d| restriction_allows_zero(restrictions[d]));
+            if allowed && self.single_point_exists {
+                emit(0)?;
             }
-            return;
+            return ControlFlow::Continue(());
         }
-        let level_masks = self.precompute_level_masks([bound_dim, bound_dim], [bound_val, bound_val], |d| d == bound_dim);
-        let unconstrained_from = self.first_fully_open_level(&level_masks);
-        self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], target_dim, unconstrained_from, out);
-        out.sort_unstable();
-        out.dedup();
+        if let Some((dims, vals)) = Self::exact_bound_dims(&restrictions) {
+            let is_bound = |d: usize| d == dims[0] || d == dims[1];
+            let level_masks = self.precompute_level_masks(dims, vals, is_bound);
+            let unconstrained_from = self.first_fully_open_level(&level_masks);
+            return self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], emit_dim, unconstrained_from, &mut emit);
+        }
+        let unconstrained_from = self.first_fully_open_level_restricted(&restrictions);
+        self.query_rec_restricted(Pos::START, [0; NUM_DIMS], 0, &restrictions, emit_dim, unconstrained_from, &mut emit)
     }
 
     fn first_fully_open_level(&self, level_masks: &[u64; MAX_HEIGHT]) -> usize {
@@ -1897,7 +2162,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn query_rec(&self, start_pos: Pos, start_lo: u64, start_level: usize, level_masks: &[u64], free_dim: usize, unconstrained_from: usize, out: &mut Vec<u32>) {
+    fn query_rec<T>(&self, start_pos: Pos, start_lo: u64, start_level: usize, level_masks: &[u64], free_dim: usize, unconstrained_from: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
         let mut stack: [ConstrainedFrame; MAX_HEIGHT] = [ConstrainedFrame::EMPTY; MAX_HEIGHT];
         let mut stack_len: usize = 0;
         let mut pos = start_pos;
@@ -1908,7 +2173,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             let mut descended = false;
 
             if level >= unconstrained_from {
-                self.bulk_list_subtree(pos, lo, level, free_dim, out);
+                self.bulk_list_subtree(pos, lo, level, free_dim, emit)?;
             } else {
                 let is_last = level == self.height as usize - 1;
                 let dim_bits = self.level_dim_bits[level][free_dim];
@@ -1930,35 +2195,42 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                         let qi = relevant.trailing_zeros() as usize;
                         relevant &= relevant - 1;
                         let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
-                        out.push(child_lo as u32);
+                        emit(child_lo as u32)?;
                     }
                     pos = self.advance(pos, WORD_RECORD_BYTES);
                 } else {
                     let mask = level_masks[level];
                     let mut child_pos = self.advance(pos, self.own_record_bytes(level));
-                    let mut remaining = word;
+                    let remaining = word;
 
-                    while remaining != 0 {
-                        let qi = remaining.trailing_zeros() as usize;
-                        remaining &= remaining - 1;
-                        let matched = (mask >> qi) & 1 != 0;
-                        let next_child_pos = self.child_span_end(child_pos, level + 1);
-
-                        if matched {
-                            let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
-                            debug_assert!(stack_len < MAX_HEIGHT);
-                            stack[stack_len] = ConstrainedFrame { lo, remaining, child_pos: next_child_pos };
-                            stack_len += 1;
-                            pos = child_pos;
-                            lo = child_lo;
-                            level += 1;
-                            descended = true;
-                            break;
+                    // `candidates` is every real, existing sibling that also
+                    // satisfies this level's mask, found in O(1) instead of
+                    // checking each bit in turn. Everything in `remaining`
+                    // before the first one (`low_mask`) is real but
+                    // necessarily non-matching, by bit-position order -- skip
+                    // it as one batch instead of one `child_span_end` call
+                    // per sibling.
+                    let candidates = remaining & mask;
+                    if candidates != 0 {
+                        let qi = candidates.trailing_zeros() as usize;
+                        let low_mask = (1u64 << qi) - 1;
+                        let skip_mask = remaining & low_mask;
+                        if skip_mask != 0 {
+                            child_pos = self.advance_past_children(child_pos, skip_mask, level + 1);
                         }
-                        child_pos = next_child_pos;
-                    }
-
-                    if !descended {
+                        let next_child_pos = self.child_span_end(child_pos, level + 1);
+                        let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
+                        let consumed_mask = low_mask | (1u64 << qi);
+                        debug_assert!(stack_len < MAX_HEIGHT);
+                        stack[stack_len] = ConstrainedFrame { lo, remaining: remaining & !consumed_mask, child_pos: next_child_pos };
+                        stack_len += 1;
+                        pos = child_pos;
+                        lo = child_lo;
+                        level += 1;
+                        descended = true;
+                    } else if remaining != 0 {
+                        pos = self.advance_past_children(child_pos, remaining, level + 1);
+                    } else {
                         pos = child_pos;
                     }
                 }
@@ -1970,7 +2242,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
 
             loop {
                 if stack_len == 0 {
-                    return;
+                    return ControlFlow::Continue(());
                 }
                 let frame_level = start_level + stack_len - 1;
                 let frame = &mut stack[stack_len - 1];
@@ -1984,27 +2256,162 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 let frame_shifts = self.level_shifts_cache[frame_level][free_dim];
                 let frame_child_cell_bits = self.level_child_cell_bits_cache[frame_level][free_dim];
                 let mut child_pos = frame.child_pos;
-                let mut resumed = false;
 
-                while frame.remaining != 0 {
-                    let qi = frame.remaining.trailing_zeros() as usize;
-                    frame.remaining &= frame.remaining - 1;
-                    let matched = (frame_mask >> qi) & 1 != 0;
+                let candidates = frame.remaining & frame_mask;
+                if candidates != 0 {
+                    let qi = candidates.trailing_zeros() as usize;
+                    let low_mask = (1u64 << qi) - 1;
+                    let skip_mask = frame.remaining & low_mask;
+                    if skip_mask != 0 {
+                        child_pos = self.advance_past_children(child_pos, skip_mask, frame_level + 1);
+                    }
                     let next_child_pos = self.child_span_end(child_pos, frame_level + 1);
+                    let child_lo = advance_lo_dim(frame.lo, frame_dim_bits, frame_shifts, qi, frame_child_cell_bits);
+                    let consumed_mask = low_mask | (1u64 << qi);
+                    frame.remaining &= !consumed_mask;
+                    frame.child_pos = next_child_pos;
+                    pos = child_pos;
+                    lo = child_lo;
+                    level = frame_level + 1;
+                    continue 'outer;
+                }
+                stack_len -= 1;
+            }
+        }
+    }
 
-                    if matched {
-                        let child_lo = advance_lo_dim(frame.lo, frame_dim_bits, frame_shifts, qi, frame_child_cell_bits);
-                        frame.child_pos = next_child_pos;
+    /// `first_fully_open_level`'s `DimRestriction` counterpart. Whether a
+    /// level still needs mask-based pruning depends only on the build
+    /// schedule (`level_dim_bits`), not on any restriction's actual
+    /// value: a dimension stops being able to constrain anything once
+    /// its own bits run out at a level (`dim_bits[d] == 0`), the same
+    /// way a plain bound dimension does today -- so this can be (and
+    /// is) computed once per call, not per node, exactly like the
+    /// method it generalizes.
+    fn first_fully_open_level_restricted(&self, restrictions: &[DimRestriction; NUM_DIMS]) -> usize {
+        for level in 0..self.height as usize {
+            let dim_bits = self.level_dim_bits[level];
+            let all_open = (0..NUM_DIMS).all(|d| matches!(restrictions[d], DimRestriction::Free) || dim_bits[d] == 0);
+            if all_open {
+                return level;
+            }
+        }
+        self.height as usize
+    }
+
+    /// `query_rec`'s `DimRestriction` counterpart. Two structural
+    /// differences, both required for `Range`/`Multi` correctness (see
+    /// `restricted_descent_visit`'s doc comment): frames carry every
+    /// dimension's `lo`, not just `emit_dim`'s, and the mask is
+    /// computed fresh per visited node via `restriction_mask` instead
+    /// of indexed out of a precomputed per-level array -- a `Range`/
+    /// `Multi` restriction can match several sub-indices at a level,
+    /// each leading to a child with a different `lo`, so there is no
+    /// single flat array that's correct for every node at a level.
+    /// Everything else (the explicit stack, the bulk-subtree handoff
+    /// once `unconstrained_from` is reached, the backtracking shape)
+    /// mirrors `query_rec` exactly.
+    #[allow(clippy::too_many_arguments)]
+    fn query_rec_restricted<T>(&self, start_pos: Pos, start_lo: [u64; NUM_DIMS], start_level: usize, restrictions: &[DimRestriction; NUM_DIMS], emit_dim: usize, unconstrained_from: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
+        let mut stack: [RestrictedFrame; MAX_HEIGHT] = [RestrictedFrame::EMPTY; MAX_HEIGHT];
+        let mut stack_len: usize = 0;
+        let mut pos = start_pos;
+        let mut lo = start_lo;
+        let mut level = start_level;
+
+        'outer: loop {
+            let mut descended = false;
+
+            if level >= unconstrained_from {
+                self.bulk_list_subtree(pos, lo[emit_dim], level, emit_dim, emit)?;
+            } else {
+                let is_last = level == self.height as usize - 1;
+                let dim_bits = self.level_dim_bits[level];
+                let shifts = self.level_shifts_cache[level];
+                let child_cell_bits = self.level_child_cell_bits_cache[level];
+                let mask = restriction_mask(dim_bits, shifts, lo, child_cell_bits, restrictions);
+                let word = self.block_read_u64(pos.block, pos.offset);
+                // See `query_rec`'s identical comment: an all-zero word
+                // here is legitimate (a from-scratch-empty or fully
+                // deleted tree), and every branch below already handles
+                // it correctly on its own.
+
+                if is_last {
+                    let mut relevant = word & mask;
+                    while relevant != 0 {
+                        let qi = relevant.trailing_zeros() as usize;
+                        relevant &= relevant - 1;
+                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                        emit(child_lo[emit_dim] as u32)?;
+                    }
+                    pos = self.advance(pos, WORD_RECORD_BYTES);
+                } else {
+                    let mut child_pos = self.advance(pos, self.own_record_bytes(level));
+                    let remaining = word;
+
+                    let candidates = remaining & mask;
+                    if candidates != 0 {
+                        let qi = candidates.trailing_zeros() as usize;
+                        let low_mask = (1u64 << qi) - 1;
+                        let skip_mask = remaining & low_mask;
+                        if skip_mask != 0 {
+                            child_pos = self.advance_past_children(child_pos, skip_mask, level + 1);
+                        }
+                        let next_child_pos = self.child_span_end(child_pos, level + 1);
+                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                        let consumed_mask = low_mask | (1u64 << qi);
+                        debug_assert!(stack_len < MAX_HEIGHT);
+                        stack[stack_len] = RestrictedFrame { lo, remaining: remaining & !consumed_mask, child_pos: next_child_pos };
+                        stack_len += 1;
                         pos = child_pos;
                         lo = child_lo;
-                        level = frame_level + 1;
-                        resumed = true;
-                        break;
+                        level += 1;
+                        descended = true;
+                    } else if remaining != 0 {
+                        pos = self.advance_past_children(child_pos, remaining, level + 1);
+                    } else {
+                        pos = child_pos;
                     }
-                    child_pos = next_child_pos;
+                }
+            }
+
+            if descended {
+                continue 'outer;
+            }
+
+            loop {
+                if stack_len == 0 {
+                    return ControlFlow::Continue(());
+                }
+                let frame_level = start_level + stack_len - 1;
+                let frame = &mut stack[stack_len - 1];
+                if frame.remaining == 0 {
+                    stack_len -= 1;
+                    continue;
                 }
 
-                if resumed {
+                let frame_dim_bits = self.level_dim_bits[frame_level];
+                let frame_shifts = self.level_shifts_cache[frame_level];
+                let frame_child_cell_bits = self.level_child_cell_bits_cache[frame_level];
+                let frame_mask = restriction_mask(frame_dim_bits, frame_shifts, frame.lo, frame_child_cell_bits, restrictions);
+                let mut child_pos = frame.child_pos;
+
+                let candidates = frame.remaining & frame_mask;
+                if candidates != 0 {
+                    let qi = candidates.trailing_zeros() as usize;
+                    let low_mask = (1u64 << qi) - 1;
+                    let skip_mask = frame.remaining & low_mask;
+                    if skip_mask != 0 {
+                        child_pos = self.advance_past_children(child_pos, skip_mask, frame_level + 1);
+                    }
+                    let next_child_pos = self.child_span_end(child_pos, frame_level + 1);
+                    let child_lo = advance_lo(frame.lo, frame_dim_bits, frame_shifts, qi, frame_child_cell_bits);
+                    let consumed_mask = low_mask | (1u64 << qi);
+                    frame.remaining &= !consumed_mask;
+                    frame.child_pos = next_child_pos;
+                    pos = child_pos;
+                    lo = child_lo;
+                    level = frame_level + 1;
                     continue 'outer;
                 }
                 stack_len -= 1;
@@ -2014,11 +2421,12 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
 
     /// Bulk-reads one entire "listing" subtree in one shot and decodes it
     /// entirely from memory, rather than walking it node by node.
-    fn bulk_list_subtree(&self, pos: Pos, lo: u64, level: usize, free_dim: usize, out: &mut Vec<u32>) {
+    fn bulk_list_subtree<T>(&self, pos: Pos, lo: u64, level: usize, free_dim: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
         let span_end = self.child_span_end(pos, level);
         let byte_len = self.byte_distance(pos, span_end);
         let buf = self.storage.bulk_read(pos.block, pos.offset, byte_len);
-        self.decode_listing(&buf, 0, lo, level, free_dim, out);
+        self.decode_listing(&buf, 0, lo, level, free_dim, emit)?;
+        ControlFlow::Continue(())
     }
 
     fn byte_distance(&self, start: Pos, end: Pos) -> usize {
@@ -2026,7 +2434,15 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         (self.block_index.prefix(end.block) + end.offset as u64 - self.block_index.prefix(start.block) - start.offset as u64) as usize
     }
 
-    fn decode_listing(&self, buf: &[u8], off: usize, lo: u64, level: usize, free_dim: usize, out: &mut Vec<u32>) -> usize {
+    /// Decodes one listing subtree already bulk-read into `buf`, calling
+    /// `emit` for every matching value in traversal order. The `usize`
+    /// `Continue` payload is the decode cursor (byte offset past what was
+    /// just decoded, for the caller -- itself, on the recursive call --
+    /// to resume reading sibling records from); `emit` returning `Break`
+    /// propagates straight out through every recursion level via `?`,
+    /// leaving the rest of this subtree (and the stack above it, in
+    /// `Self::query_rec`) untouched.
+    fn decode_listing<T>(&self, buf: &[u8], off: usize, lo: u64, level: usize, free_dim: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T, usize> {
         let word = u64::from_le_bytes(buf[off..off + WORD_RECORD_BYTES].try_into().unwrap());
         let is_last = level == self.height as usize - 1;
         let dim_bits = self.level_dim_bits[level][free_dim];
@@ -2038,9 +2454,9 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             while relevant != 0 {
                 let qi = relevant.trailing_zeros() as usize;
                 relevant &= relevant - 1;
-                out.push(advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits) as u32);
+                emit(advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits) as u32)?;
             }
-            off + WORD_RECORD_BYTES
+            ControlFlow::Continue(off + WORD_RECORD_BYTES)
         } else if level + 1 == self.height as usize - 1 {
             let leaf_level = level + 1;
             let leaf_dim_bits = self.level_dim_bits[leaf_level][free_dim];
@@ -2057,11 +2473,11 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 while relevant != 0 {
                     let leaf_qi = relevant.trailing_zeros() as usize;
                     relevant &= relevant - 1;
-                    out.push(advance_lo_dim(child_lo, leaf_dim_bits, leaf_shifts, leaf_qi, leaf_child_cell_bits) as u32);
+                    emit(advance_lo_dim(child_lo, leaf_dim_bits, leaf_shifts, leaf_qi, leaf_child_cell_bits) as u32)?;
                 }
                 cursor += WORD_RECORD_BYTES;
             }
-            cursor
+            ControlFlow::Continue(cursor)
         } else {
             let mut cursor = off + self.own_record_bytes(level);
             let mut remaining = word;
@@ -2069,9 +2485,9 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 let qi = remaining.trailing_zeros() as usize;
                 remaining &= remaining - 1;
                 let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
-                cursor = self.decode_listing(buf, cursor, child_lo, level + 1, free_dim, out);
+                cursor = self.decode_listing(buf, cursor, child_lo, level + 1, free_dim, emit)?;
             }
-            cursor
+            ControlFlow::Continue(cursor)
         }
     }
 
@@ -2277,15 +2693,21 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// theorized: it's a real 2-3x win when `block_capacity` is small
     /// enough that many blocks each hold several dead records (so the
     /// sequential loop below pays for re-shifting the same block's
-    /// tail repeatedly) -- but at this crate's actual
-    /// [`DEFAULT_BLOCK_CAPACITY`], and for any batch without that kind
-    /// of physical clustering, the batched version's own bookkeeping
-    /// (one descent trail per triple, grouping, a block-indexed map)
-    /// cost more than it recovered, making it *slower* than this plain
-    /// loop in the common case. Reverted in favor of this simpler,
-    /// measured-faster version rather than keeping a second code path
-    /// whose benefit doesn't show up at the capacities this crate
-    /// actually defaults to or measures against in `s-bench`. Unlike
+    /// tail repeatedly) -- but at `block_capacity` 4096 (what
+    /// [`DEFAULT_BLOCK_CAPACITY`] was when this was measured), and for
+    /// any batch without that kind of physical clustering, the batched
+    /// version's own bookkeeping (one descent trail per triple,
+    /// grouping, a block-indexed map) cost more than it recovered,
+    /// making it *slower* than this plain loop in the common case.
+    /// Reverted in favor of this simpler, measured-faster version
+    /// rather than keeping a second code path whose benefit didn't
+    /// show up at the capacity this crate defaulted to then. Insert/
+    /// remove cost was later found to scale badly with much larger
+    /// block sizes -- see `DESIGN.md`'s block-capacity measurements --
+    /// which is the opposite direction from where batching would start
+    /// to win, but this tradeoff hasn't been re-measured since
+    /// `DEFAULT_BLOCK_CAPACITY` changed; treat the 2-3x number above as
+    /// dated, not re-confirmed at the current default. Unlike
     /// `insert_batch`, there's no up-front domain validation here --
     /// `remove` never errors on an out-of-domain coordinate, it simply
     /// can't match anything, so an out-of-domain triple is silently not
@@ -2364,20 +2786,28 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// buffer, then sort that -- paying the `O(n)` extraction cost once
     /// instead of `O(n log n)` times, with the comparison-side win (the
     /// `u128` path below) on top of that.
-    fn sort_by_morton_key(&self, triples: &mut [Triple]) {
+    fn sort_by_morton_key(&mut self, triples: &mut [Triple]) {
         let height = self.height as usize;
         if height == 0 {
             return; // nothing distinguishes order at height 0.
         }
         if height <= 16 {
-            let mut keyed: Vec<(u128, Triple)> = triples.iter().map(|&(s, p, o)| (self.morton_key_packed(s, p, o, height), (s, p, o))).collect();
-            keyed.sort_unstable_by_key(|&(key, _)| key);
-            for (slot, &(_, triple)) in triples.iter_mut().zip(keyed.iter()) {
+            self.morton_sort_packed.clear();
+            for &(s, p, o) in triples.iter() {
+                let key = self.morton_key_packed(s, p, o, height);
+                self.morton_sort_packed.push((key, (s, p, o)));
+            }
+            self.morton_sort_packed.sort_unstable_by_key(|&(key, _)| key);
+            for (slot, &(_, triple)) in triples.iter_mut().zip(self.morton_sort_packed.iter()) {
                 *slot = triple;
             }
         } else {
-            let mut keyed: Vec<([u8; MAX_HEIGHT], Triple)> = triples.iter().map(|&(s, p, o)| (self.morton_key(s, p, o), (s, p, o))).collect();
-            keyed.sort_unstable_by(|a, b| {
+            self.morton_sort_generic.clear();
+            for &(s, p, o) in triples.iter() {
+                let key = self.morton_key(s, p, o);
+                self.morton_sort_generic.push((key, (s, p, o)));
+            }
+            self.morton_sort_generic.sort_unstable_by(|a, b| {
                 for i in 0..height {
                     match a.0[i].cmp(&b.0[i]) {
                         std::cmp::Ordering::Equal => continue,
@@ -2386,7 +2816,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 }
                 std::cmp::Ordering::Equal
             });
-            for (slot, &(_, triple)) in triples.iter_mut().zip(keyed.iter()) {
+            for (slot, &(_, triple)) in triples.iter_mut().zip(self.morton_sort_generic.iter()) {
                 *slot = triple;
             }
         }
@@ -2514,7 +2944,14 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// `crate::vec_bytes`'s own doc comment for what that means in
     /// practice.
     pub fn mem_size_bytes(&self) -> usize {
-        self.storage.mem_size_bytes() + self.block_index.mem_size_bytes() + crate::vec_bytes(&self.level_skip_bytes) + crate::vec_bytes(&self.level_dim_bits) + crate::vec_bytes(&self.level_shifts_cache) + crate::vec_bytes(&self.level_child_cell_bits_cache)
+        self.storage.mem_size_bytes()
+            + self.block_index.mem_size_bytes()
+            + crate::vec_bytes(&self.level_skip_bytes)
+            + crate::vec_bytes(&self.level_dim_bits)
+            + crate::vec_bytes(&self.level_shifts_cache)
+            + crate::vec_bytes(&self.level_child_cell_bits_cache)
+            + crate::vec_bytes(&self.morton_sort_packed)
+            + crate::vec_bytes(&self.morton_sort_generic)
     }
 
     pub fn size_breakdown(&self) -> Vec<(&'static str, usize)> {
@@ -2524,6 +2961,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         v.push(("level_dim_bits (O(height))", crate::vec_bytes(&self.level_dim_bits)));
         v.push(("level_shifts_cache (O(height))", crate::vec_bytes(&self.level_shifts_cache)));
         v.push(("level_child_cell_bits_cache (O(height))", crate::vec_bytes(&self.level_child_cell_bits_cache)));
+        v.push(("morton sort scratch (reused across insert_batch/remove_batch)", crate::vec_bytes(&self.morton_sort_packed) + crate::vec_bytes(&self.morton_sort_generic)));
         v
     }
 
@@ -2625,6 +3063,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             dim_order: h.dim_order,
             single_point_exists: h.single_point_exists,
             height: h.height,
+            morton_sort_packed: Vec::new(),
+            morton_sort_generic: Vec::new(),
         };
         if tree.height != 0 {
             let mut pos = Pos::START;
@@ -2696,33 +3136,55 @@ mod tests {
                     assert_eq!(tree.contains(s, p, o), naive.contains(s, p, o), "contains({s},{p},{o}) {label}");
                     all_triples.push((s, p, o));
                 }
-                let mut got = tree.query_two_bound([0, 1], [s, p], 2);
+                let mut got = tree.restricted_descent([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
                 let mut expect = naive.row(p, s);
                 got.sort_unstable();
                 expect.sort_unstable();
-                assert_eq!(got, expect, "query_two_bound(S={s},P={p},free=O) {label}");
+                assert_eq!(got, expect, "restricted_descent(Exact(S={s}),Exact(P={p}),Free) {label}");
                 assert_eq!(tree.count_matching([Some(s), Some(p), None]), expect.len() as u64, "count_matching(S={s},P={p},O=?) {label}");
+                let mut visited = Vec::new();
+                let _: ControlFlow<()> = tree.restricted_descent_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+                    visited.push(v);
+                    ControlFlow::Continue(())
+                });
+                visited.sort_unstable();
+                assert_eq!(visited, got, "restricted_descent_visit(Exact(S={s}),Exact(P={p}),Free), sorted, should match restricted_descent's deduplicated result {label}");
             }
         }
         let expect_batch: Vec<bool> = all_triples.iter().map(|&(s, p, o)| naive.contains(s, p, o)).collect();
         assert_eq!(tree.contains_batch(&all_triples), expect_batch, "contains_batch over the full domain {label}");
         for p in 0..num_p {
             for o in 0..num_o {
-                let mut got = tree.query_two_bound([1, 2], [p, o], 0);
+                let mut got = tree.restricted_descent([DimRestriction::Free, DimRestriction::Exact(p), DimRestriction::Exact(o)], 0);
                 let mut expect = naive.col(p, o);
                 got.sort_unstable();
                 expect.sort_unstable();
-                assert_eq!(got, expect, "query_two_bound(P={p},O={o},free=S) {label}");
+                assert_eq!(got, expect, "restricted_descent(Free,Exact(P={p}),Exact(O={o})) {label}");
+                let mut visited = Vec::new();
+                let _: ControlFlow<()> = tree.restricted_descent_visit([DimRestriction::Free, DimRestriction::Exact(p), DimRestriction::Exact(o)], 0, |v| {
+                    visited.push(v);
+                    ControlFlow::Continue(())
+                });
+                visited.sort_unstable();
+                assert_eq!(visited, got, "restricted_descent_visit(Free,Exact(P={p}),Exact(O={o})), sorted, should match restricted_descent's deduplicated result {label}");
             }
         }
         for s in 0..num_s {
-            let mut got = tree.query_one_bound(0, s, 2);
+            let mut got = tree.restricted_descent([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
             let mut expect: Vec<u32> = (0..num_p).flat_map(|p| naive.row(p, s)).collect();
             got.sort_unstable();
             got.dedup();
             expect.sort_unstable();
             expect.dedup();
-            assert_eq!(got, expect, "query_one_bound(S={s},free=O) {label}");
+            assert_eq!(got, expect, "restricted_descent(Exact(S={s}),Free,Free) {label}");
+            let mut visited = Vec::new();
+            let _: ControlFlow<()> = tree.restricted_descent_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+                visited.push(v);
+                ControlFlow::Continue(())
+            });
+            visited.sort_unstable();
+            visited.dedup();
+            assert_eq!(visited, got, "restricted_descent_visit(Exact(S={s}),Free,Free), sorted and deduplicated, should match restricted_descent {label}");
         }
     }
 
@@ -3392,11 +3854,11 @@ mod tests {
         let budget = BulkBuildBudget::new(2_000);
 
         let heap = Heap::build_dynamic_bounded(triples.into_iter(), dims, DEFAULT_BLOCK_CAPACITY, budget);
-        let mut got = heap.query_two_bound([0, 1], [naive_probe_s, 3], 2);
+        let mut got = heap.restricted_descent([DimRestriction::Exact(naive_probe_s), DimRestriction::Exact(3), DimRestriction::Free], 2);
         let mut expect = naive.row(3, naive_probe_s);
         got.sort_unstable();
         expect.sort_unstable();
-        assert_eq!(got, expect, "wide-branching bounded build query_two_bound(S={naive_probe_s},P=3,free=O)");
+        assert_eq!(got, expect, "wide-branching bounded build restricted_descent(Exact(S={naive_probe_s}),Exact(P=3),Free)");
     }
 
     #[test]
@@ -3467,11 +3929,141 @@ mod tests {
         let mut out = Vec::with_capacity(1_000);
         let cap_before = out.capacity();
         let queries: Vec<Triple> = (0..1_000u32).map(|i| (i % 50, i % 5, i % 50)).collect();
-        tree.contains_batch_into(&queries, &mut out);
+        let mut scratch = ContainsBatchWorkspace::default();
+        tree.contains_batch_into(&queries, &mut out, &mut scratch);
         assert_eq!(out.len(), queries.len());
         assert_eq!(out.capacity(), cap_before, "contains_batch_into should not need to reallocate when the buffer already has enough capacity");
         let expect: Vec<bool> = queries.iter().map(|&(s, p, o)| tree.contains(s, p, o)).collect();
         assert_eq!(out, expect);
+
+        // The sort scratch (not just `out`) must also survive across
+        // calls without reallocating -- this is the bug the "graph store
+        // harness team" found: `contains_batch_into` allocated a fresh
+        // `Vec<(u32, u128)>` sort buffer internally on every call.
+        let scratch_bytes_after_first_call = scratch.allocated_bytes();
+        assert!(scratch_bytes_after_first_call > 0, "scratch should have grown to hold the batch");
+        tree.contains_batch_into(&queries, &mut out, &mut scratch);
+        assert_eq!(scratch.allocated_bytes(), scratch_bytes_after_first_call, "contains_batch_into should not reallocate its sort scratch on a repeat call of the same size");
+    }
+
+    #[test]
+    fn restricted_descent_visit_breaks_early_and_the_count_proves_it() {
+        let num_p = 20u32;
+        let num_o = 500u32;
+        let triples: Vec<Triple> = (0..num_p).flat_map(|p| (0..num_o).map(move |o| (0u32, p, o))).collect();
+        let tree = Heap::build_dynamic(triples, 4096);
+
+        let mut emitted = 0u32;
+        let restrictions = [DimRestriction::Exact(0), DimRestriction::Free, DimRestriction::Free];
+        let result = tree.restricted_descent_visit(restrictions, 2, |_| {
+            emitted += 1;
+            if emitted == 5 { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        });
+        assert_eq!(result, ControlFlow::Break(()), "emit requested a stop after 5; visit should report it broke, not that it ran to completion");
+        assert_eq!(emitted, 5, "visit must stop calling emit the moment it returns Break, not keep going and merely stop collecting");
+
+        let mut total_emitted = 0u32;
+        let _: ControlFlow<()> = tree.restricted_descent_visit(restrictions, 2, |_| {
+            total_emitted += 1;
+            ControlFlow::Continue(())
+        });
+        assert_eq!(total_emitted, num_p * num_o, "sanity: the unbroken visit should see one emission per (predicate, object) pair");
+    }
+
+    #[test]
+    fn restricted_descent_visit_out_of_domain_and_degenerate_height_zero() {
+        let tree = Heap::build_dynamic(uniform(10, 2, 10, 50, 0x5EED), 64);
+        let mut calls = 0;
+        let result: ControlFlow<()> = tree.restricted_descent_visit([DimRestriction::Exact(10), DimRestriction::Exact(0), DimRestriction::Free], 2, |_| {
+            calls += 1;
+            ControlFlow::Continue(())
+        });
+        assert_eq!(result, ControlFlow::Continue(()));
+        assert_eq!(calls, 0, "an out-of-domain bound value can't match anything, same rule contains() documents");
+
+        let singleton = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        assert_eq!(singleton.height(), 0, "test assumes a [1,1,1]-style degenerate domain");
+        let mut got = None;
+        let result: ControlFlow<()> = singleton.restricted_descent_visit([DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free], 2, |v| {
+            got = Some(v);
+            ControlFlow::Continue(())
+        });
+        assert_eq!(result, ControlFlow::Continue(()));
+        assert_eq!(got, Some(0), "the one point in a height-0 tree is coordinate 0 on every dimension");
+    }
+
+    #[test]
+    fn restricted_descent_range_matches_scan_filtered_oracle() {
+        let triples = uniform(24, 40, 24, 600, 0xA17);
+        let tree = Heap::build_dynamic(triples, 64);
+        // Includes in-domain, edge-aligned, single-value, and
+        // partially out-of-domain ranges (P's domain tops out at 39).
+        let ranges = [(0u32, 0u32), (5, 5), (0, 39), (10, 25), (37, 50), (1, 3)];
+        for &(lo, hi) in &ranges {
+            for s in 0..24u32 {
+                let got = tree.restricted_descent([DimRestriction::Exact(s), DimRestriction::Range(lo, hi), DimRestriction::Free], 2);
+                let mut expect: Vec<u32> = tree.scan([Some(s), None, None]).filter(|&(_, p, _)| p >= lo && p <= hi).map(|(_, _, o)| o).collect();
+                expect.sort_unstable();
+                expect.dedup();
+                assert_eq!(got, expect, "restricted_descent Range({lo},{hi}) on P for S={s}");
+            }
+        }
+    }
+
+    #[test]
+    fn restricted_descent_multi_ranges_union_and_overlap() {
+        let triples = uniform(24, 40, 24, 600, 0xB17);
+        let tree = Heap::build_dynamic(triples, 64);
+        // Overlapping and out of order -- correctness must not depend
+        // on the caller merging or sorting these first.
+        let ranges = [(20u32, 30u32), (5, 15), (12, 22), (0, 2)];
+        for s in 0..24u32 {
+            let got = tree.restricted_descent([DimRestriction::Exact(s), DimRestriction::Multi(&ranges), DimRestriction::Free], 2);
+            let mut expect: Vec<u32> = tree
+                .scan([Some(s), None, None])
+                .filter(|&(_, p, _)| ranges.iter().any(|&(a, b)| p >= a && p <= b))
+                .map(|(_, _, o)| o)
+                .collect();
+            expect.sort_unstable();
+            expect.dedup();
+            assert_eq!(got, expect, "restricted_descent Multi(overlapping ranges) on P for S={s}");
+        }
+    }
+
+    #[test]
+    fn restricted_descent_out_of_domain_range() {
+        let tree = Heap::build_dynamic(uniform(10, 8, 10, 60, 0xC0DE), 64);
+        let dom_p = tree.domain_size(1) as u32;
+        let got = tree.restricted_descent([DimRestriction::Free, DimRestriction::Range(dom_p, dom_p + 50), DimRestriction::Free], 2);
+        assert!(got.is_empty(), "a range fully outside the dimension's domain must match nothing, not panic");
+
+        let edge = dom_p.saturating_sub(2);
+        let got = tree.restricted_descent([DimRestriction::Exact(0), DimRestriction::Range(edge, dom_p + 50), DimRestriction::Free], 2);
+        let mut expect: Vec<u32> = tree.scan([Some(0), None, None]).filter(|&(_, p, _)| p >= edge).map(|(_, _, o)| o).collect();
+        expect.sort_unstable();
+        expect.dedup();
+        assert_eq!(got, expect, "a range straddling the domain edge must clip to the in-domain portion, not panic or overshoot");
+    }
+
+    #[test]
+    fn restricted_descent_range_reaches_bulk_fast_path_once_its_dimension_is_resolved() {
+        // P only needs 2 bits, S and O need far more -- so most of this
+        // tree's depth is reached with P's restriction already out of
+        // bits to consume, exactly the condition
+        // `first_fully_open_level_restricted` needs to hand a `Range`-
+        // restricted (not `Free`) subtree to the bulk decode path.
+        let triples = uniform(4000, 4, 4000, 3000, 0xDEEE);
+        let tree = Heap::build_dynamic(triples, 64);
+        assert!(tree.height() > 4, "test assumes a deep tree so the bulk handoff actually matters");
+        for (p_lo, p_hi) in [(0u32, 1u32), (2, 3), (0, 3), (1, 2)] {
+            for s in (0..4000u32).step_by(677) {
+                let got = tree.restricted_descent([DimRestriction::Exact(s), DimRestriction::Range(p_lo, p_hi), DimRestriction::Free], 2);
+                let mut expect: Vec<u32> = tree.scan([Some(s), None, None]).filter(|&(_, p, _)| p >= p_lo && p <= p_hi).map(|(_, _, o)| o).collect();
+                expect.sort_unstable();
+                expect.dedup();
+                assert_eq!(got, expect, "Range({p_lo},{p_hi}) on P for S={s}, exercising the bulk handoff once P's bits run out");
+            }
+        }
     }
 
     /// `contains_batch`'s packed (`height <= 16`) fast path only covers

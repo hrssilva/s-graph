@@ -7,7 +7,7 @@
 pub use crate::traversal::*;
 
 use crate::storage::BlockStorage;
-use crate::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric;
+use crate::tree::{DimRestriction, RadixTreeDfsInterleavedVarSkipUnrolledGeneric};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 #[cfg(feature = "parallel")]
@@ -28,14 +28,14 @@ pub trait AdjacencyBackend {
 impl<S: BlockStorage> AdjacencyBackend for RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     fn out_neighbors(&self, node: u32, predicate: Option<u32>) -> Vec<u32> {
         match predicate {
-            Some(p) => self.query_two_bound([0, 1], [node, p], 2),
-            None => self.query_one_bound(0, node, 2),
+            Some(p) => self.restricted_descent([DimRestriction::Exact(node), DimRestriction::Exact(p), DimRestriction::Free], 2),
+            None => self.restricted_descent([DimRestriction::Exact(node), DimRestriction::Free, DimRestriction::Free], 2),
         }
     }
     fn out_neighbors_into(&self, node: u32, predicate: Option<u32>, out: &mut Vec<u32>) {
         match predicate {
-            Some(p) => self.query_two_bound_into([0, 1], [node, p], 2, out),
-            None => self.query_one_bound_into(0, node, 2, out),
+            Some(p) => self.restricted_descent_into([DimRestriction::Exact(node), DimRestriction::Exact(p), DimRestriction::Free], 2, out),
+            None => self.restricted_descent_into([DimRestriction::Exact(node), DimRestriction::Free, DimRestriction::Free], 2, out),
         }
     }
     fn num_nodes(&self) -> usize {
