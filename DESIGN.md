@@ -614,6 +614,752 @@ weighting heuristic that's actually safe across asymmetric domains
 remains unsolved -- this crate's default needs to be safe for data it
 has never seen, not just the shape it happened to get tested against.
 
+### `advance`'s slow path: two more ideas tried, both rejected
+
+Follow-up to the complexity analysis that came out of the regression
+investigation above: `advance_past_children`'s cost (and so every
+accessor built on it -- `scan`, `restricted_descent*`, `NativeJoin`'s
+`prefix_child`) is dominated by how many real siblings must be walked
+past per level, each walk potentially paying for a `BlockIndex::locate`
+search. Two ways to cut that cost were tried and both rejected, measured
+rather than assumed either way:
+
+- **Resuming a sorted-target Fenwick search.** Resolving several
+  siblings' increasing positions by continuing the search from where
+  the previous one landed, instead of restarting `locate` from the
+  root each time, would in principle cut a run of searches from `O(k
+  log n)` to `O(Σ log gap_i)`. Not attempted: `locate`'s binary-lifting
+  search greedily builds its result as a sum of powers of two starting
+  from block 0; resuming from a nonzero block isn't a parameter change
+  to it, it needs the `sums` array to answer range-relative queries it
+  doesn't store. That's a different index structure, not a tweak to
+  this one, and not something to improvise into a shared, load-bearing
+  structure without its own dedicated design.
+- **A short linear probe before falling back to `locate`.** Checked a
+  handful of blocks forward via plain `block_len` reads (no
+  data-dependent chain, unlike `locate`'s search) before paying for the
+  full search -- cheap if it lands, cheap-ish if it doesn't. Measured
+  (A/B, same benchmarks as the schedule investigation, back-to-back,
+  each side reproduced twice to rule out noise): a real, reproducible
+  **4-7% regression** on `one-Exact`, `Range`, and both `scan`
+  directions -- exactly the cases this was meant to help, because
+  their skips are genuinely far (the whole reason they're expensive),
+  so the probe almost always fails and just adds 8 wasted reads before
+  the same `locate` call as before. Marginal, not-the-point gains on
+  `insert`/`remove` (closer targets there) didn't justify it. Reverted;
+  working tree confirmed byte-identical to pre-change afterward.
+
+Net conclusion: the near-root "few real siblings, each a large skip"
+case identified by Phase 0 doesn't have an easy fix. Cutting it for
+real needs either a different index structure for `BlockIndex` or a
+different storage layout, not a local change to `advance`'s call
+sites -- left as a real, open, unsolved cost, not a wrong guess papered
+over with a workaround.
+
+### A real, measured, but modest waste: eager backtrack-frame precompute
+
+`query_rec`/`query_rec_restricted`'s stack-based descent reads a
+matched sibling's own skip field immediately at match time, before
+even descending into it, to precompute where backtracking should
+resume afterward (`next_child_pos`, stored in the pushed frame). That
+read is wasted whenever nothing real follows the match at that level
+(`remaining` is already empty once the matched bit and everything
+below it are cleared) -- the frame gets popped on the very next visit
+without its `child_pos` ever being read.
+
+Instrumented before touching anything (same temporary-counter
+convention as every other investigation here): tallied, per level,
+every eager read against whether it turned out wasted, across
+`two-Exact`, `one-Exact`, `Range`, and both directions of the
+asymmetric-domain case from the schedule regression. The pattern was
+identical and clean across all five: ~0% wasted at levels 0-3 (dense
+branching -- a match is rarely the last real sibling there), climbing
+to 48-73% at level 4, ~99% at level 5, and 100% at level 6 and beyond
+(sparse branching -- often exactly one real child, so a match
+essentially always *is* the last one). Overall waste rate across whole
+queries: 9.3-14.1% of all eager reads, consistent across every shape
+tested.
+
+The catch: this waste concentrates exactly at the levels Phase 0 already
+showed are fast-path dominated (near-0% `locate`-triggering rate at
+levels 4+). A wasted read there costs roughly a word read and a
+comparison on already-resident data, not a `BlockIndex::locate` search
+-- so even a clean fix (skip the `child_span_end` call when `remaining
+& !consumed_mask == 0`, storing a sentinel `Pos` that's structurally
+guaranteed never to be read, since a frame with `remaining == 0` is
+popped before `child_pos` is ever touched) would plausibly save on the
+order of 1-3% of total query time for `one-Exact`, less for `two-Exact`
+-- real, but not in the same class as the schedule or `remaining & mask`
+fixes. Not implemented yet: the waste is confirmed and the fix is
+simple and low-risk, but the expected payoff is modest enough that it's
+being left as a known, quantified, cheap-to-pick-up-later improvement
+rather than rushed in for a small number.
+
+### Hoisting child skip values into the parent record
+
+A different idea for the same `advance_past_children`/`child_span_end`
+mechanism above: today, a "far" node (`level + 2 < height`, i.e. more
+than two levels above a leaf) stores its own skip-to-end-of-subtree
+value *inside its own record*. Skipping past K real siblings before a
+match means K sequentially dependent steps -- read sibling 0's skip,
+`advance()` to sibling 1, read *its* skip, `advance()` to sibling 2, and
+so on -- because you cannot know where sibling i+1 starts without first
+reading sibling i's own record. Each of those `advance()` calls can
+independently fall into `BlockIndex::locate`'s O(log blocks) search. The
+proposal: store all of a parent's real children's skip values
+contiguously in the *parent's* own record instead, one entry per real
+child (same bitmask-driven indexing already used everywhere else in
+this engine). Once the parent is read, every child's span is already in
+hand -- no chain of dependent reads, no repeated `locate()` -- so
+skipping K siblings collapses to one bulk, cache-resident read, O(K)
+pure arithmetic to sum, and exactly one final `advance()`/`locate()`
+call to the computed target.
+
+This doesn't inflate storage (the same values move, they aren't
+duplicated) and doesn't add mutation cost in the common case: `insert`
+already walks down once recording every ancestor's position in `trail`
+and patches every far ancestor's skip field afterward
+(`insert_new_branch`, O(height) direct writes to already-known
+positions) -- under the hoist scheme the write target just moves one
+level up (into the parent's slot for that child, at an offset
+computable from the sibling popcount already in hand), same asymptotic
+cost. The real new complexity is the rarer structural case -- a child
+going from absent to present (or vice versa) needs a *slot*
+inserted/removed in every far-ancestor's record, not just a value
+patched, which is new plumbing beyond what `insert`/`remove` do today
+(though it likely reuses the existing `insert_bytes`/byte-shifting
+primitives those already rely on).
+
+Instrumented before committing to the rewrite: added counters to
+`advance_past_children`'s non-leaf loop, tallying per level how many
+real siblings get chained past per call (`avg_k`) and, by duplicating
+`advance`'s own fast-path predicate inline (without changing its
+behavior), what fraction of those individual chained steps would have
+hit the slow `locate()` path. Measured across five shapes --
+`two-Exact`, `one-Exact`, `Range` on a symmetric 500,000x200x500,000
+domain at 10,000,000 triples, and both directions (small-domain-pinned,
+large-domain-pinned) of an asymmetric 20,000x200x2,000,000 domain at
+3,000,000 triples -- with the pinned value(s) randomized per call rather
+than fixed, since an earlier fixed-query pass turned out to badly
+undersample the near-root levels most queries barely touch.
+
+The result was a clean, large, and consistent effect in every shape:
+
+```
+                total steps   total slow   levels 1-2 steps   levels 1-2 slow (% of all slow)
+two-Exact       3,701,744     8.1%         7.6% of steps      91.4%
+one-Exact       16,817,020    0.6%         0.4% of steps      65.7%
+Range           4,087,377     1.8%         1.6% of steps      84.2%
+asym S-bound    9,147,266     0.7%         0.6% of steps      76.1%
+asym O-bound    8,722,747     1.0%         0.9% of steps      78.2%
+```
+
+At levels 1-2 specifically, average chain length (`avg_k`) ran
+3-30 real siblings depending on domain shape and branching, and
+80-100% of the individual steps in that chain hit `BlockIndex::locate`
+-- essentially every sibling skipped near the root costs a full search
+today. By level 3 the slow fraction drops to 1-3%, and by level 4+ it's
+under 0.1%, matching the fast-path-dominated picture from Phase 0 and
+the eager-precompute investigation above. So: levels 1-2 account for
+under 8% (often under 1%) of all sibling-skip steps in a query, but
+91%, 84%, 78%, 76%, and 66% (respectively) of *all* the slow,
+`locate`-triggering steps -- the same "small fraction of the work, most
+of the real cost" concentration this engine keeps finding near the
+root, and -- unlike the size-weighted schedule -- a pattern that held in
+exactly the same shape across symmetric and asymmetric domains and both
+pin directions, not something that flips sign depending on domain
+asymmetry.
+
+Hoisting would collapse each of those near-root chains from K
+independent (and today, almost-always-slow) `locate()`-class calls down
+to exactly one. That's roughly an 80-90%+ cut in the *slow* chain-step
+count specifically -- a materially bigger lever than the eager-precompute
+waste above, and aimed at the same root-cause (`advance_past_children`'s
+sequential dependency) the earlier hardware-counter profiling pass
+identified but didn't have a concrete fix for.
+
+**Prototyped the read path to turn that into a real measurement**,
+deliberately scoped to stop short of `insert`/`remove` per the plan:
+`src/hoist_proto.rs` (`HoistedProto`) builds a tree with the hoisted
+layout (reusing the production engine's own schedule computation --
+`dynamic_schedule`, `compute_level_skip_bytes`, etc., made `pub(crate)`
+for this, not reimplemented, so both layouts get the identical tree
+shape) and a from-scratch recursive query engine (no mutation support
+at all; build once, query many times). To isolate the hoisting effect
+from the prototype's own implementation style, a second type,
+`NonHoistedControl`, builds the *production* layout (each far node
+stores its own skip field, patched after recursing -- exactly
+`build_rec`'s approach) through the *same* recursive, per-node-mask
+visitor shape as `HoistedProto`. Three-way, cross-validated (every
+query's result set checked against production, sorted, before trusting
+any timing) A/B on the same five shapes as the chain-length
+measurement:
+
+```
+                              pure hoisting      recursive-style        net
+                              (control/proto)    overhead (control/prod) (prod/proto)
+symmetric two-Exact           4.14x              1.70x                   2.43x
+symmetric one-Exact           1.18x              1.31x                   0.90x
+symmetric Range               1.58x              1.04x                   1.52x
+asymmetric S-bound            1.50x              1.45x                   1.03x
+asymmetric O-bound            1.40x              1.08x                   1.30x
+(free-subject shape)
+```
+
+The middle column is the honest explanation for why "net" doesn't just
+equal "pure hoisting": `HoistedProto`/`NonHoistedControl` are both a
+plain recursive descent with no backtracking-stack reuse and no
+precomputed flat per-level mask array for the pure-Exact/Free case --
+production's actual `query_rec` has both. That overhead happened to
+roughly cancel the hoisting win for `one-Exact` and `S-bound` (net
+≈1x), while `two-Exact`/`Range`/`O-bound` still show a large net win
+even against that handicap. The column that actually answers "does
+hoisting help": **pure hoisting effect, positive in all five shapes,
+1.18x-4.14x, including both directions of domain asymmetry** -- unlike
+the size-weighted schedule, this did not flip sign anywhere tested. A
+real implementation landing hoisting *inside* `query_rec`/
+`query_rec_restricted` (keeping their existing frame-stack and
+bulk-listing optimizations) should get close to the "pure hoisting"
+column, not the handicapped "net" one.
+
+One correctness wrinkle surfaced and resolved during validation, worth
+recording since it looked like a hoisting bug at first: a `[Free, Free,
+Exact(o)]`-shaped query with `emit_dim` equal to the *same* dimension
+that's `Exact`-restricted is documented as a degenerate existence gate,
+not an enumeration -- using it as a stand-in for "enumerate subjects for
+a fixed object" (emit_dim should be `0`, not `2`) produced a false
+mismatch against production unrelated to either prototype. Separately,
+a real but tiny (≤4/500, ~0.8%) and *pre-existing* divergence shows up
+in both `HoistedProto` and `NonHoistedControl` identically for one
+shape (`S`-bound, two Free dims): production's bulk-listing fast path
+collapses one duplicate emission in a rare shared-value-across-
+different-free-dim-branches case that this plain recursive visitor
+doesn't. Confirmed unrelated to hoisting specifically (identical in
+both the hoisted and non-hoisted control), not investigated further
+since it's orthogonal to this measurement and pre-dates it.
+
+### Hoisting landed for real: `build_rec`, `insert`, `remove`, parallel build
+
+The prototype's win was real and consistent enough to implement for
+real, touching every code path that creates or mutates node records.
+The prototype itself (`src/hoist_proto.rs`, `NonHoistedControl`,
+`examples/hoist_proto_bench.rs`) is gone now that production has the
+real thing -- this section is the record of landing it.
+
+**The layout change.** A node no longer stores anything describing
+itself. A far node (`level + 3 < height` evaluated at its *parent*,
+equivalently the old `level + 2 < height` evaluated at the node itself)
+has its span written into one slot of its *parent's* hoisted array
+(existence word, then one `level_skip_bytes`-wide entry per real child,
+in ascending `qi`/real-index order) instead of a self-contained skip
+field in its own record. `own_record_bytes` becomes word-dependent
+(`WORD_RECORD_BYTES + popcount(word) * level_skip_bytes[level + 1]`
+when this node's *children* are far, `WORD_RECORD_BYTES` otherwise --
+the leaf-level and second-to-last-level cases are unchanged, since
+those never had a stored skip field to begin with). A new
+`far_span_sum(parent_pos, child_level, start_real_index, count)`
+replaces `child_span_end`'s far branch: one bulk read of `count`
+contiguous array entries starting at `start_real_index`, summed in
+registers -- `advance_past_children` now takes `parent_pos`/
+`parent_word` alongside the child position and bitmask, derives
+`start_real_index`/`count` from the mask (always a contiguous run of
+real-child bits, by construction of every caller), and does the far
+case in one `far_span_sum` call plus one `advance` instead of a chain
+of `child_span_end` calls. `child_span_end` itself keeps only its two
+non-far branches, with a `debug_assert` that it's never called for a
+far level (a hard guard against a silently-wrong read, since that
+span no longer exists at a far child's own position at all).
+`MAX_RECORD_BYTES` (`WORD_RECORD_BYTES + K_SQUARE * MAX_SKIP_RECORD_BYTES`
+= 520) replaces the old `WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES`
+(16) as the worst-case single-record size, used as a fixed stack
+buffer during build (never a per-node heap allocation, same discipline
+as before).
+
+**Every caller that read a child's span now reads its parent's array
+instead**, with the same bulk-vs-sequential split the chain-length
+measurement found: `query_rec`/`query_rec_restricted`'s stack frames
+gained a `pos: Pos` field (the far parent `remaining` was read from)
+so a resumed backtrack frame can still call `far_span_sum` against the
+right node; the "eager backtrack-frame precompute" these two functions
+already did (see the section above) now goes through
+`eager_child_span_end`, which dispatches to `far_span_sum` for far
+levels and unchanged `child_span_end` otherwise. `bulk_list_subtree`
+no longer computes its own span (nothing at a far node's position to
+compute it from) -- it takes `span_end` from the caller, which already
+has it as a side effect of the same eager-precompute call that sets up
+`pos`/`lo`/`level` for the node it's about to bulk-read; the one case
+with no such precompute (the whole query starting already past
+`unconstrained_from`, only possible at the root) uses
+`BlockIndex::total()` (added for this) as the one case where a node's
+span legitimately has nowhere else to come from. `count_rec`, `Scan`
+(a new `pos`/`real_index` pair on `ScanFrame`), and `PrefixCursor`
+(`pos`/`word` alongside the existing shrinking `unskipped` mask) all
+got the analogous treatment -- `PrefixCursor::prefix_child` in
+particular just calls the same generalized `advance_past_children`
+unchanged, since its shape already matched.
+
+**Build (`build_rec`, the parallel fan-out path, `build_external`'s
+bounded/spilling path, `build_single_point_chain`).** All four
+restructured the same way: no more per-node self-patch once a
+subtree's total is known. Instead, the parent (which already owns the
+hoisted array for its children) patches each child's array slot
+immediately after that child's own recursive build call returns with
+its total byte count -- `build_children`/`build_children_sequential`'s
+parallel and sequential stitch loops, and `build_external`'s
+equivalent (`flush_fit_batch`/`flush_taken_batch*`, threading an
+`own_pos`/`child_skip_width`/running `real_index` through what used to
+be a pure byte-count accumulator), all patch inline as each child
+completes rather than returning just a sum for the caller to self-patch
+with. `build_single_point_chain` (a fresh single-point path built new
+for `insert_new_branch`) writes `sizes[lvl + 1]` (the child's span)
+into `lvl`'s record instead of `sizes[lvl]` (its own) -- the same
+relocation, just for a chain where every node has exactly one real
+child.
+
+**Mutation was the hard part, and genuinely harder than the earlier
+complexity estimate.** Three real bugs surfaced during a 3,000-op
+randomized insert/remove stress test (the existing
+`interleaved_insert_remove_stress_small_capacity` family, `block_capacity`
+deliberately tiny to force splits/merges constantly), each caught by
+cross-checking every op against a naive reference *and* round-tripping
+through `serialize`/`deserialize` (whose `validate_node` independently
+recomputes every subtree's span from scratch and checks it against
+what's stored -- the single most valuable correctness tool for this
+whole change):
+
+1. **Growing a far node's array can't be a partial splice at all, not
+   even of just the new entry.** `insert_bytes` never splits the bytes
+   it's given, but it always splits (if a block doesn't have room)
+   *at the insertion point* -- so splicing anything less than a
+   record's *entire* span (header and array together) risks that
+   split landing inside the record, separating the header from (part
+   of) its own array across two blocks. `far_span_sum` and friends all
+   assume a far node's whole record lives in one block; a header in
+   block N and its array in block N+1 reads back as silent nonsense,
+   not a crash. The only shape immune to this: read the complete old
+   record, splice the new entry into a full copy, then swap it in as
+   one `remove_bytes` of the old record's exact span followed by one
+   `insert_bytes` of the whole new one, both anchored at the record's
+   own start. (Two earlier, more "surgical" attempts -- growing in
+   place, and removing/reinserting just the array's *tail* past the
+   new slot -- each failed this same way under a tight `block_capacity`
+   stress run and got replaced, not patched.)
+2. **Removing a node whose only child just vanished must never use
+   `own_record_bytes` with the stale pre-removal word.** By the time
+   `remove_cascade` reaches a node that's becoming fully empty, the
+   *previous* (deeper) iteration of the same loop has already removed
+   that one child's slot from this node's array -- so this node's
+   *current* on-disk size is always just its bare header, never
+   `own_record_bytes(level, word)` (which would still count the
+   already-gone entry and try to remove more bytes than the block
+   actually has).
+3. **`block_capacity` has a real, higher floor now.** A far node's own
+   record scales with its branching factor (up to 64 children x 8
+   bytes = 512, plus the header = `MAX_RECORD_BYTES` = 520) -- previously
+   irrelevant, since a node's own record was always at most 16 bytes
+   regardless of branching. `validate_config` now rejects anything
+   below `MAX_RECORD_BYTES` (was 16); every test and example using a
+   deliberately-tiny capacity to stress splitting (`32`, `64`, `128`)
+   got bumped to a still-tiny-but-legal value (`MAX_RECORD_BYTES` or
+   `1024`), and the one edge case this surfaces -- removing the root's
+   *only* record (pre-array, the very first insert into an empty tree)
+   empties all of storage down to zero blocks, leaving nothing for
+   `locate` to resolve the re-insert against -- falls back to
+   `append_record`+`finish_append` used together as a complete,
+   immediately-finalized one-record build session (the only
+   backend-agnostic way to go from zero blocks to one; `FileStorage`
+   in particular stages `append_record` into a buffer that only
+   becomes real, addressable storage once `finish_append` flushes it,
+   so the two must always be paired).
+
+**A fourth bug was in storage, not in the hoisting logic, and
+pre-existed this change.** `CompressedStorage::remove_bytes` and
+`FileStorage::remove_bytes` never dropped a block that shrank to zero
+content -- unlike `HeapStorage`, which always has. A lingering
+zero-length block is invisible to `BlockIndex` (it contributes nothing
+to any prefix sum), so `locate` transparently skips over it when
+resolving a byte offset -- exactly the right behavior for *reading*,
+and exactly wrong for `insert_new_branch`'s remove-then-reinsert-at-
+the-same-logical-offset pattern, which silently landed the reinserted
+bytes in the *next* physical block instead. Harmless as long as
+nothing ever depended on which literal block a position's bytes
+physically sat in -- except `Pos::START` (block 0, offset 0) is
+hardcoded as where every traversal starts, so the one time this
+happened to the root's own record, the root quietly moved to block 1
+and every subsequent operation read an empty block 0 instead. Fixed at
+the source (both backends now drop an emptied block and renumber/
+invalidate their read caches exactly like `HeapStorage` already did),
+not worked around in `insert_new_branch`, since the inconsistency was
+real and would have bitten anything else that ever tried the same
+remove-then-reinsert pattern against these backends.
+
+**The result, measured for real** (not the prototype's handicapped
+recursive visitor): same five shapes, same methodology as every other
+A/B in this document -- build this checkout, measure, `git stash` back
+to the commit before this session's hoisting work, rebuild, measure
+again, restore:
+
+```
+                                    before        after        speedup
+symmetric two-Exact                 78,470 ns     24,556 ns    3.20x
+symmetric one-Exact               1,785,809 ns  1,714,014 ns   1.04x
+symmetric Range                     366,828 ns    305,416 ns   1.20x
+asymmetric S-bound                1,144,324 ns    952,578 ns   1.20x
+asymmetric O-bound (free-subject) 1,233,313 ns    976,296 ns   1.26x
+```
+
+Every shape improved, none regressed -- `two-Exact` landed close to
+the prototype's own net prediction (and better, since the real
+`query_rec` keeps its existing frame-stack/bulk-listing optimizations
+that the prototype's plain recursion didn't have); `one-Exact` is a
+small but real win rather than the roughly-even prototype number,
+likely for the same reason. The asymmetric, free-subject-shaped case
+-- the one the store team's regression report flagged as highest
+priority -- is a real 26% win, and (unlike the size-weighted schedule
+that caused that regression in the first place) this result held in
+the same direction and a similar magnitude across every domain shape
+tested, symmetric and asymmetric, both pin directions.
+
+**Format consequence:** `serialize::FORMAT_VERSION` bumped from 1 to
+2. The node-record byte layout changed; a version-1 snapshot would
+silently misparse under version-2 code rather than failing loudly, so
+old snapshots are now explicitly rejected (`UnsupportedVersion`)
+instead of readable. There is no migration path from v1 to v2 -- an
+old snapshot must be rebuilt from its source triples.
+
+### Runtime path compression: tried, measured, reverted
+
+The eager-precompute waste noted above (a matched sibling's own span
+gets read and a stack frame gets pushed even when `remaining & !consumed_mask
+== 0`, i.e. nothing is left to resume from that frame -- common at
+sparse, near-leaf levels where `avg_k` drops to ~1.0-1.4 real siblings
+per node) suggested skipping the push and the read entirely in that
+case, rather than just skipping the read: push nothing, continue
+straight into the child, and let the next backtrack find the stack
+frame simply isn't there instead of popping an empty one. Implemented
+in all four analogous spots (`query_rec`'s and `query_rec_restricted`'s
+initial-descent and backtrack-resume branches), guarded so the one
+case that still needs the skipped span (`pos_span_end`, read only when
+`level + 1 == unconstrained_from`, for the bulk-listing fast path) is
+left untouched.
+
+Doing this correctly required adding an explicit `level` field to
+`ConstrainedFrame`/`RestrictedFrame`: both backtrack loops used to
+derive the top frame's tree level from stack depth alone
+(`start_level + stack_len - 1`), which only holds when every descended
+level pushes exactly one frame. Once some levels stop pushing a frame,
+stack depth and tree level drift apart, and the old formula silently
+computed the wrong level for every frame above the first compressed
+one -- caught by the full test suite (11 failures, all "missing a
+match" or an out-of-bounds slice read), not by reasoning alone. Fixed
+by storing each frame's own level explicitly rather than deriving it.
+
+**Measured, A/B, same methodology as every other change in this
+document** (symmetric 500,000x200x500,000 at 10,000,000 triples for
+two-Exact/one-Exact/Range, asymmetric 20,000x200x2,000,000 at
+3,000,000 triples for S-bound/O-bound; `n=5000` randomized queries per
+shape, same build held fixed, swapped code and rebuilt between runs,
+repeated twice for the "after" case to rule out noise):
+
+```
+                      before (ns/call)   after (ns/call)   after (repeat)
+two-Exact             24,333.6           24,974.1          24,678.8
+one-Exact             1,696,590.2        1,723,991.7       1,717,317.7
+Range                 85,871.7           88,259.2          87,436.0
+asym S-bound          948,963.9         962,781.9          959,560.3
+asym O-bound          964,923.4         983,293.3          982,859.2
+```
+
+Every shape came back 1.5-2.8% *slower*, not faster, and the two
+"after" runs agree closely with each other -- a small but real and
+reproducible regression, not noise. The likely cause: the extra
+branch (`frame_remaining == 0 && level + 1 != unconstrained_from`),
+plus the wider frame struct (the new `level` field), runs on *every*
+matched candidate, not just the ones where compression actually
+triggers -- so the cost is paid everywhere while the saved
+write-then-immediately-discard is only avoided in the sparse,
+near-leaf levels where it was already cheap relative to the rest of
+the per-node work. The change was reverted in full (confirmed via a
+clean `diff` against the pre-change backup and a green full test
+suite afterward); nothing from this attempt shipped.
+
+### Why isn't every query O(height)? Point lookups are; multi-candidate ones aren't
+
+The structure's headline promise is reaching a leaf in O(height). `contains`
+(a single real path per level, no masking, no backtracking) measures 356-422ns
+on a height=7, 1,000,000-triple tree -- about 54ns/level -- confirming the
+promise holds for true point lookups. `restricted_descent_visit`'s multi-
+candidate shapes (`two-Exact`, `one-Exact`, etc.) cost far more: hundreds of
+nanoseconds to low microseconds per call on the same tree, growing with result
+count.
+
+`perf record -F 999 --call-graph dwarf` plus `perf report`/`perf annotate`
+against a release build (a two-Exact-dominated workload) gave a flat symbol
+breakdown of `restricted_descent` (query_rec, inlined) 45.61%, `far_span_sum`
+13.00%, `advance_past_children` 7.35%, `advance` 5.27%, `BlockIndex::locate`
+4.61%, `contains_batch` 2.17%, `contains` 1.81% (the rest is tree-build noise
+from the same binary). Annotated disassembly isolated one instruction --
+a `cmp` immediately after the load of a `Vec<Vec<u8>>`-backed block -- eating
+66% of samples alone: a classic load-stall misattribution, not a real hotspot
+in itself; the surrounding function (`far_span_sum`/`eager_child_span_end`)
+is the real cost center.
+
+To separate "necessary branching work" from "wasted bookkeeping," a
+diagnostic-only prototype (never shipped, `#[allow(dead_code)]`, never
+correctness-checked beyond proving it was wrong) skipped all eager-span
+bookkeeping unconditionally -- always took the first candidate, never
+backtracked. It measured 280.4ns, matching `contains`, but undercounted
+results by about 98% (5,249 vs. the correct 315,011). The "speedup" was
+from skipping real, required work, not from eliminating waste.
+
+Conclusion: the O(height) promise is real but applies to the *descent*, not
+to *enumeration*. A query that can match several candidates at a level still
+has to visit every one of them and everything reachable under each, and the
+cost of that visit is proportional to how much real branching survives before
+every dimension either pins down to one path or goes fully free (the
+`unconstrained_from` level, where `bulk_list_subtree` takes over). For the
+shapes tested on this dataset (two-Exact, one-Exact, S-bound, O-bound variants
+on a 1,000,000-triple / 100,000x200x100,000 tree), `unconstrained_from`
+equals `height` every time -- the bulk fast path is never reached at all,
+so the entire descent runs through the expensive, masked, node-by-node phase.
+This is inherent to how bits interleave across all three dimensions per level
+in the build schedule (a free dimension keeps real branching alive for
+several levels even once another dimension is fully pinned), not an
+implementation accident -- confirmed by the next entry.
+
+### Lazy eager-skip, correctly conditioned this time: still no real win
+
+The "Runtime path compression" entry above tried skipping the eager span/stack-frame bookkeeping whenever
+`remaining == 0` and measured a real regression, traced to a wrong trigger
+condition changing behavior on every candidate instead of only the rare ones
+where skipping was actually possible. The correct condition is narrower:
+skip only when, after consuming the current candidate, no *matching* sibling
+remains (`remaining_after & mask == 0`, not `remaining_after == 0` -- a real
+sibling that will never match this query's mask is not a reason to keep
+bookkeeping alive) *and* the next level doesn't need the skipped span for the
+bulk-listing handoff (`level + 1 < unconstrained_from`).
+
+Implemented as a separate, diagnostic-only prototype (`LazyFrame`, adding the
+explicit `level` field the first attempt needed, same structural reason:
+stack-depth-equals-tree-level stops holding once some levels stop pushing a
+frame) and measured A/B against plain eager on two datasets -- sparse
+(1,000,000 triples, 100,000x200x100,000, height=7) and dense (2,000,000
+triples, 500x50x500, height=4) -- across two-Exact/one-Exact/P-pinned-emit-S
+shapes. Result: no real improvement, noise-level (~1-2%) either direction in
+every case. The correct trigger condition is simply rare for these shapes,
+not common -- the previous entry's bit-interleaving explanation predicts
+exactly this: a free dimension keeps a real matching sibling alive at most
+levels, so there's rarely nothing left to skip. This independently confirms
+`eager_child_span_end`'s bookkeeping is genuinely necessary almost every level
+for these shapes, not wasted work -- consistent with the DFS k²-tree
+literature (Carmona & Manzini's "Enriched DF" design stores subtree sizes
+eagerly, for exactly the same reason: a DFS/preorder layout has no free
+random access the way a BFS/level-order one does, so recovering fast
+navigation requires paying this cost up front). Not landed; both prototypes
+removed after measuring.
+
+### `query_rec`/`query_rec_restricted` rewritten as real recursion: landed
+
+Both engines used an explicit `[ConstrainedFrame; MAX_HEIGHT]` (or
+`RestrictedFrame`) stack array with a manual backtrack loop, predating this
+investigation. Restructured into genuine function-call recursion instead: a
+local `loop` still handles same-level sibling iteration (preserving the
+`skip_mask`/`advance_past_children` O(1) batch-skip exactly as before), but
+a match now descends via a direct recursive call instead of pushing a frame
+and looping back to the top. `eager_child_span_end` and its necessity are
+unchanged by this -- this is a control-flow restructuring, not a new
+algorithm. The only structural change needed: `pos_span_end` (a subtree's own
+end position, needed only once `level >= unconstrained_from`, for the bulk-
+listing handoff) is now a parameter threaded through each recursive call
+instead of a loop-local variable, since under hoisting a far node's own span
+lives in its *parent's* record -- by the time a call is sitting at `pos`
+there's nothing left there to compute it from.
+
+Measured A/B on the real, landed code (not a prototype): built once, measured
+the pre-rewrite iterative version, then the post-rewrite recursive version,
+both release builds, same tree (height=7, 1,000,000 triples,
+100,000x200x100,000), `n=3000` randomized queries per shape:
+
+```
+              iterative (ns/call)   recursive (ns/call)   speedup
+two-Exact      6,974.7               6,210.2               1.12x
+one-Exact      245,474.0             218,716.2             1.12x
+S-bound        374,723.3             366,754.1             1.02x
+O-bound        371,101.5             365,070.3             1.017x
+```
+
+A real, reproducible, correctness-preserving win (confirmed by the full test
+suite, including the `Range`/`Multi` tests that exercise
+`query_rec_restricted` directly) -- 1-12% depending on shape, with no shape
+regressing. `ConstrainedFrame`/`RestrictedFrame` were removed; nothing else
+about the descent (masking, skip-batching, the bulk-listing handoff) changed.
+
+### Rayon fan-out + bulk-mask decode combined: a small win in most shapes, not landed
+
+A prototype combined two independent levers tried separately elsewhere in
+this document: a rayon fan-out across the first `parallel_depth` tree levels
+(collecting a frontier of subtrees, each then searched independently), and a
+generalized bulk-decode-with-masking pass per frontier item instead of a
+plain `query_rec` call. Measured against plain rayon fan-out (same frontier,
+plain `query_rec` per branch) on the sparse dataset, `n=3000` per shape,
+repeated twice:
+
+```
+              rayon alone (ns/call)   rayon+bulk-mask (ns/call)   speedup
+two-Exact      27,497-28,183           29,164-29,278               0.94-0.96x
+one-Exact      1,806,355-1,808,237      1,719,164-1,733,097         1.04-1.05x
+S-bound        997,517-999,118          840,257-939,418             1.06-1.19x
+O-bound        999,118-1,002,708        939,328-939,418             1.06-1.07x
+```
+
+(Numbers above are from two independent runs; see git history of this
+section for the exact per-run pairing.) A real, small improvement in three of
+four shapes (4-19%), but `two-Exact` regresses slightly (4-6% worse) -- its
+per-branch work is cheap enough that the extra dispatch for bulk masking
+costs more than it saves. Caught one correctness bug during development: the
+first version of the frontier collector didn't thread `pos_span_end` through
+its own recursion, so a frontier item landing exactly at `unconstrained_from`
+on a non-root branch got the whole tree's span instead of its own subtree's
+-- fixed by threading it the same way the recursive rewrite above does.
+Not landed -- the win is real but modest, and inconsistent across shapes;
+revisit if `two-Exact`-shaped queries aren't the common case in practice.
+
+### Rayon fan-out depth sweep, and resolving the "5x vs. 2x" discrepancy
+
+An earlier rayon fan-out measurement in this project reported 5.56x
+(one-Exact) and 5.74x (O-bound) speedups at `parallel_depth=2`. A later
+re-measurement on what was assumed to be the same setup found only 2.2-3.3x,
+and initial hypotheses (parallel_depth itself being wrong, CPU contention)
+were tested directly and ruled out: sweeping `parallel_depth` from 1 to 5 on
+the smaller/cheaper dataset (height=7, 1,000,000 triples, serial one-Exact
+cost 260,957ns/call) gave depth=1: 3.29x, depth=2: 2.44x, depth=3: 1.01x,
+depth=4: 0.49x, depth=5: 0.61x -- depth=1 is best, depth=2 is already past
+the sweet spot, and depth=3+ collapses as the frontier balloons (2,449+
+near-empty tasks at depth=3, dispatch overhead dominating real work). A
+second, heavier shape (P-pinned, emit S; serial cost 457,896ns/call) showed
+the same shape-of-curve, with depth=4's collapse becoming catastrophic:
+one call took 8.47 *seconds* (frontier ballooning past what the thread pool
+can usefully dispatch). `nproc`=12 and `/proc/loadavg` 0.12-0.69 ruled out
+contention. None of this explained the gap -- both runs used depth=2, and
+neither was anywhere near 5x.
+
+Recovered the original benchmark's raw output (same four shapes, same
+`parallel_depth=2`, same machine) and compared baselines directly: its
+serial one-Exact cost was 1,693,182ns/call -- about 6.5x higher than the
+260,957ns/call baseline in the re-measurement. Every shape's absolute serial
+cost was correspondingly higher (`S-bound` 946,912ns vs.
+later runs' sub-ms costs, `two-Exact` 24,436ns -- still cheap, and tellingly
+still only 1.44x at depth=2, consistent with the pattern below), and its
+speedups were uniformly higher: `two-Exact` 1.44x, `one-Exact` 5.56x,
+`S-bound` 3.83x, `O-bound` 5.74x. The gap was never about depth or
+contention: rayon's dispatch overhead per spawned task is roughly fixed, so
+the measured speedup ratio depends on how much real per-branch work there is
+to amortize it against. The original benchmark's dataset/domain parameters
+happened to make every query shape's per-call cost much higher, which is
+exactly the regime where a fixed dispatch cost stops mattering and the
+parallel speedup approaches the branch count. The cheaper re-measurement
+dataset wasn't a bug or a wrong depth -- it was just a smaller, cheaper
+workload, where dispatch overhead eats a proportionally larger share of the
+gain. `two-Exact`'s persistently low speedup (1.44x even in the "5x" run)
+confirms this: it's the cheapest shape in both runs, and the cheapest shape
+never gets close to 5x regardless of dataset.
+
+### `one-Exact`'s batched-skip plan, resumed: instrumented, and the premise didn't hold
+
+An earlier plan hypothesized that `one-Exact`'s much higher cost than
+`two-Exact` traces to `advance_past_children` making many independent,
+expensive `BlockIndex::locate` calls while skipping past non-matching real
+siblings, and proposed instrumenting the real distribution (bit count per
+skip, fast-vs-slow `advance`, per level) before designing a batched-locate
+primitive to fix it.
+
+**Phase 0, instrumented for real** (temporary per-level counters around
+`advance_past_children`'s far and near branches, tallying bits skipped per
+call and classifying the resulting `advance` as fast or slow; removed after
+collecting the data below). Run on a 1,000,000-triple, 100,000x200x100,000
+tree, height=7 -- a smaller scale than the plan's original 2,000,000/
+20,000,000/100,000,000-triple ask, because this host's available memory
+(consistently under 1 GiB free, swap often near full throughout this
+session) can't safely build the larger trees:
+
+```
+two-Exact (n=3000, total_results=3153)
+level=1 far  calls=2699    avg_bits/call=22.91  advance(fast=0,    slow=2699)  avg_slow_span_blocks=202.5
+level=2 far  calls=11136   avg_bits/call=25.19  advance(fast=1893, slow=9243)  avg_slow_span_blocks=6.2
+level=3 far  calls=36252   avg_bits/call=29.05  advance(fast=32712,slow=3540)  avg_slow_span_blocks=1.0
+level=4 far  calls=51856   avg_bits/call=4.36   advance(fast=51757,slow=99)    avg_slow_span_blocks=1.0
+level=5 near calls=707     avg_bits/call=1.03   advance(fast=731,  slow=0)
+
+one-Exact (n=3000, total_results=33003)
+level=1 far  calls=2029     avg_bits/call=24.45  advance(fast=0,      slow=2029)  avg_slow_span_blocks=204.8
+level=2 far  calls=35264    avg_bits/call=21.10  advance(fast=6938,   slow=28326) avg_slow_span_blocks=5.2
+level=3 far  calls=376025   avg_bits/call=29.38  advance(fast=338902, slow=37123) avg_slow_span_blocks=1.0
+level=4 far  calls=4553127  avg_bits/call=4.08   advance(fast=4546462,slow=6665)  avg_slow_span_blocks=1.0
+level=5 near calls=105432   avg_bits/call=1.04   advance(fast=109707, slow=15)
+```
+
+This refutes the plan's premise. The only level where a slow `advance` spans
+many blocks (level 1, ~200-300 blocks) fires at most once per query on
+average (2,029-2,699 times across 3,000 queries) -- there's nothing to
+*batch* there, since it's already exactly one `locate` call per occurrence,
+not several. Everywhere else, a slow `advance` spans essentially one block
+(avg 1.0), meaning `BlockIndex::locate`'s O(log blocks) search is already as
+cheap as it can be when it fires at all -- there's no pattern of "many
+independently expensive locate calls" for a shared-search primitive to
+exploit. What actually separates `one-Exact` from `two-Exact` is sheer call
+*volume*: at level 4, `one-Exact` makes 4,553,127 skip-batch calls against
+`two-Exact`'s 51,856 -- 88x more, well beyond `one-Exact`'s 10x larger result
+count (33,003 vs. 3,153). Every one of those calls is already O(1) amortized
+(one `far_span_sum` plus one `advance`, regardless of how many siblings it
+skips) -- the gap is in how many such O(1) operations are needed, which is
+exactly the "a free dimension keeps real branching alive for several levels"
+mechanism identified earlier in this document, now with hard numbers behind
+it, not a `BlockIndex`/`advance_past_children` inefficiency to fix.
+
+**Phase 1** (replacing `query_rec`'s bit-by-bit mask check with the
+`remaining & mask` batched-candidate form) turned out to already be landed,
+predating this investigation -- confirmed by reading the current code, not
+assumed. `count_rec` (cardinality estimation) still walks its real siblings
+one at a time, but it's off the `one-Exact`/`restricted_descent` path this
+plan was chasing, and Phase 0's data gave no reason to believe it matters
+enough there to justify changing it; left alone.
+
+**Phase 2, tried anyway on a data-grounded hypothesis.** Since the real
+per-call cost couldn't be in `locate`, the next candidate was `far_span_sum`
+itself: at the levels with the most calls, it's also doing `count` (avg
+4-30) independent `block_read_var` calls, each paying its own
+`self.blocks[block]` double-indirection (`Vec<Vec<u8>>`) even though every
+entry lives in the same contiguous span. Rewrote it to one `bulk_read` of
+the whole span plus a sequential in-memory decode. Measured A/B on the same
+dataset, `n=3000`, two runs:
+
+```
+              before (ns/call)   after (ns/call)   change
+two-Exact      6,210.2            6,545.9           +5.4%  (worse)
+one-Exact      218,716.2          248,182.2         +13.5% (worse)
+S-bound        366,754.1          398,376.1         +8.6%  (worse)
+O-bound        365,070.3          396,465.3         +8.6%  (worse)
+```
+
+A real, reproducible regression, not noise -- the same shape of surprise as
+the earlier `Pos.abs` attempt this document already records. Likely cause:
+`bulk_read`'s `Cow<[u8]>` return (a branching enum, sized for the
+cross-block-copy case even though the common case never takes it) and the
+generic trait dispatch through `self.storage.bulk_read` cost more, for these
+small `count`s, than the handful of redundant indexing operations it was
+meant to save. Reverted in full (confirmed via `grep` and a clean full test
+suite afterward); nothing from Phase 2 shipped.
+
+**Conclusion: this plan is answered, not abandoned.** The instrumented data
+doesn't support the batched-`locate` primitive the plan set out to build,
+in either of its two envisioned forms -- the "many small skips" case
+already degenerates to O(1)-cost operations, and the "few large jumps" case
+already makes exactly one `locate` call per occurrence. The real driver is
+call volume from `P` staying fully free, which is inherent to the query
+shape (see the O(height) entry above), not a missed batching opportunity.
+No further work is planned here unless a future profiling pass surfaces a
+different mechanism.
+
 ## Native prefix joins
 
 `native_join::NativeJoin` borrows the tree and compiles its global subdivision

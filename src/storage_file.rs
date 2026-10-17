@@ -19,7 +19,7 @@
 
 use crate::error::{Result, TreeError};
 use crate::storage::{BlockStorage, Pos};
-use crate::tree::{read_var_at, write_var_at, MAX_HEIGHT, WORD_RECORD_BYTES};
+use crate::tree::{write_var_at, MAX_HEIGHT};
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::fs::{File as StdFile, OpenOptions};
@@ -341,17 +341,6 @@ impl BlockStorage for FileStorage {
             _ => unreachable!("skip width must be 1, 2, 4, or 8, got {width}"),
         }
     }
-    fn read_word_and_skip(&self, block: usize, offset: usize, skip_width: u8) -> (u64, u64) {
-        let slot = self.blocks[block];
-        let total = WORD_RECORD_BYTES + skip_width as usize;
-        self.ensure_stack_entry(slot, offset, total);
-        let stack = self.block_stack.borrow();
-        let c = &stack.entries[stack.top - 1];
-        let local = offset - c.chunk_start;
-        let word = u64::from_le_bytes(c.buf[local..local + 8].try_into().unwrap());
-        let skip = if skip_width > 0 { read_var_at(&c.buf, local + 8, skip_width) } else { 0 };
-        (word, skip)
-    }
     fn write_u64_at(&mut self, block: usize, offset: usize, val: u64) {
         let slot = self.blocks[block];
         self.slot_write_all(slot, offset, &val.to_le_bytes());
@@ -422,9 +411,24 @@ impl BlockStorage for FileStorage {
             self.blocks.insert(pos.block + 2, tail_slot);
         }
     }
+    /// Drops the logical block entirely if removal leaves its slot at
+    /// zero used length, exactly like `HeapStorage::remove_bytes` --
+    /// see `CompressedStorage::remove_bytes`'s identical fix for why a
+    /// lingering zero-length logical block is a real correctness bug,
+    /// not just wasted bookkeeping: `BlockIndex::locate` would silently
+    /// skip over it when resolving a later re-insert at this same
+    /// logical offset, relocating whatever was removed from here into
+    /// the next block instead. The orphaned slot's file-backed bytes
+    /// are simply never referenced again (no slot-reuse pool exists);
+    /// no cache invalidation is needed either, since `block_stack`
+    /// entries key by slot number, which stays stable across this
+    /// `self.blocks` reordering, not by logical block index.
     fn remove_bytes(&mut self, pos: Pos, len: usize) {
         let slot = self.blocks[pos.block];
         self.slot_remove_at(slot, pos.offset, len);
+        if self.slot_used_len[slot] == 0 {
+            self.blocks.remove(pos.block);
+        }
     }
     fn begin_top_level_call(&self) -> impl Drop + '_ {
         self.stack_cap.set(1);

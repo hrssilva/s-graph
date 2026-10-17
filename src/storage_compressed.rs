@@ -371,12 +371,31 @@ impl BlockStorage for CompressedStorage {
     }
     /// Mirrors `insert_bytes`'s in-place branch only -- removal never
     /// needs the overflow/split branches, since it only ever shrinks a
-    /// block.
+    /// block. Drops the block entirely if that shrink leaves it with
+    /// zero content, exactly like `HeapStorage::remove_bytes` -- a
+    /// lingering zero-length block would still count as a real,
+    /// `self.blocks`-indexed block to everything that resolves a
+    /// *logical* byte offset against the actual block layout
+    /// (`BlockIndex::locate`, rebuilt from `block_len`/`block_count`
+    /// right after this call returns): since a zero-length block
+    /// contributes nothing to any offset calculation, `locate` would
+    /// transparently skip over it when resolving a later re-insert at
+    /// this same logical position, silently relocating whatever was
+    /// removed from here into the *next* physical block instead --
+    /// fatal the one time that removed content was the root's own
+    /// record, since every traversal starts at the hardcoded
+    /// `Pos::START` (block 0, offset 0) regardless.
     fn remove_bytes(&mut self, pos: Pos, len: usize) {
         let mut content = std::mem::take(&mut self.scratch);
         decompress_whole_into(&self.blocks[pos.block], &mut content);
         content.splice(pos.offset..pos.offset + len, std::iter::empty());
         let new_len = content.len();
+        if new_len == 0 {
+            self.blocks.remove(pos.block);
+            self.invalidate_shifted(pos.block);
+            self.scratch = content;
+            return;
+        }
         self.blocks[pos.block].chunks = chunk_and_compress(&content);
         self.blocks[pos.block].uncompressed_len = new_len;
         self.invalidate_block(pos.block);

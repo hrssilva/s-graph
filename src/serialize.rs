@@ -48,7 +48,15 @@ pub const MAGIC: &[u8; 4] = b"SGZ1";
 /// Bumped whenever the wire format changes incompatibly. A version this
 /// build doesn't recognize is a [`TreeError::UnsupportedVersion`], not a
 /// silent misparse.
-pub const FORMAT_VERSION: u8 = 1;
+///
+/// Bumped to 2 when a far node's children's skip/span values moved
+/// from each child's own record into a hoisted array in the *parent's*
+/// record (see `DESIGN.md`'s hoisting section): the metadata this
+/// format records (`level_dim_bits`/`level_skip_bytes`/etc.) is
+/// unchanged, but the node-record byte layout those fields describe is
+/// not, so a version-1 snapshot's block content would silently
+/// misparse under version-2 code instead of failing loudly.
+pub const FORMAT_VERSION: u8 = 2;
 
 /// Resource limits for untrusted snapshots. Increase explicitly for larger graphs.
 #[derive(Clone, Copy, Debug)]

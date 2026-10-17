@@ -4,7 +4,6 @@
 //! resident backend. `file`/`compressed`-feature backends live in
 //! [`crate::storage_file`]/[`crate::storage_compressed`].
 
-use crate::tree::WORD_RECORD_BYTES;
 #[cfg(feature = "heap")]
 use crate::tree::{read_var_at, write_var_at};
 use std::borrow::Cow;
@@ -36,23 +35,6 @@ impl Pos {
 pub trait BlockStorage: Sized {
     fn read_u64(&self, block: usize, offset: usize) -> u64;
     fn read_var(&self, block: usize, offset: usize, width: u8) -> u64;
-
-    /// Reads a node's existence word and, if `skip_width > 0`, its
-    /// immediately-following skip field, together. Default impl just
-    /// calls [`Self::read_u64`]/[`Self::read_var`] separately -- correct
-    /// for any backend, and all `HeapStorage` needs, since there's no
-    /// I/O to amortize there. `FileStorage` overrides this to fetch both
-    /// in one operation: `insert_no_reset`'s descent reads every level's
-    /// word anyway, and almost always ends up needing that level's skip
-    /// value too, so fetching it opportunistically here means that loop
-    /// never has to read it again -- only write the updated value.
-    /// `skip_width == 0` means this level has no skip field (the last
-    /// two levels); the second return value is then meaningless.
-    fn read_word_and_skip(&self, block: usize, offset: usize, skip_width: u8) -> (u64, u64) {
-        let word = self.read_u64(block, offset);
-        let skip = if skip_width > 0 { self.read_var(block, offset + WORD_RECORD_BYTES, skip_width) } else { 0 };
-        (word, skip)
-    }
 
     fn write_u64_at(&mut self, block: usize, offset: usize, val: u64);
     fn write_var_at(&mut self, block: usize, offset: usize, width: u8, val: u64);
@@ -108,9 +90,9 @@ pub trait BlockStorage: Sized {
     /// Appends one atomic node record to whichever block the streaming
     /// bulk-build path is currently filling, opening a fresh block first
     /// if `bytes` wouldn't fit in what's left of the current one.
-    /// `bytes.len()` must never exceed `block_capacity` (guaranteed by
-    /// the build path: a node record is at most
-    /// `WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES`, and every caller of
+    /// `bytes.len()` must never exceed `block_capacity` (a node record's
+    /// worst case -- its existence word plus one hoisted span entry per
+    /// real child -- is `crate::tree::MAX_RECORD_BYTES`; every caller of
     /// bulk build already asserts `block_capacity` is at least that).
     fn append_record(&mut self, bytes: &[u8], block_capacity: usize) -> Pos;
 

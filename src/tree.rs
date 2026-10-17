@@ -27,11 +27,21 @@ pub(crate) const NUM_DIMS: usize = 3; // S, P, O
 pub(crate) const MAX_HEIGHT: usize = 64;
 pub(crate) const WORD_RECORD_BYTES: usize = 8;
 /// One level's entry in `Self::remove`/`Self::remove_batch`'s root-to-
-/// leaf trail: `(position, level, this level's own existence word, its
-/// skip field if it has one, the `qi` used to descend past it)`.
-type RemoveTrailEntry = (Pos, usize, u64, u64, usize);
+/// leaf trail: `(position, this level's own existence word, the `qi`
+/// used to descend past it, this node's own real-child index within
+/// its *parent's* existence word -- i.e. which slot of the parent's
+/// hoisted span array, if any, describes this node; meaningless for
+/// level 0, the root, which has no parent)`.
+type RemoveTrailEntry = (Pos, u64, usize, usize);
 type RemoveTrail = [RemoveTrailEntry; MAX_HEIGHT];
 const MAX_SKIP_RECORD_BYTES: usize = 8;
+/// Worst case for one node's own record under the hoisted layout: its
+/// 8-byte existence word plus one span entry (at most `MAX_SKIP_RECORD_BYTES`
+/// each) for every one of its up to `K_SQUARE` real children. Build uses
+/// this as a fixed stack buffer (never a per-node heap allocation) even
+/// though most records are far smaller -- see `DESIGN.md`'s hoisting
+/// section.
+const MAX_RECORD_BYTES: usize = WORD_RECORD_BYTES + K_SQUARE as usize * MAX_SKIP_RECORD_BYTES;
 /// Was `4096` until measured against `BlockIndex::locate`'s cost: for a
 /// 2,000,000-triple, 50,000x200x50,000-domain tree, raising
 /// `block_capacity` from 4096 to 65,536 cut `BlockIndex::locate` from
@@ -82,7 +92,7 @@ pub(crate) fn write_var_at(buf: &mut [u8], pos: usize, width: u8, val: u64) {
 }
 
 #[inline]
-#[cfg(any(feature = "heap", feature = "file", feature = "compressed"))]
+#[cfg(any(feature = "heap", feature = "compressed"))]
 pub(crate) fn read_var_at(buf: &[u8], pos: usize, width: u8) -> u64 {
     match width {
         1 => buf[pos] as u64,
@@ -105,7 +115,7 @@ fn width_for(m: u64) -> u8 {
     }
 }
 
-fn compute_level_skip_bytes(level_dim_bits: &[[u8; NUM_DIMS]], height: usize) -> Vec<u8> {
+pub(crate) fn compute_level_skip_bytes(level_dim_bits: &[[u8; NUM_DIMS]], height: usize) -> Vec<u8> {
     let mut max_bytes = vec![0u64; height];
     max_bytes[height - 1] = WORD_RECORD_BYTES as u64;
     for level in (0..height - 1).rev() {
@@ -118,7 +128,7 @@ fn compute_level_skip_bytes(level_dim_bits: &[[u8; NUM_DIMS]], height: usize) ->
     max_bytes.iter().map(|&m| width_for(m)).collect()
 }
 
-fn level_shifts(dim_bits: [u8; NUM_DIMS], dim_order: [usize; NUM_DIMS]) -> [u8; NUM_DIMS] {
+pub(crate) fn level_shifts(dim_bits: [u8; NUM_DIMS], dim_order: [usize; NUM_DIMS]) -> [u8; NUM_DIMS] {
     let mut shifts = [0u8; NUM_DIMS];
     let mut acc = 0u8;
     for &d in dim_order.iter().rev() {
@@ -161,7 +171,7 @@ fn restriction_allows_zero(r: DimRestriction) -> bool {
 /// `val_hi` -- the sub-index is always derived from the clipped value,
 /// never the raw input, so `start + len` can never exceed `width`.
 #[inline]
-fn contiguous_range(val_lo: u32, val_hi: u32, lo_d: u64, cell_bits: u8, width: u32) -> Option<(u32, u32)> {
+pub(crate) fn contiguous_range(val_lo: u32, val_hi: u32, lo_d: u64, cell_bits: u8, width: u32) -> Option<(u32, u32)> {
     let cell = 1u64 << cell_bits;
     let covered_hi = lo_d + (width as u64) * cell - 1;
     let clipped_lo = (val_lo as u64).max(lo_d);
@@ -186,7 +196,7 @@ fn contiguous_range(val_lo: u32, val_hi: u32, lo_d: u64, cell_bits: u8, width: u
 /// before this, concentrated exactly here since `Free`/wide `Range`
 /// dimensions are the common case.
 #[inline]
-fn expand_run(mask: u64, start: u32, run_len: u32, shift: u8) -> u64 {
+pub(crate) fn expand_run(mask: u64, start: u32, run_len: u32, shift: u8) -> u64 {
     if run_len == 0 {
         return 0;
     }
@@ -218,7 +228,7 @@ fn expand_run(mask: u64, start: u32, run_len: u32, shift: u8) -> u64 {
 /// with different `lo` -- see `restricted_descent_visit`'s doc comment
 /// for why a precomputed per-level array (what `bound_mask` feeds)
 /// can't express that.
-fn restriction_mask(dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], lo: [u64; NUM_DIMS], child_cell_bits: [u8; NUM_DIMS], restrictions: &[DimRestriction; NUM_DIMS]) -> u64 {
+pub(crate) fn restriction_mask(dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], lo: [u64; NUM_DIMS], child_cell_bits: [u8; NUM_DIMS], restrictions: &[DimRestriction; NUM_DIMS]) -> u64 {
     let mut mask: u64 = 1;
     for d in 0..NUM_DIMS {
         let width = 1u32 << dim_bits[d];
@@ -259,7 +269,7 @@ fn bound_mask(dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], lo: [u64; NUM_DI
     mask
 }
 
-fn dimension_sizes_from(triples: &[Triple]) -> [u64; NUM_DIMS] {
+pub(crate) fn dimension_sizes_from(triples: &[Triple]) -> [u64; NUM_DIMS] {
     let mut dimension_sizes = [1u64; NUM_DIMS];
     for &(s, p, o) in triples {
         dimension_sizes[0] = dimension_sizes[0].max(s as u64 + 1);
@@ -269,7 +279,7 @@ fn dimension_sizes_from(triples: &[Triple]) -> [u64; NUM_DIMS] {
     dimension_sizes
 }
 
-fn total_bits_needed(dimension_sizes: [u64; NUM_DIMS]) -> [u8; NUM_DIMS] {
+pub(crate) fn total_bits_needed(dimension_sizes: [u64; NUM_DIMS]) -> [u8; NUM_DIMS] {
     assert!(dimension_sizes.iter().all(|&n| (1..=1u64 << 32).contains(&n)), "domains must fit u32 coordinates and be nonzero");
     let mut bits = [0u8; NUM_DIMS];
     for d in 0..NUM_DIMS {
@@ -282,10 +292,16 @@ fn total_bits_needed(dimension_sizes: [u64; NUM_DIMS]) -> [u8; NUM_DIMS] {
     bits
 }
 
-fn validate_config(domains: [u64; 3], mut order: [usize; 3], capacity: usize) -> Result<()> {
+pub(crate) fn validate_config(domains: [u64; 3], mut order: [usize; 3], capacity: usize) -> Result<()> {
     order.sort_unstable();
-    if order != [0, 1, 2] || capacity < 16 || capacity > u32::MAX as usize || domains.iter().any(|&n| n == 0 || n > 1u64 << 32) {
-        return Err(TreeError::InvalidConfig("expected a dimension permutation, domains in 1..=2^32, and block capacity in 16..=u32::MAX".into()));
+    // `MAX_RECORD_BYTES`, not the pre-hoisting `16`: a far node's own
+    // record now scales with its real branching factor (up to
+    // `K_SQUARE` children, each a `MAX_SKIP_RECORD_BYTES`-wide span
+    // entry), and every record must fit in one block (see
+    // `DESIGN.md`'s hoisting section) -- a smaller capacity could never
+    // hold a maximally-branching far node at all.
+    if order != [0, 1, 2] || capacity < MAX_RECORD_BYTES || capacity > u32::MAX as usize || domains.iter().any(|&n| n == 0 || n > 1u64 << 32) {
+        return Err(TreeError::InvalidConfig(format!("expected a dimension permutation, domains in 1..=2^32, and block capacity in {MAX_RECORD_BYTES}..=u32::MAX")));
     }
     Ok(())
 }
@@ -334,7 +350,7 @@ fn static_schedule(mut remaining: [u8; NUM_DIMS], split: [u8; NUM_DIMS]) -> Vec<
 /// heuristic that's actually safe across domain shapes remains
 /// unsolved, not attempted again without validating against asymmetric
 /// domains from the start.
-fn dynamic_schedule(mut remaining: [u8; NUM_DIMS]) -> Vec<[u8; NUM_DIMS]> {
+pub(crate) fn dynamic_schedule(mut remaining: [u8; NUM_DIMS]) -> Vec<[u8; NUM_DIMS]> {
     let mut level_dim_bits = Vec::new();
     while remaining.iter().any(|&r| r > 0) {
         let mut this_level = [0u8; NUM_DIMS];
@@ -380,10 +396,15 @@ struct BuildSchedule<'a> {
 
 #[cfg(feature = "parallel")]
 impl BuildSchedule<'_> {
+    /// See the generic tree's own `own_record_bytes` -- same formula,
+    /// duplicated here only because this type doesn't have access to
+    /// `self.height`/`self.level_skip_bytes` through that method.
     #[inline]
-    fn own_record_bytes(&self, level: usize) -> usize {
-        if level + 2 < self.height {
-            WORD_RECORD_BYTES + self.level_skip_bytes[level] as usize
+    fn own_record_bytes(&self, level: usize, word: u64) -> usize {
+        if level == self.height - 1 {
+            WORD_RECORD_BYTES
+        } else if level + 3 < self.height {
+            WORD_RECORD_BYTES + (word.count_ones() as usize) * self.level_skip_bytes[level + 1] as usize
         } else {
             WORD_RECORD_BYTES
         }
@@ -484,7 +505,7 @@ impl<S: BlockStorage> RecordSink for StorageSink<'_, S> {
 fn replay_records(buf: &[u8], off: usize, level: usize, sched: &BuildSchedule, emit: &mut impl FnMut(&[u8])) -> usize {
     let word = u64::from_le_bytes(buf[off..off + WORD_RECORD_BYTES].try_into().unwrap());
     let is_last = level == sched.height - 1;
-    let rec_len = sched.own_record_bytes(level);
+    let rec_len = sched.own_record_bytes(level, word);
     emit(&buf[off..off + rec_len]);
     let mut cursor = off + rec_len;
     if !is_last {
@@ -506,7 +527,7 @@ const BUILD_PARALLEL_MIN_POINTS: usize = 100_000;
 /// gets computed, shared verbatim by [`build_rec`]'s own partition step
 /// and by the external bucket-spilling path's [`distribute_to_buckets`].
 #[inline]
-fn compute_qi(coords: [u64; NUM_DIMS], lo: [u64; NUM_DIMS], shifts: [u8; NUM_DIMS], child_cell_bits: [u8; NUM_DIMS]) -> usize {
+pub(crate) fn compute_qi(coords: [u64; NUM_DIMS], lo: [u64; NUM_DIMS], shifts: [u8; NUM_DIMS], child_cell_bits: [u8; NUM_DIMS]) -> usize {
     let mut qi = 0usize;
     for d in 0..NUM_DIMS {
         let sub = ((coords[d] - lo[d]) >> child_cell_bits[d]) as usize;
@@ -518,15 +539,20 @@ fn compute_qi(coords: [u64; NUM_DIMS], lo: [u64; NUM_DIMS], shifts: [u8; NUM_DIM
 /// The bulk-build tree-construction algorithm, in exactly one place,
 /// generic over where node records end up ([`RecordSink`]). Partitions
 /// `points` by this node's radix digit via counting sort, appends this
-/// node's own record to `sink`, then recurses into each active child.
-/// Every skip/span value this writes is a relative byte distance (never
-/// an absolute position), so a subtree's bytes are correct regardless of
-/// *where* they end up being copied to.
+/// node's own record (existence word, plus -- if its children are far --
+/// one zeroed span placeholder per real child) to `sink`, then recurses
+/// into each active child in turn, patching that child's own placeholder
+/// slot with its just-returned total size (see `build_children`'s doc
+/// comment: this node never patches anything describing *itself* --
+/// that's its own parent's job, into *its* array). Every span value
+/// this writes is a relative byte distance (never an absolute
+/// position), so a subtree's bytes are correct regardless of *where*
+/// they end up being copied to.
 #[allow(clippy::too_many_arguments)]
 fn build_rec<Sink: RecordSink>(points: &mut [(u32, u32, u32)], scratch: &mut [(u32, u32, u32)], lo: [u64; NUM_DIMS], level: usize, sched: &BuildSchedule, sink: &mut Sink, node_count: &mut u64) -> u64 {
     let is_last = level == sched.height - 1;
-    let is_far_node = level + 2 < sched.height;
-    let skip_width = sched.level_skip_bytes[level];
+    let children_far = !is_last && level + 3 < sched.height;
+    let child_skip_width = if children_far { sched.level_skip_bytes[level + 1] } else { 0 };
     let dim_bits = sched.level_dim_bits[level];
     let shifts = sched.level_shifts_cache[level];
     let child_cell_bits = sched.level_child_cell_bits_cache[level];
@@ -556,9 +582,10 @@ fn build_rec<Sink: RecordSink>(points: &mut [(u32, u32, u32)], scratch: &mut [(u
             existence_word |= 1u64 << qi;
         }
     }
-    let record_len = WORD_RECORD_BYTES + if is_far_node { skip_width as usize } else { 0 };
-    debug_assert!(record_len <= WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES);
-    let mut record_buf = [0u8; WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES];
+    let k = existence_word.count_ones() as usize;
+    let record_len = WORD_RECORD_BYTES + k * child_skip_width as usize;
+    debug_assert!(record_len <= MAX_RECORD_BYTES);
+    let mut record_buf = [0u8; MAX_RECORD_BYTES];
     record_buf[..WORD_RECORD_BYTES].copy_from_slice(&existence_word.to_le_bytes());
     let own_pos = sink.append(&record_buf[..record_len]);
     *node_count += 1;
@@ -566,10 +593,7 @@ fn build_rec<Sink: RecordSink>(points: &mut [(u32, u32, u32)], scratch: &mut [(u
     let mut total_bytes: u64 = record_len as u64;
     if !is_last {
         let active: Vec<(usize, usize, usize)> = (0..branching).filter(|&qi| offsets[qi] < offsets[qi + 1]).map(|qi| (qi, offsets[qi], offsets[qi + 1])).collect();
-        total_bytes += build_children(&active, points, scratch, lo, level, dim_bits, shifts, child_cell_bits, sched, sink, node_count);
-    }
-    if is_far_node {
-        sink.patch(own_pos, WORD_RECORD_BYTES, skip_width, total_bytes);
+        total_bytes += build_children(&active, points, scratch, lo, level, dim_bits, shifts, child_cell_bits, sched, sink, node_count, own_pos, child_skip_width);
     }
     total_bytes
 }
@@ -588,10 +612,12 @@ fn build_children<Sink: RecordSink>(
     sched: &BuildSchedule,
     sink: &mut Sink,
     node_count: &mut u64,
+    own_pos: Pos,
+    child_skip_width: u8,
 ) -> u64 {
     let fan_out = active.len() >= 2 && points.len() >= BUILD_PARALLEL_MIN_POINTS && rayon::current_num_threads() > 1;
     if !fan_out {
-        return build_children_sequential(active, points, scratch, lo, level, dim_bits, shifts, child_cell_bits, sched, sink, node_count);
+        return build_children_sequential(active, points, scratch, lo, level, dim_bits, shifts, child_cell_bits, sched, sink, node_count, own_pos, child_skip_width);
     }
     // See this function's module-level context: sibling subtrees are
     // fully disjoint slices of `points`/`scratch` (Karras 2012's parallel
@@ -627,10 +653,18 @@ fn build_children<Sink: RecordSink>(
         })
         .collect();
     let mut total_bytes = 0u64;
-    for (bytes, count) in results {
+    // `results` preserves `branches`' order (an indexed parallel
+    // iterator collected into a `Vec`), which is `active`'s order --
+    // ascending `qi`, i.e. real-child index order -- so `slot` here is
+    // exactly the hoisted array's slot for this child, same as the
+    // sequential path below.
+    for (slot, (bytes, count)) in results.into_iter().enumerate() {
         total_bytes += bytes.len() as u64;
         *node_count += count;
         sink.append_subtree(&bytes, level + 1, sched);
+        if child_skip_width > 0 {
+            sink.patch(own_pos, WORD_RECORD_BYTES + slot * child_skip_width as usize, child_skip_width, bytes.len() as u64);
+        }
     }
     total_bytes
 }
@@ -649,8 +683,10 @@ fn build_children<Sink: RecordSink>(
     sched: &BuildSchedule,
     sink: &mut Sink,
     node_count: &mut u64,
+    own_pos: Pos,
+    child_skip_width: u8,
 ) -> u64 {
-    build_children_sequential(active, points, scratch, lo, level, dim_bits, shifts, child_cell_bits, sched, sink, node_count)
+    build_children_sequential(active, points, scratch, lo, level, dim_bits, shifts, child_cell_bits, sched, sink, node_count, own_pos, child_skip_width)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -666,11 +702,17 @@ fn build_children_sequential<Sink: RecordSink>(
     sched: &BuildSchedule,
     sink: &mut Sink,
     node_count: &mut u64,
+    own_pos: Pos,
+    child_skip_width: u8,
 ) -> u64 {
     let mut total_bytes = 0u64;
-    for &(qi, qstart, qend) in active {
+    for (slot, &(qi, qstart, qend)) in active.iter().enumerate() {
         let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
-        total_bytes += build_rec(&mut points[qstart..qend], &mut scratch[qstart..qend], child_lo, level + 1, sched, sink, node_count);
+        let child_total = build_rec(&mut points[qstart..qend], &mut scratch[qstart..qend], child_lo, level + 1, sched, sink, node_count);
+        if child_skip_width > 0 {
+            sink.patch(own_pos, WORD_RECORD_BYTES + slot * child_skip_width as usize, child_skip_width, child_total);
+        }
+        total_bytes += child_total;
     }
     total_bytes
 }
@@ -907,12 +949,14 @@ fn build_external<Sink: RecordSink, I: Iterator<Item = Triple>>(source: I, lo: [
         return WORD_RECORD_BYTES as u64;
     }
 
-    let is_far_node = level + 2 < sched.height;
-    let skip_width = sched.level_skip_bytes[level];
+    let children_far = level + 3 < sched.height;
+    let child_skip_width = if children_far { sched.level_skip_bytes[level + 1] } else { 0 };
     let (existence_word, mut buckets) = distribute_to_buckets(source, lo, level, sched, budget.io_buffer_bytes);
 
-    let record_len = WORD_RECORD_BYTES + if is_far_node { skip_width as usize } else { 0 };
-    let mut record_buf = [0u8; WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES];
+    let k = existence_word.count_ones() as usize;
+    let record_len = WORD_RECORD_BYTES + k * child_skip_width as usize;
+    debug_assert!(record_len <= MAX_RECORD_BYTES);
+    let mut record_buf = [0u8; MAX_RECORD_BYTES];
     record_buf[..WORD_RECORD_BYTES].copy_from_slice(&existence_word.to_le_bytes());
     let own_pos = sink.append(&record_buf[..record_len]);
     *node_count += 1;
@@ -920,6 +964,7 @@ fn build_external<Sink: RecordSink, I: Iterator<Item = Triple>>(source: I, lo: [
 
     let mut pending_batch: Vec<(usize, [u64; NUM_DIMS], SpillBucket)> = Vec::new();
     let mut pending_points: u64 = 0;
+    let mut real_index = 0usize;
     for (qi, slot) in buckets.iter_mut().enumerate() {
         let Some(bucket) = slot.take() else { continue };
         let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
@@ -933,40 +978,48 @@ fn build_external<Sink: RecordSink, I: Iterator<Item = Triple>>(source: I, lo: [
             // size, reintroducing the "whole subtree resident at once"
             // cost this feature exists to remove.
             if pending_points as usize >= budget.max_resident_points {
-                total_bytes += flush_fit_batch(&mut pending_batch, level, sched, budget, sink, node_count);
+                total_bytes += flush_fit_batch(&mut pending_batch, level, sched, budget, sink, node_count, own_pos, child_skip_width, &mut real_index);
                 pending_points = 0;
             }
         } else {
-            total_bytes += flush_fit_batch(&mut pending_batch, level, sched, budget, sink, node_count);
+            total_bytes += flush_fit_batch(&mut pending_batch, level, sched, budget, sink, node_count, own_pos, child_skip_width, &mut real_index);
             pending_points = 0;
-            total_bytes += build_external(bucket.into_stream(budget.io_buffer_bytes), child_lo, level + 1, sched, budget, sink, node_count);
+            let child_total = build_external(bucket.into_stream(budget.io_buffer_bytes), child_lo, level + 1, sched, budget, sink, node_count);
+            if child_skip_width > 0 {
+                sink.patch(own_pos, WORD_RECORD_BYTES + real_index * child_skip_width as usize, child_skip_width, child_total);
+            }
+            real_index += 1;
+            total_bytes += child_total;
         }
     }
-    total_bytes += flush_fit_batch(&mut pending_batch, level, sched, budget, sink, node_count);
+    total_bytes += flush_fit_batch(&mut pending_batch, level, sched, budget, sink, node_count, own_pos, child_skip_width, &mut real_index);
 
-    if is_far_node {
-        sink.patch(own_pos, WORD_RECORD_BYTES, skip_width, total_bytes);
-    }
     total_bytes
 }
 
 /// Stitches every entry of `batch` (each already confirmed to fit
-/// `budget`) into `sink`, in original (ascending-qi/DFS) order. Empties
-/// `batch` either way; returns the total bytes appended.
-fn flush_fit_batch<Sink: RecordSink>(batch: &mut Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64) -> u64 {
+/// `budget`) into `sink`, in original (ascending-qi/DFS) order,
+/// patching `own_pos`'s hoisted array slot for each as its size becomes
+/// known (`*real_index` tracks the running real-child position across
+/// every batch flushed for the same parent, including the ones handled
+/// directly in `build_external`'s own loop). Empties `batch` either
+/// way; returns the total bytes appended.
+#[allow(clippy::too_many_arguments)]
+fn flush_fit_batch<Sink: RecordSink>(batch: &mut Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64, own_pos: Pos, child_skip_width: u8, real_index: &mut usize) -> u64 {
     if batch.is_empty() {
         return 0;
     }
     let taken = std::mem::take(batch);
-    flush_taken_batch(taken, level, sched, budget, sink, node_count)
+    flush_taken_batch(taken, level, sched, budget, sink, node_count, own_pos, child_skip_width, real_index)
 }
 
 #[cfg(feature = "parallel")]
-fn flush_taken_batch<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64) -> u64 {
+#[allow(clippy::too_many_arguments)]
+fn flush_taken_batch<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64, own_pos: Pos, child_skip_width: u8, real_index: &mut usize) -> u64 {
     let total_points: u64 = taken.iter().map(|(_, _, b)| b.count).sum();
     let fan_out = taken.len() >= 2 && total_points as usize >= BUILD_PARALLEL_MIN_POINTS && rayon::current_num_threads() > 1;
     if !fan_out {
-        return flush_taken_batch_sequential(taken, level, sched, budget, sink, node_count);
+        return flush_taken_batch_sequential(taken, level, sched, budget, sink, node_count, own_pos, child_skip_width, real_index);
     }
     // Vec's IntoParallelIterator is indexed, so `.collect()` below
     // preserves `taken`'s own order (ascending qi, by construction) --
@@ -986,19 +1039,30 @@ fn flush_taken_batch<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_DIMS], Spill
         total_bytes += bytes.len() as u64;
         *node_count += count;
         sink.append_subtree(&bytes, level + 1, sched);
+        if child_skip_width > 0 {
+            sink.patch(own_pos, WORD_RECORD_BYTES + *real_index * child_skip_width as usize, child_skip_width, bytes.len() as u64);
+        }
+        *real_index += 1;
     }
     total_bytes
 }
 
 #[cfg(not(feature = "parallel"))]
-fn flush_taken_batch<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64) -> u64 {
-    flush_taken_batch_sequential(taken, level, sched, budget, sink, node_count)
+#[allow(clippy::too_many_arguments)]
+fn flush_taken_batch<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64, own_pos: Pos, child_skip_width: u8, real_index: &mut usize) -> u64 {
+    flush_taken_batch_sequential(taken, level, sched, budget, sink, node_count, own_pos, child_skip_width, real_index)
 }
 
-fn flush_taken_batch_sequential<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64) -> u64 {
+#[allow(clippy::too_many_arguments)]
+fn flush_taken_batch_sequential<Sink: RecordSink>(taken: Vec<(usize, [u64; NUM_DIMS], SpillBucket)>, level: usize, sched: &BuildSchedule, budget: &BulkBuildBudget, sink: &mut Sink, node_count: &mut u64, own_pos: Pos, child_skip_width: u8, real_index: &mut usize) -> u64 {
     let mut total_bytes = 0u64;
     for (_, child_lo, bucket) in taken {
-        total_bytes += build_subtree_bounded(bucket, child_lo, level + 1, sched, budget, sink, node_count);
+        let child_total = build_subtree_bounded(bucket, child_lo, level + 1, sched, budget, sink, node_count);
+        if child_skip_width > 0 {
+            sink.patch(own_pos, WORD_RECORD_BYTES + *real_index * child_skip_width as usize, child_skip_width, child_total);
+        }
+        *real_index += 1;
+        total_bytes += child_total;
     }
     total_bytes
 }
@@ -1026,7 +1090,13 @@ fn build_single_point_chain(coords: [u64; NUM_DIMS], start_level: usize, height:
     let mut sizes = vec![0u64; height];
     sizes[height - 1] = WORD_RECORD_BYTES as u64;
     for lvl in (start_level..height - 1).rev() {
-        let own = if lvl + 2 < height { WORD_RECORD_BYTES as u64 + level_skip_bytes[lvl] as u64 } else { WORD_RECORD_BYTES as u64 };
+        // This fresh chain gives every node exactly one real child, so
+        // its own record is just its existence word plus (if its
+        // *children* are far) one span entry for that one child --
+        // `sizes[lvl + 1]`, not `sizes[lvl]`: under hoisting a node
+        // never stores anything about itself.
+        let children_far = lvl + 3 < height;
+        let own = WORD_RECORD_BYTES as u64 + if children_far { level_skip_bytes[lvl + 1] as u64 } else { 0 };
         sizes[lvl] = own + sizes[lvl + 1];
     }
 
@@ -1041,8 +1111,8 @@ fn build_single_point_chain(coords: [u64; NUM_DIMS], start_level: usize, height:
             qi |= sub << shifts[d];
         }
         push_u64(&mut chain, 1u64 << qi);
-        if lvl + 2 < height {
-            push_var(&mut chain, level_skip_bytes[lvl], sizes[lvl]);
+        if lvl + 3 < height {
+            push_var(&mut chain, level_skip_bytes[lvl + 1], sizes[lvl + 1]);
         }
         lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
     }
@@ -1051,7 +1121,7 @@ fn build_single_point_chain(coords: [u64; NUM_DIMS], start_level: usize, height:
 }
 
 #[inline]
-fn advance_lo(mut lo: [u64; NUM_DIMS], dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], qi: usize, child_cell_bits: [u8; NUM_DIMS]) -> [u64; NUM_DIMS] {
+pub(crate) fn advance_lo(mut lo: [u64; NUM_DIMS], dim_bits: [u8; NUM_DIMS], shifts: [u8; NUM_DIMS], qi: usize, child_cell_bits: [u8; NUM_DIMS]) -> [u64; NUM_DIMS] {
     for d in 0..NUM_DIMS {
         let mask = (1usize << dim_bits[d]) - 1;
         let sub = (qi >> shifts[d]) & mask;
@@ -1065,32 +1135,6 @@ fn advance_lo_dim(lo: u64, dim_bits: u8, shifts: u8, qi: usize, child_cell_bits:
     let mask = (1usize << dim_bits) - 1;
     let sub = (qi >> shifts) & mask;
     lo + ((sub as u64) << child_cell_bits)
-}
-
-#[derive(Clone, Copy)]
-struct ConstrainedFrame {
-    lo: u64,
-    remaining: u64,
-    child_pos: Pos,
-}
-
-impl ConstrainedFrame {
-    const EMPTY: ConstrainedFrame = ConstrainedFrame { lo: 0, remaining: 0, child_pos: Pos::START };
-}
-
-/// `ConstrainedFrame`'s counterpart for `query_rec_restricted`: carries
-/// every dimension's `lo` (like `ScanFrame`), not just the emitted
-/// dimension's, because a `Range`/`Multi` restriction needs a node's
-/// real position in every restricted dimension to compute its mask.
-#[derive(Clone, Copy)]
-struct RestrictedFrame {
-    lo: [u64; NUM_DIMS],
-    remaining: u64,
-    child_pos: Pos,
-}
-
-impl RestrictedFrame {
-    const EMPTY: RestrictedFrame = RestrictedFrame { lo: [0; NUM_DIMS], remaining: 0, child_pos: Pos::START };
 }
 
 // ==================== the generic tree ====================
@@ -1135,6 +1179,17 @@ struct ScanFrame {
     lo: [u64; 3],
     remaining: u64,
     child: Pos,
+    /// This frame's own node position -- where `remaining` was read
+    /// from. Needed (alongside `real_index`) to look up a far child's
+    /// span directly in this node's own hoisted array, instead of
+    /// reading it from the child itself.
+    pos: Pos,
+    /// How many real children of `pos` have been consumed so far --
+    /// since `Scan` always advances one real child at a time, in
+    /// ascending order, this is already the exact real-child index
+    /// `far_span_sum` needs, with no popcount-of-a-retained-word
+    /// required.
+    real_index: usize,
 }
 
 /// Monotone child navigation shared by native prefix joins. No borrowed cache
@@ -1143,16 +1198,23 @@ struct ScanFrame {
 pub(crate) struct PrefixCursor {
     pub(crate) unskipped: u64,
     child: Pos,
+    /// This cursor's own node position, and its *original* (never
+    /// shrinking) existence word -- both needed by
+    /// `advance_past_children`'s far case to locate and index this
+    /// node's hoisted span array. `unskipped` keeps its original,
+    /// shrinking role for computing `preceding`.
+    pos: Pos,
+    word: u64,
 }
 
 impl PrefixCursor {
-    pub(crate) const EMPTY: Self = Self { unskipped: 0, child: Pos::START };
+    pub(crate) const EMPTY: Self = Self { unskipped: 0, child: Pos::START, pos: Pos::START, word: 0 };
 
     pub(crate) fn position(&self) -> Pos { self.child }
 }
 
 impl ScanFrame {
-    const EMPTY: Self = Self { lo: [0; 3], remaining: 0, child: Pos::START };
+    const EMPTY: Self = Self { lo: [0; 3], remaining: 0, child: Pos::START, pos: Pos::START, real_index: 0 };
 }
 
 /// Allocation-free, filtered DFS traversal. Order is Morton order, not
@@ -1183,8 +1245,15 @@ impl<S: BlockStorage> Iterator for Scan<'_, S> {
             frame.remaining &= frame.remaining - 1;
             let last = self.depth == self.tree.height as usize;
             let child = frame.child;
+            let real_index = frame.real_index;
+            frame.real_index += 1;
             if !last {
-                frame.child = self.tree.child_span_end(child, level + 1);
+                frame.child = if level + 1 + 2 < self.tree.height as usize {
+                    let span = self.tree.far_span_sum(frame.pos, level + 1, real_index, 1);
+                    self.tree.advance(child, span as usize)
+                } else {
+                    self.tree.child_span_end(child, level + 1)
+                };
             }
             if self.masks[level] & (1u64 << qi) == 0 {
                 continue;
@@ -1193,10 +1262,13 @@ impl<S: BlockStorage> Iterator for Scan<'_, S> {
             if last {
                 return Some((lo[0] as u32, lo[1] as u32, lo[2] as u32));
             }
+            let child_word = self.tree.block_read_u64(child.block, child.offset);
             self.frames[self.depth] = ScanFrame {
                 lo,
-                remaining: self.tree.block_read_u64(child.block, child.offset),
-                child: self.tree.advance(child, self.tree.own_record_bytes(level + 1)),
+                remaining: child_word,
+                child: self.tree.advance(child, self.tree.own_record_bytes(level + 1, child_word)),
+                pos: child,
+                real_index: 0,
             };
             self.depth += 1;
         }
@@ -1259,7 +1331,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     #[inline]
     pub(crate) fn prefix_cursor(&self, pos: Pos, level: usize) -> PrefixCursor {
         let occupied = self.block_read_u64(pos.block, pos.offset);
-        PrefixCursor { unskipped: occupied, child: self.advance(pos, self.own_record_bytes(level)) }
+        PrefixCursor { unskipped: occupied, child: self.advance(pos, self.own_record_bytes(level, occupied)), pos, word: occupied }
     }
 
     /// Select occupied slots in increasing order. Advance only when another
@@ -1268,7 +1340,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     pub(crate) fn prefix_child(&self, cursor: &mut PrefixCursor, level: usize, slot: u32) {
         if level + 1 == self.height as usize { return; }
         let preceding = cursor.unskipped & ((1u64 << slot) - 1);
-        cursor.child = self.advance_past_children(cursor.child, preceding, level + 1);
+        cursor.child = self.advance_past_children(cursor.pos, cursor.word, cursor.child, preceding, level + 1);
         cursor.unskipped &= !preceding;
     }
 
@@ -1293,7 +1365,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 }
             }
         }
-        scan.frames[0] = ScanFrame { lo: [0; 3], remaining: self.block_read_u64(0, 0), child: self.advance(Pos::START, self.own_record_bytes(0)) };
+        let root_word = self.block_read_u64(0, 0);
+        scan.frames[0] = ScanFrame { lo: [0; 3], remaining: root_word, child: self.advance(Pos::START, self.own_record_bytes(0, root_word)), pos: Pos::START, real_index: 0 };
         scan.depth = 1;
         scan
     }
@@ -1345,16 +1418,23 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             return (word & mask).count_ones() as u64;
         }
         let mut remaining = word;
-        let mut child_pos = self.advance(pos, self.own_record_bytes(level));
+        let mut child_pos = self.advance(pos, self.own_record_bytes(level, word));
+        let far = level + 1 + 2 < self.height as usize;
+        let mut real_index = 0usize;
         let mut total = 0u64;
         while remaining != 0 {
             let qi = remaining.trailing_zeros() as usize;
             remaining &= remaining - 1;
-            let next_child_pos = self.child_span_end(child_pos, level + 1);
+            let next_child_pos = if far {
+                self.advance(child_pos, self.far_span_sum(pos, level + 1, real_index, 1) as usize)
+            } else {
+                self.child_span_end(child_pos, level + 1)
+            };
             if (mask >> qi) & 1 != 0 {
                 total += self.count_rec(child_pos, level + 1, masks);
             }
             child_pos = next_child_pos;
+            real_index += 1;
         }
         total
     }
@@ -1445,7 +1525,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
 
     fn build_bounded_from_schedule<I: Iterator<Item = Triple>>(triples: I, dimension_sizes: [u64; NUM_DIMS], level_dim_bits: Vec<[u8; NUM_DIMS]>, dim_order: [usize; NUM_DIMS], block_capacity: usize, budget: BulkBuildBudget) -> Self {
         validate_config(dimension_sizes, dim_order, block_capacity).expect("invalid tree configuration");
-        debug_assert!(block_capacity >= WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES);
+        debug_assert!(block_capacity >= MAX_RECORD_BYTES);
         let mut triples = triples.inspect(|&(s, p, o)| {
             assert!([s, p, o].iter().zip(dimension_sizes).all(|(&v, size)| (v as u64) < size), "bounded-build coordinate exceeds domain");
         });
@@ -1538,7 +1618,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
 
     fn build_from_schedule(triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], level_dim_bits: Vec<[u8; NUM_DIMS]>, dim_order: [usize; NUM_DIMS], block_capacity: usize) -> Self {
         validate_config(dimension_sizes, dim_order, block_capacity).expect("invalid tree configuration");
-        debug_assert!(block_capacity >= WORD_RECORD_BYTES + MAX_SKIP_RECORD_BYTES);
+        debug_assert!(block_capacity >= MAX_RECORD_BYTES);
         if level_dim_bits.is_empty() {
             return RadixTreeDfsInterleavedVarSkipUnrolledGeneric {
                 storage: S::empty(),
@@ -1659,10 +1739,6 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         self.storage.read_var(block, offset, width)
     }
     #[inline]
-    fn block_read_word_and_skip(&self, block: usize, offset: usize, skip_width: u8) -> (u64, u64) {
-        self.storage.read_word_and_skip(block, offset, skip_width)
-    }
-    #[inline]
     fn block_write_u64_at(&mut self, block: usize, offset: usize, val: u64) {
         self.storage.write_u64_at(block, offset, val);
     }
@@ -1671,10 +1747,24 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         self.storage.write_var_at(block, offset, width, val);
     }
 
+    /// A node's own record is its 8-byte existence word plus -- only
+    /// when its *children* are "far" (more than two levels above a
+    /// leaf: `level + 3 < height`, i.e. `child_span_end`/
+    /// `advance_far_children`'s far case applies to them) -- one
+    /// contiguous span entry per real child, holding each child's own
+    /// total subtree size. Unlike the pre-hoist layout (where a far
+    /// node stored *its own* span, for its parent to read), a node
+    /// never stores anything describing itself; that lives in its
+    /// parent's array instead (see `advance_far_children`/
+    /// `DESIGN.md`'s hoisting section) -- so this depends on `word`
+    /// (this node's own existence word, to know how many real children
+    /// it has), not just `level`.
     #[inline]
-    fn own_record_bytes(&self, level: usize) -> usize {
-        if level + 2 < self.height as usize {
-            WORD_RECORD_BYTES + self.level_skip_bytes[level] as usize
+    fn own_record_bytes(&self, level: usize, word: u64) -> usize {
+        if level == self.height as usize - 1 {
+            WORD_RECORD_BYTES
+        } else if level + 3 < self.height as usize {
+            WORD_RECORD_BYTES + (word.count_ones() as usize) * self.level_skip_bytes[level + 1] as usize
         } else {
             WORD_RECORD_BYTES
         }
@@ -1692,13 +1782,40 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         self.block_index.locate(self.block_index.prefix(pos.block) + pos.offset as u64 + n as u64)
     }
 
+    /// Sums `count` consecutive entries of a far parent's hoisted span
+    /// array, starting at real-child index `start_real_index` (0-based,
+    /// counting only real/existing children, in ascending `qi` order --
+    /// never the whole array when only a sub-range is needed). `parent_pos`
+    /// is the far node itself (`child_level - 1`'s node); `child_level`
+    /// is the level the array's entries describe. Every caller derives
+    /// `start_real_index`/`count` from a bitmask that is always a
+    /// contiguous run of the parent's real-child bits (see
+    /// `DESIGN.md`), so a single contiguous read suffices -- no
+    /// per-caller bookkeeping beyond that mask.
+    #[inline]
+    fn far_span_sum(&self, parent_pos: Pos, child_level: usize, start_real_index: usize, count: usize) -> u64 {
+        if count == 0 {
+            return 0;
+        }
+        let skip_width = self.level_skip_bytes[child_level];
+        let array_start = parent_pos.offset + WORD_RECORD_BYTES + start_real_index * skip_width as usize;
+        let mut total = 0u64;
+        for i in 0..count {
+            total += self.block_read_var(parent_pos.block, array_start + i * skip_width as usize, skip_width);
+        }
+        total
+    }
+
+    /// The non-far cases only: deriving a child's span from its own
+    /// existence word (second-to-last level), or its fixed leaf size.
+    /// Never valid for a far `child_level` -- that span lives in the
+    /// *parent's* hoisted array instead (`far_span_sum`), not in the
+    /// child's own record, so there is nothing for this to read at
+    /// `child_pos` in that case.
     #[inline]
     fn child_span_end(&self, child_pos: Pos, child_level: usize) -> Pos {
-        if child_level + 2 < self.height as usize {
-            let width = self.level_skip_bytes[child_level];
-            let skip = self.block_read_var(child_pos.block, child_pos.offset + WORD_RECORD_BYTES, width) as usize;
-            self.advance(child_pos, skip)
-        } else if child_level == self.height as usize - 1 {
+        debug_assert!(child_level + 2 >= self.height as usize, "child_span_end is only valid for non-far levels; far children's span lives in the parent's hoisted array (far_span_sum)");
+        if child_level == self.height as usize - 1 {
             self.advance(child_pos, WORD_RECORD_BYTES)
         } else {
             let word = self.block_read_u64(child_pos.block, child_pos.offset);
@@ -1706,10 +1823,44 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         }
     }
 
+    /// The "eager backtrack-frame precompute" used throughout
+    /// `query_rec`/`query_rec_restricted`: the position just past a
+    /// *specific, already-matched* child (`real_index` within
+    /// `parent_word`), for resuming past it later. Far children's span
+    /// comes from one entry of the parent's hoisted array
+    /// (`far_span_sum`); non-far children fall back to
+    /// `child_span_end`, unchanged from before hoisting.
     #[inline]
-    fn advance_past_children(&self, child_pos: Pos, remaining_bits: u64, child_level: usize) -> Pos {
+    fn eager_child_span_end(&self, parent_pos: Pos, child_pos: Pos, real_index: usize, child_level: usize) -> Pos {
+        if child_level + 2 < self.height as usize {
+            let span = self.far_span_sum(parent_pos, child_level, real_index, 1);
+            self.advance(child_pos, span as usize)
+        } else {
+            self.child_span_end(child_pos, child_level)
+        }
+    }
+
+    /// Skips past `remaining_bits`' worth of real children, landing on
+    /// whatever follows. `remaining_bits` is always a contiguous run of
+    /// `parent_word`'s real-child bits (see `DESIGN.md`): for a far
+    /// `child_level`, that lets the whole skip collapse to one bulk
+    /// read of `parent_pos`'s hoisted array (`far_span_sum`) plus one
+    /// `advance`, instead of a chain of per-child dependent reads.
+    /// Non-far levels are unchanged from before hoisting -- there is no
+    /// array there to exploit, so this still walks sibling by sibling.
+    #[inline]
+    fn advance_past_children(&self, parent_pos: Pos, parent_word: u64, child_pos: Pos, remaining_bits: u64, child_level: usize) -> Pos {
+        if remaining_bits == 0 {
+            return child_pos;
+        }
         if child_level == self.height as usize - 1 {
             self.advance(child_pos, WORD_RECORD_BYTES * remaining_bits.count_ones() as usize)
+        } else if child_level + 2 < self.height as usize {
+            let lowest = remaining_bits.trailing_zeros();
+            let start_real_index = (parent_word & ((1u64 << lowest) - 1)).count_ones() as usize;
+            let count = remaining_bits.count_ones() as usize;
+            let skip_bytes = self.far_span_sum(parent_pos, child_level, start_real_index, count);
+            self.advance(child_pos, skip_bytes as usize)
         } else {
             let mut pos = child_pos;
             let mut bits = remaining_bits;
@@ -1751,8 +1902,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 return true;
             }
             let earlier = word & ((1u64 << qi) - 1);
-            let first_child_pos = self.advance(pos, self.own_record_bytes(level));
-            pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+            let first_child_pos = self.advance(pos, self.own_record_bytes(level, word));
+            pos = self.advance_past_children(pos, word, first_child_pos, earlier, level + 1);
             lo = next_lo;
         }
         unreachable!("height > 0 checked above")
@@ -1884,8 +2035,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                     break;
                 }
                 let earlier = word & ((1u64 << qi) - 1);
-                let first_child_pos = self.advance(pos, self.own_record_bytes(level));
-                pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+                let first_child_pos = self.advance(pos, self.own_record_bytes(level, word));
+                pos = self.advance_past_children(pos, word, first_child_pos, earlier, level + 1);
                 stack_pos[level + 1] = pos;
                 level += 1;
             }
@@ -1981,8 +2132,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                     break;
                 }
                 let earlier = word & ((1u64 << qi) - 1);
-                let first_child_pos = self.advance(pos, self.own_record_bytes(level));
-                pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+                let first_child_pos = self.advance(pos, self.own_record_bytes(level, word));
+                pos = self.advance_past_children(pos, word, first_child_pos, earlier, level + 1);
                 stack_pos[level + 1] = pos;
                 level += 1;
             }
@@ -2137,14 +2288,23 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             }
             return ControlFlow::Continue(());
         }
+        // Root-start span: nothing stores the root's own span (it has
+        // no parent to store it in), so a query that starts out
+        // already fully unconstrained uses the whole tree's total
+        // byte span instead; otherwise it's unused until a descent
+        // step inside `query_rec`/`query_rec_restricted` first sets it
+        // for real (see their shared `pos_span_end` doc comment).
+        let root_span_end = || self.block_index.locate(self.block_index.total());
         if let Some((dims, vals)) = Self::exact_bound_dims(&restrictions) {
             let is_bound = |d: usize| d == dims[0] || d == dims[1];
             let level_masks = self.precompute_level_masks(dims, vals, is_bound);
             let unconstrained_from = self.first_fully_open_level(&level_masks);
-            return self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], emit_dim, unconstrained_from, &mut emit);
+            let pos_span_end = if unconstrained_from == 0 { root_span_end() } else { Pos::START };
+            return self.query_rec(Pos::START, 0, 0, &level_masks[..self.height as usize], emit_dim, unconstrained_from, pos_span_end, &mut emit);
         }
         let unconstrained_from = self.first_fully_open_level_restricted(&restrictions);
-        self.query_rec_restricted(Pos::START, [0; NUM_DIMS], 0, &restrictions, emit_dim, unconstrained_from, &mut emit)
+        let pos_span_end = if unconstrained_from == 0 { root_span_end() } else { Pos::START };
+        self.query_rec_restricted(Pos::START, [0; NUM_DIMS], 0, &restrictions, emit_dim, unconstrained_from, pos_span_end, &mut emit)
     }
 
     fn first_fully_open_level(&self, level_masks: &[u64; MAX_HEIGHT]) -> usize {
@@ -2190,121 +2350,78 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn query_rec<T>(&self, start_pos: Pos, start_lo: u64, start_level: usize, level_masks: &[u64], free_dim: usize, unconstrained_from: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
-        let mut stack: [ConstrainedFrame; MAX_HEIGHT] = [ConstrainedFrame::EMPTY; MAX_HEIGHT];
-        let mut stack_len: usize = 0;
-        let mut pos = start_pos;
-        let mut lo = start_lo;
-        let mut level = start_level;
+    /// `pos_span_end` is this call's own subtree's end position --
+    /// needed only once `level >= unconstrained_from` (handed straight
+    /// to `bulk_list_subtree`), but always threaded through because
+    /// under hoisting a far node's own span lives in its *parent's*
+    /// record, not its own: by the time a recursive call is sitting at
+    /// `pos` there is nothing left there to compute it from, so each
+    /// call must receive it from whichever call just computed it as
+    /// `next_child_pos` while descending in. The caller (this method's
+    /// only caller, `restricted_descent_visit`) seeds it for the root
+    /// the same way: the whole tree's total byte span if the query
+    /// starts out already unconstrained, otherwise unused until a
+    /// descent step below first sets it for real.
+    #[allow(clippy::too_many_arguments)]
+    fn query_rec<T>(&self, pos: Pos, lo: u64, level: usize, level_masks: &[u64], free_dim: usize, unconstrained_from: usize, pos_span_end: Pos, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
+        if level >= unconstrained_from {
+            return self.bulk_list_subtree(pos, pos_span_end, lo, level, free_dim, emit);
+        }
 
-        'outer: loop {
-            let mut descended = false;
+        let is_last = level == self.height as usize - 1;
+        let dim_bits = self.level_dim_bits[level][free_dim];
+        let shifts = self.level_shifts_cache[level][free_dim];
+        let child_cell_bits = self.level_child_cell_bits_cache[level][free_dim];
+        let word = self.block_read_u64(pos.block, pos.offset);
+        // A visited node's word can legitimately be all zero here:
+        // `Self::remove`'s cascade never physically removes the
+        // root's own record even when clearing its last bit leaves
+        // the whole tree empty (there's nothing above the root to
+        // clear a pointing bit in). Every branch below already
+        // handles `word == 0` correctly on its own (`relevant`/
+        // `remaining` both become `0`, so no results are pushed and
+        // nothing further is visited).
 
-            if level >= unconstrained_from {
-                self.bulk_list_subtree(pos, lo, level, free_dim, emit)?;
-            } else {
-                let is_last = level == self.height as usize - 1;
-                let dim_bits = self.level_dim_bits[level][free_dim];
-                let shifts = self.level_shifts_cache[level][free_dim];
-                let child_cell_bits = self.level_child_cell_bits_cache[level][free_dim];
-                let word = self.block_read_u64(pos.block, pos.offset);
-                // A visited node's word can legitimately be all zero here:
-                // `Self::remove`'s cascade never physically removes the
-                // root's own record even when clearing its last bit
-                // leaves the whole tree empty (there's nothing above the
-                // root to clear a pointing bit in). Every branch below
-                // already handles `word == 0` correctly on its own
-                // (`relevant`/`remaining` both become `0`, so no results
-                // are pushed and the right amount of storage is skipped).
-
-                if is_last {
-                    let mut relevant = word & level_masks[level];
-                    while relevant != 0 {
-                        let qi = relevant.trailing_zeros() as usize;
-                        relevant &= relevant - 1;
-                        let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
-                        emit(child_lo as u32)?;
-                    }
-                    pos = self.advance(pos, WORD_RECORD_BYTES);
-                } else {
-                    let mask = level_masks[level];
-                    let mut child_pos = self.advance(pos, self.own_record_bytes(level));
-                    let remaining = word;
-
-                    // `candidates` is every real, existing sibling that also
-                    // satisfies this level's mask, found in O(1) instead of
-                    // checking each bit in turn. Everything in `remaining`
-                    // before the first one (`low_mask`) is real but
-                    // necessarily non-matching, by bit-position order -- skip
-                    // it as one batch instead of one `child_span_end` call
-                    // per sibling.
-                    let candidates = remaining & mask;
-                    if candidates != 0 {
-                        let qi = candidates.trailing_zeros() as usize;
-                        let low_mask = (1u64 << qi) - 1;
-                        let skip_mask = remaining & low_mask;
-                        if skip_mask != 0 {
-                            child_pos = self.advance_past_children(child_pos, skip_mask, level + 1);
-                        }
-                        let next_child_pos = self.child_span_end(child_pos, level + 1);
-                        let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
-                        let consumed_mask = low_mask | (1u64 << qi);
-                        debug_assert!(stack_len < MAX_HEIGHT);
-                        stack[stack_len] = ConstrainedFrame { lo, remaining: remaining & !consumed_mask, child_pos: next_child_pos };
-                        stack_len += 1;
-                        pos = child_pos;
-                        lo = child_lo;
-                        level += 1;
-                        descended = true;
-                    } else if remaining != 0 {
-                        pos = self.advance_past_children(child_pos, remaining, level + 1);
-                    } else {
-                        pos = child_pos;
-                    }
-                }
+        if is_last {
+            let mut relevant = word & level_masks[level];
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
+                emit(child_lo as u32)?;
             }
+            return ControlFlow::Continue(());
+        }
 
-            if descended {
-                continue 'outer;
+        let mask = level_masks[level];
+        let mut child_pos = self.advance(pos, self.own_record_bytes(level, word));
+        let mut remaining = word;
+
+        // `candidates` is every real, existing sibling that also
+        // satisfies this level's mask, found in O(1) instead of
+        // checking each bit in turn. Everything in `remaining` before
+        // the first one (`low_mask`) is real but necessarily
+        // non-matching, by bit-position order -- skip it as one batch
+        // (one bulk read of the parent's hoisted span array, for far
+        // children) instead of one dependent read per sibling.
+        loop {
+            let candidates = remaining & mask;
+            if candidates == 0 {
+                return ControlFlow::Continue(());
             }
-
-            loop {
-                if stack_len == 0 {
-                    return ControlFlow::Continue(());
-                }
-                let frame_level = start_level + stack_len - 1;
-                let frame = &mut stack[stack_len - 1];
-                if frame.remaining == 0 {
-                    stack_len -= 1;
-                    continue;
-                }
-
-                let frame_mask = level_masks[frame_level];
-                let frame_dim_bits = self.level_dim_bits[frame_level][free_dim];
-                let frame_shifts = self.level_shifts_cache[frame_level][free_dim];
-                let frame_child_cell_bits = self.level_child_cell_bits_cache[frame_level][free_dim];
-                let mut child_pos = frame.child_pos;
-
-                let candidates = frame.remaining & frame_mask;
-                if candidates != 0 {
-                    let qi = candidates.trailing_zeros() as usize;
-                    let low_mask = (1u64 << qi) - 1;
-                    let skip_mask = frame.remaining & low_mask;
-                    if skip_mask != 0 {
-                        child_pos = self.advance_past_children(child_pos, skip_mask, frame_level + 1);
-                    }
-                    let next_child_pos = self.child_span_end(child_pos, frame_level + 1);
-                    let child_lo = advance_lo_dim(frame.lo, frame_dim_bits, frame_shifts, qi, frame_child_cell_bits);
-                    let consumed_mask = low_mask | (1u64 << qi);
-                    frame.remaining &= !consumed_mask;
-                    frame.child_pos = next_child_pos;
-                    pos = child_pos;
-                    lo = child_lo;
-                    level = frame_level + 1;
-                    continue 'outer;
-                }
-                stack_len -= 1;
+            let qi = candidates.trailing_zeros() as usize;
+            let low_mask = (1u64 << qi) - 1;
+            let skip_mask = remaining & low_mask;
+            if skip_mask != 0 {
+                child_pos = self.advance_past_children(pos, word, child_pos, skip_mask, level + 1);
             }
+            let real_index_qi = (word & low_mask).count_ones() as usize;
+            let next_child_pos = self.eager_child_span_end(pos, child_pos, real_index_qi, level + 1);
+            let child_lo = advance_lo_dim(lo, dim_bits, shifts, qi, child_cell_bits);
+            let consumed_mask = low_mask | (1u64 << qi);
+            remaining &= !consumed_mask;
+            self.query_rec(child_pos, child_lo, level + 1, level_masks, free_dim, unconstrained_from, next_child_pos, emit)?;
+            child_pos = next_child_pos;
         }
     }
 
@@ -2339,118 +2456,71 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// Everything else (the explicit stack, the bulk-subtree handoff
     /// once `unconstrained_from` is reached, the backtracking shape)
     /// mirrors `query_rec` exactly.
+    /// See `query_rec`'s identical `pos_span_end` parameter for why
+    /// it's threaded through this way instead of recomputed locally.
     #[allow(clippy::too_many_arguments)]
-    fn query_rec_restricted<T>(&self, start_pos: Pos, start_lo: [u64; NUM_DIMS], start_level: usize, restrictions: &[DimRestriction; NUM_DIMS], emit_dim: usize, unconstrained_from: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
-        let mut stack: [RestrictedFrame; MAX_HEIGHT] = [RestrictedFrame::EMPTY; MAX_HEIGHT];
-        let mut stack_len: usize = 0;
-        let mut pos = start_pos;
-        let mut lo = start_lo;
-        let mut level = start_level;
+    fn query_rec_restricted<T>(&self, pos: Pos, lo: [u64; NUM_DIMS], level: usize, restrictions: &[DimRestriction; NUM_DIMS], emit_dim: usize, unconstrained_from: usize, pos_span_end: Pos, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
+        if level >= unconstrained_from {
+            return self.bulk_list_subtree(pos, pos_span_end, lo[emit_dim], level, emit_dim, emit);
+        }
 
-        'outer: loop {
-            let mut descended = false;
+        let is_last = level == self.height as usize - 1;
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+        let mask = restriction_mask(dim_bits, shifts, lo, child_cell_bits, restrictions);
+        let word = self.block_read_u64(pos.block, pos.offset);
+        // See `query_rec`'s identical comment: an all-zero word here
+        // is legitimate (a from-scratch-empty or fully deleted tree),
+        // and every branch below already handles it correctly on its
+        // own.
 
-            if level >= unconstrained_from {
-                self.bulk_list_subtree(pos, lo[emit_dim], level, emit_dim, emit)?;
-            } else {
-                let is_last = level == self.height as usize - 1;
-                let dim_bits = self.level_dim_bits[level];
-                let shifts = self.level_shifts_cache[level];
-                let child_cell_bits = self.level_child_cell_bits_cache[level];
-                let mask = restriction_mask(dim_bits, shifts, lo, child_cell_bits, restrictions);
-                let word = self.block_read_u64(pos.block, pos.offset);
-                // See `query_rec`'s identical comment: an all-zero word
-                // here is legitimate (a from-scratch-empty or fully
-                // deleted tree), and every branch below already handles
-                // it correctly on its own.
-
-                if is_last {
-                    let mut relevant = word & mask;
-                    while relevant != 0 {
-                        let qi = relevant.trailing_zeros() as usize;
-                        relevant &= relevant - 1;
-                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
-                        emit(child_lo[emit_dim] as u32)?;
-                    }
-                    pos = self.advance(pos, WORD_RECORD_BYTES);
-                } else {
-                    let mut child_pos = self.advance(pos, self.own_record_bytes(level));
-                    let remaining = word;
-
-                    let candidates = remaining & mask;
-                    if candidates != 0 {
-                        let qi = candidates.trailing_zeros() as usize;
-                        let low_mask = (1u64 << qi) - 1;
-                        let skip_mask = remaining & low_mask;
-                        if skip_mask != 0 {
-                            child_pos = self.advance_past_children(child_pos, skip_mask, level + 1);
-                        }
-                        let next_child_pos = self.child_span_end(child_pos, level + 1);
-                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
-                        let consumed_mask = low_mask | (1u64 << qi);
-                        debug_assert!(stack_len < MAX_HEIGHT);
-                        stack[stack_len] = RestrictedFrame { lo, remaining: remaining & !consumed_mask, child_pos: next_child_pos };
-                        stack_len += 1;
-                        pos = child_pos;
-                        lo = child_lo;
-                        level += 1;
-                        descended = true;
-                    } else if remaining != 0 {
-                        pos = self.advance_past_children(child_pos, remaining, level + 1);
-                    } else {
-                        pos = child_pos;
-                    }
-                }
+        if is_last {
+            let mut relevant = word & mask;
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                emit(child_lo[emit_dim] as u32)?;
             }
+            return ControlFlow::Continue(());
+        }
 
-            if descended {
-                continue 'outer;
+        let mut child_pos = self.advance(pos, self.own_record_bytes(level, word));
+        let mut remaining = word;
+
+        loop {
+            let candidates = remaining & mask;
+            if candidates == 0 {
+                return ControlFlow::Continue(());
             }
-
-            loop {
-                if stack_len == 0 {
-                    return ControlFlow::Continue(());
-                }
-                let frame_level = start_level + stack_len - 1;
-                let frame = &mut stack[stack_len - 1];
-                if frame.remaining == 0 {
-                    stack_len -= 1;
-                    continue;
-                }
-
-                let frame_dim_bits = self.level_dim_bits[frame_level];
-                let frame_shifts = self.level_shifts_cache[frame_level];
-                let frame_child_cell_bits = self.level_child_cell_bits_cache[frame_level];
-                let frame_mask = restriction_mask(frame_dim_bits, frame_shifts, frame.lo, frame_child_cell_bits, restrictions);
-                let mut child_pos = frame.child_pos;
-
-                let candidates = frame.remaining & frame_mask;
-                if candidates != 0 {
-                    let qi = candidates.trailing_zeros() as usize;
-                    let low_mask = (1u64 << qi) - 1;
-                    let skip_mask = frame.remaining & low_mask;
-                    if skip_mask != 0 {
-                        child_pos = self.advance_past_children(child_pos, skip_mask, frame_level + 1);
-                    }
-                    let next_child_pos = self.child_span_end(child_pos, frame_level + 1);
-                    let child_lo = advance_lo(frame.lo, frame_dim_bits, frame_shifts, qi, frame_child_cell_bits);
-                    let consumed_mask = low_mask | (1u64 << qi);
-                    frame.remaining &= !consumed_mask;
-                    frame.child_pos = next_child_pos;
-                    pos = child_pos;
-                    lo = child_lo;
-                    level = frame_level + 1;
-                    continue 'outer;
-                }
-                stack_len -= 1;
+            let qi = candidates.trailing_zeros() as usize;
+            let low_mask = (1u64 << qi) - 1;
+            let skip_mask = remaining & low_mask;
+            if skip_mask != 0 {
+                child_pos = self.advance_past_children(pos, word, child_pos, skip_mask, level + 1);
             }
+            let real_index_qi = (word & low_mask).count_ones() as usize;
+            let next_child_pos = self.eager_child_span_end(pos, child_pos, real_index_qi, level + 1);
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            let consumed_mask = low_mask | (1u64 << qi);
+            remaining &= !consumed_mask;
+            self.query_rec_restricted(child_pos, child_lo, level + 1, restrictions, emit_dim, unconstrained_from, next_child_pos, emit)?;
+            child_pos = next_child_pos;
         }
     }
 
     /// Bulk-reads one entire "listing" subtree in one shot and decodes it
     /// entirely from memory, rather than walking it node by node.
-    fn bulk_list_subtree<T>(&self, pos: Pos, lo: u64, level: usize, free_dim: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
-        let span_end = self.child_span_end(pos, level);
+    /// `span_end` (this subtree's own end position) is supplied by the
+    /// caller rather than computed here: under hoisting, a far node's
+    /// own span lives in its *parent's* record, not its own, so by the
+    /// time we're sitting at `pos` there's nothing left here to compute
+    /// it from -- every caller already has it on hand regardless (it's
+    /// exactly what just got it here, via the same eager precompute
+    /// `query_rec`/`query_rec_restricted` already do for their own
+    /// resume bookkeeping).
+    fn bulk_list_subtree<T>(&self, pos: Pos, span_end: Pos, lo: u64, level: usize, free_dim: usize, emit: &mut impl FnMut(u32) -> ControlFlow<T>) -> ControlFlow<T> {
         let byte_len = self.byte_distance(pos, span_end);
         let buf = self.storage.bulk_read(pos.block, pos.offset, byte_len);
         self.decode_listing(&buf, 0, lo, level, free_dim, emit)?;
@@ -2507,7 +2577,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             }
             ControlFlow::Continue(cursor)
         } else {
-            let mut cursor = off + self.own_record_bytes(level);
+            let mut cursor = off + self.own_record_bytes(level, word);
             let mut remaining = word;
             while remaining != 0 {
                 let qi = remaining.trailing_zeros() as usize;
@@ -2625,10 +2695,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         let coords = [s as u64, p as u64, o as u64];
         let mut lo = [0u64; NUM_DIMS];
         let mut pos = Pos::START;
-        // Fifth element (vs. insert's own trail): this level's own `qi`
-        // -- the cascade needs to know which bit to clear at every
-        // level, not just the deepest one.
-        let mut trail: RemoveTrail = [(Pos::START, 0, 0, 0, 0); MAX_HEIGHT];
+        let mut trail: RemoveTrail = [(Pos::START, 0, 0, 0); MAX_HEIGHT];
+        let mut real_index_in_parent = 0usize;
 
         for level in 0..self.height as usize {
             let is_last = level == self.height as usize - 1;
@@ -2641,9 +2709,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 qi |= (sub as usize) << shifts[d];
                 next_lo[d] += sub << child_cell_bits[d];
             }
-            let skip_width = if level + 2 < self.height as usize { self.level_skip_bytes[level] } else { 0 };
-            let (word, skip_old) = self.block_read_word_and_skip(pos.block, pos.offset, skip_width);
-            trail[level] = (pos, level, word, skip_old, qi);
+            let word = self.block_read_u64(pos.block, pos.offset);
+            trail[level] = (pos, word, qi, real_index_in_parent);
 
             if (word >> qi) & 1 == 0 {
                 return None;
@@ -2652,8 +2719,9 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 return Some(trail);
             }
             let earlier = word & ((1u64 << qi) - 1);
-            let first_child_pos = self.advance(pos, self.own_record_bytes(level));
-            pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+            real_index_in_parent = earlier.count_ones() as usize;
+            let first_child_pos = self.advance(pos, self.own_record_bytes(level, word));
+            pos = self.advance_past_children(pos, word, first_child_pos, earlier, level + 1);
             lo = next_lo;
         }
         unreachable!("height > 0 checked by caller")
@@ -2665,24 +2733,46 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// subtracting: while every node visited so far was removed in its
     /// entirety (`still_cascading`), clear this level's own bit for the
     /// now-dead child below it too, and if this node's word is now also
-    /// zero, remove its own record as well -- except the root (level
+    /// zero, remove its own record *and* the slot its parent held
+    /// describing it (its span lives there, not in its own record --
+    /// see `DESIGN.md`'s hoisting section) -- except the root (level
     /// `0`), which is never physically removed even if its word goes to
-    /// zero, since there is nothing above it to clear a pointing bit in.
-    /// The first surviving ancestor stops the bit-clearing; every level
-    /// from there to the root still gets its own cached skip field
-    /// decremented by the total bytes removed below it, exactly as every
-    /// trail entry in `insert_new_branch`'s loop gets patched regardless
-    /// of level.
+    /// zero, since there is nothing above it holding a slot for it. The
+    /// first surviving ancestor stops the bit-clearing/removing; every
+    /// level from there to the root still gets *its own* span entry (in
+    /// *its* parent's array) decremented by the total bytes removed
+    /// below it, exactly as every trail entry in `insert_new_branch`'s
+    /// loop gets patched regardless of level.
     fn remove_cascade(&mut self, trail: &[RemoveTrailEntry]) {
         let mut removed_bytes: u64 = 0;
         let mut still_cascading = true;
-        for &(pos, level, word, skip_old, qi) in trail.iter().rev() {
+        for level in (0..trail.len()).rev() {
+            let (pos, word, qi, real_index_in_parent) = trail[level];
             let new_word = if still_cascading { word & !(1u64 << qi) } else { word };
             if new_word != word {
                 self.block_write_u64_at(pos.block, pos.offset, new_word);
             }
             if still_cascading && new_word == 0 && level != 0 {
-                let own_len = self.own_record_bytes(level);
+                // `word` had exactly one bit (`qi`) for `new_word` to
+                // reach zero, so this node had exactly one real child
+                // -- and if that child was itself far, its slot in
+                // *this* node's own hoisted array was already removed
+                // in the previous (deeper) iteration of this same loop
+                // (every level here is processed in order, deepest
+                // first). So this node's own record, right now, is
+                // always just its bare 8-byte header -- never
+                // `own_record_bytes(level, word)`, which would still
+                // (wrongly) count that already-gone array entry.
+                let own_len = WORD_RECORD_BYTES;
+
+                // Remove the later byte range (this node's own record)
+                // first, then the earlier one (its slot in the
+                // parent's array): removing a later range never shifts
+                // an earlier position, so `trail[level - 1]`'s `pos`
+                // stays valid for the second removal regardless of
+                // what the first one does to block layout (even a
+                // dropped-empty-block reindex only ever shifts *later*
+                // blocks down, never earlier ones).
                 let old_blocks = self.storage.block_count();
                 self.storage.remove_bytes(pos, own_len);
                 if self.storage.block_count() == old_blocks {
@@ -2695,14 +2785,31 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                     // every remaining trail entry.
                     self.block_index.rebuild(&self.storage);
                 }
-                self.node_count -= 1;
                 removed_bytes += own_len as u64;
+
+                if level + 2 < self.height as usize {
+                    let parent_pos = trail[level - 1].0;
+                    let width = self.level_skip_bytes[level];
+                    let slot_pos = Pos { block: parent_pos.block, offset: parent_pos.offset + WORD_RECORD_BYTES + real_index_in_parent * width as usize };
+                    let old_blocks = self.storage.block_count();
+                    self.storage.remove_bytes(slot_pos, width as usize);
+                    if self.storage.block_count() == old_blocks {
+                        self.block_index.shrink(slot_pos.block, width as usize);
+                    } else {
+                        self.block_index.rebuild(&self.storage);
+                    }
+                    removed_bytes += width as u64;
+                }
+
+                self.node_count -= 1;
             } else {
                 still_cascading = false;
-                if removed_bytes > 0 && level + 2 < self.height as usize {
+                if removed_bytes > 0 && level != 0 && level + 2 < self.height as usize {
+                    let parent_pos = trail[level - 1].0;
                     let width = self.level_skip_bytes[level];
-                    let skip_offset = pos.offset + WORD_RECORD_BYTES;
-                    self.block_write_var_at(pos.block, skip_offset, width, skip_old - removed_bytes);
+                    let array_offset = parent_pos.offset + WORD_RECORD_BYTES + real_index_in_parent * width as usize;
+                    let old = self.block_read_var(parent_pos.block, array_offset, width);
+                    self.block_write_var_at(parent_pos.block, array_offset, width, old - removed_bytes);
                 }
             }
         }
@@ -2781,7 +2888,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
 
     fn dfs_records_rec(&self, pos: Pos, level: usize, out: &mut Vec<(Pos, usize)>) -> Pos {
         let word = self.block_read_u64(pos.block, pos.offset);
-        let len = self.own_record_bytes(level);
+        let len = self.own_record_bytes(level, word);
         out.push((pos, len));
         let mut child_pos = self.advance(pos, len);
         if level == self.height as usize - 1 {
@@ -2888,11 +2995,12 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         let coords = [s as u64, p as u64, o as u64];
         let mut lo = [0u64; NUM_DIMS];
         let mut pos = Pos::START;
-        // Fourth element: this level's *own* skip-field value, read
-        // alongside its word in one combined fetch. Almost every trail
-        // entry ends up needing this in `insert_new_branch`'s ancestor
-        // loop anyway.
-        let mut trail: [(Pos, usize, u64, u64); MAX_HEIGHT] = [(Pos::START, 0, 0, 0); MAX_HEIGHT];
+        // Third element: this node's own real-child index within its
+        // *parent's* existence word -- i.e. which slot in the parent's
+        // hoisted span array (if any) describes this node. Meaningless
+        // (never read) for level 0, the root, which has no parent.
+        let mut trail: [(Pos, u64, usize); MAX_HEIGHT] = [(Pos::START, 0, 0); MAX_HEIGHT];
+        let mut real_index_in_parent = 0usize;
 
         for level in 0..self.height as usize {
             let is_last = level == self.height as usize - 1;
@@ -2905,9 +3013,8 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 qi |= (sub as usize) << shifts[d];
                 next_lo[d] += sub << child_cell_bits[d];
             }
-            let skip_width = if level + 2 < self.height as usize { self.level_skip_bytes[level] } else { 0 };
-            let (word, skip_old) = self.block_read_word_and_skip(pos.block, pos.offset, skip_width);
-            trail[level] = (pos, level, word, skip_old);
+            let word = self.block_read_u64(pos.block, pos.offset);
+            trail[level] = (pos, word, real_index_in_parent);
 
             if (word >> qi) & 1 == 0 {
                 self.insert_new_branch(pos, level, qi, word, coords, lo, &trail[..=level]);
@@ -2917,15 +3024,20 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
                 return false;
             }
             let earlier = word & ((1u64 << qi) - 1);
-            let first_child_pos = self.advance(pos, self.own_record_bytes(level));
-            pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+            real_index_in_parent = earlier.count_ones() as usize;
+            let first_child_pos = self.advance(pos, self.own_record_bytes(level, word));
+            pos = self.advance_past_children(pos, word, first_child_pos, earlier, level + 1);
             lo = next_lo;
         }
         unreachable!("height > 0 checked above")
     }
 
+    /// `trail[..=level]` mirrors `insert_no_reset`'s own trail: `(pos,
+    /// word, real_index_in_parent)` for every level from the root down
+    /// to (and including) `node_pos` itself, all read *before* this
+    /// insertion touched anything.
     #[allow(clippy::too_many_arguments)]
-    fn insert_new_branch(&mut self, node_pos: Pos, level: usize, qi: usize, word: u64, coords: [u64; NUM_DIMS], lo: [u64; NUM_DIMS], trail: &[(Pos, usize, u64, u64)]) {
+    fn insert_new_branch(&mut self, node_pos: Pos, level: usize, qi: usize, word: u64, coords: [u64; NUM_DIMS], lo: [u64; NUM_DIMS], trail: &[(Pos, u64, usize)]) {
         self.set_bit_in_word(node_pos, qi, word);
         let is_last = level == self.height as usize - 1;
         if is_last {
@@ -2939,9 +3051,111 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         let chain = build_single_point_chain(coords, level + 1, self.height, &self.level_dim_bits, &self.level_shifts_cache, &self.level_child_cell_bits_cache, &self.level_skip_bytes, child_lo);
 
         let earlier = word & ((1u64 << qi) - 1);
-        let first_child_pos = self.advance(node_pos, self.own_record_bytes(level));
-        let insert_pos = self.advance_past_children(first_child_pos, earlier, level + 1);
+        let new_real_index = earlier.count_ones() as usize;
+        let node_abs_offset = self.block_index.prefix(node_pos.block) + node_pos.offset as u64;
+        let first_child_pos = self.advance(node_pos, self.own_record_bytes(level, word));
+        let insert_pos_before_growth = self.advance_past_children(node_pos, word, first_child_pos, earlier, level + 1);
+        let mut insert_pos_abs = self.block_index.prefix(insert_pos_before_growth.block) + insert_pos_before_growth.offset as u64;
 
+        // Phase 1: `node_pos` just gained a real child it didn't have a
+        // slot for. If its children are far, its own hoisted span array
+        // needs exactly one new entry inserted at `new_real_index`,
+        // holding the new chain's size (computed, since `chain` already
+        // exists, even though `chain` itself isn't inserted until phase
+        // 2 below).
+        //
+        // This has to happen *before* the chain is inserted (otherwise
+        // the position this array entry needs -- right after the *old*
+        // array -- would be exactly the block boundary the chain
+        // insertion just created there, splitting `node_pos`'s header
+        // from its own array across two blocks), and it can't be any
+        // kind of partial splice into the existing record either --
+        // not into the array's interior, and not even appending just
+        // the new entry (plus shifting what follows) at the record's
+        // own end: whichever position gets handed to `insert_bytes`,
+        // if the containing block doesn't have room to grow in place,
+        // *that exact position* is where it splits -- so inserting
+        // anything less than the *entire* record as one piece always
+        // risks splitting this node's header from (part of) its array,
+        // breaking every reader that assumes a far node's array lives
+        // entirely in the same block as its header (`far_span_sum` and
+        // friends). The only shape immune to that: read the whole old
+        // record, splice the new entry into a complete copy, then swap
+        // it in as one remove of the old record's exact span followed
+        // by one insert of the whole new one, both at `node_pos`'s own
+        // start -- `insert_bytes` never splits the bytes it's given,
+        // only ever shifts whatever's already adjacent to them, so a
+        // split here can only land strictly before or strictly after
+        // this entire record, never inside it.
+        let children_far = level + 3 < self.height as usize;
+        let mut own_growth = 0u64;
+        if children_far {
+            let width = self.level_skip_bytes[level + 1];
+            let old_k = word.count_ones() as usize;
+            let old_total_len = WORD_RECORD_BYTES + old_k * width as usize;
+            let new_total_len = old_total_len + width as usize;
+
+            let node_pos_now = self.block_index.locate(node_abs_offset);
+            let mut new_record = vec![0u8; new_total_len];
+            new_record[..WORD_RECORD_BYTES].copy_from_slice(&(word | (1u64 << qi)).to_le_bytes());
+            for i in 0..new_real_index {
+                let v = self.block_read_var(node_pos_now.block, node_pos_now.offset + WORD_RECORD_BYTES + i * width as usize, width);
+                write_var_at(&mut new_record, WORD_RECORD_BYTES + i * width as usize, width, v);
+            }
+            write_var_at(&mut new_record, WORD_RECORD_BYTES + new_real_index * width as usize, width, chain.len() as u64);
+            for i in new_real_index..old_k {
+                let v = self.block_read_var(node_pos_now.block, node_pos_now.offset + WORD_RECORD_BYTES + i * width as usize, width);
+                write_var_at(&mut new_record, WORD_RECORD_BYTES + (i + 1) * width as usize, width, v);
+            }
+
+            let old_blocks = self.storage.block_count();
+            self.storage.remove_bytes(node_pos_now, old_total_len);
+            if self.storage.block_count() == old_blocks {
+                self.block_index.shrink(node_pos_now.block, old_total_len);
+            } else {
+                self.block_index.rebuild(&self.storage);
+            }
+
+            if self.storage.block_count() == 0 {
+                // `node_pos`'s old record was the *only* content in all
+                // of storage (only possible for the root, on the very
+                // first insert into a brand new, still-childless tree)
+                // -- removing it left nothing for `locate`/`insert_bytes`
+                // to resolve or index into at all (every backend's
+                // `insert_bytes` indexes `pos.block` directly; there's
+                // no block zero to index when there are none).
+                // `append_record`/`finish_append` is otherwise only a
+                // bulk-build pairing, but used together, immediately,
+                // like a complete one-record build session, it's a
+                // backend-agnostic way to go from zero blocks to one
+                // (`FileStorage` in particular stages `append_record`
+                // into a pending buffer that only becomes real,
+                // addressable storage once `finish_append` flushes it).
+                self.storage.append_record(&new_record, self.block_capacity);
+                self.storage.finish_append(self.block_capacity);
+                self.block_index.rebuild(&self.storage);
+            } else {
+                let reinsert_pos = self.block_index.locate(node_abs_offset);
+                let old_blocks = self.storage.block_count();
+                self.storage.insert_bytes(reinsert_pos, &new_record, self.block_capacity);
+                if self.storage.block_count() == old_blocks {
+                    self.block_index.grow(reinsert_pos.block, new_record.len());
+                } else {
+                    self.block_index.rebuild(&self.storage);
+                }
+            }
+            own_growth = width as u64;
+            // The array grew strictly before the chain's own target
+            // position (it lives inside `node_pos`'s own record, which
+            // ends at or before `node_pos`'s first child) -- so that
+            // target has shifted forward by exactly this much.
+            insert_pos_abs += own_growth;
+        }
+
+        // Phase 2: insert the new chain, at its (possibly phase-1-
+        // shifted) position, freshly resolved since phase 1 may have
+        // changed the block layout.
+        let insert_pos = self.block_index.locate(insert_pos_abs);
         let old_blocks = self.storage.block_count();
         self.storage.insert_bytes(insert_pos, &chain, self.block_capacity);
         if self.storage.block_count() == old_blocks {
@@ -2953,11 +3167,19 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         }
         self.node_count += (self.height as usize - (level + 1)) as u64;
 
-        for &(anc_pos, anc_level, _, skip_old) in trail.iter().rev() {
+        // Phase 3: every far ancestor's hoisted array holds an entry
+        // for *its* child on this path, describing that child's total
+        // size -- which just grew by the new chain plus (for `node_pos`
+        // itself, the first iteration below) the new slot from phase 1.
+        let delta = chain.len() as u64 + own_growth;
+        for anc_level in (1..=level).rev() {
             if anc_level + 2 < self.height as usize {
+                let parent_pos = trail[anc_level - 1].0;
+                let real_index = trail[anc_level].2;
                 let width = self.level_skip_bytes[anc_level];
-                let skip_offset = anc_pos.offset + WORD_RECORD_BYTES;
-                self.block_write_var_at(anc_pos.block, skip_offset, width, skip_old + chain.len() as u64);
+                let array_offset = parent_pos.offset + WORD_RECORD_BYTES + real_index * width as usize;
+                let old = self.block_read_var(parent_pos.block, array_offset, width);
+                self.block_write_var_at(parent_pos.block, array_offset, width, old + delta);
             }
         }
     }
@@ -3108,32 +3330,54 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     fn validate_node(&self, pos: &mut Pos, level: usize, lo: [u64; 3], nodes: &mut u64) -> Result<u64> {
         let corrupt = |s: &str| TreeError::CorruptData(s.into());
         if pos.block >= self.storage.block_count() { return Err(corrupt("truncated node topology")); }
-        let len = self.own_record_bytes(level);
-        if pos.offset > self.block_len(pos.block) || len > self.block_len(pos.block) - pos.offset {
-            return Err(corrupt("node record crosses a block boundary"));
+        // The record's own length depends on its existence word (how
+        // many real children it hoists span entries for), so the word
+        // has to be read before `len` is known -- bound-check for just
+        // the word first, then re-check the full, now-known length.
+        if pos.offset.saturating_add(WORD_RECORD_BYTES) > self.block_len(pos.block) {
+            return Err(corrupt("truncated node topology"));
         }
+        let own_pos = *pos;
         let word = self.block_read_u64(pos.block, pos.offset);
         let bits = self.level_dim_bits[level];
         let branching = 1u32 << bits.iter().map(|&b| b as u32).sum::<u32>();
         if (word == 0 && level != 0) || (branching < 64 && word >> branching != 0) {
             return Err(corrupt("invalid existence bitmap"));
         }
-        let skip = if level + 2 < self.height as usize {
-            Some(self.block_read_var(pos.block, pos.offset + 8, self.level_skip_bytes[level]))
-        } else { None };
+        let len = self.own_record_bytes(level, word);
+        if pos.offset > self.block_len(pos.block) || len > self.block_len(pos.block) - pos.offset {
+            return Err(corrupt("node record crosses a block boundary"));
+        }
+        // Whether this node's hoisted array (if any) describes its
+        // children -- i.e. whether *this* node is a far node under the
+        // old self-stored-span layout, now relocated into this node's
+        // own record instead.
+        let children_far = level + 1 < self.height as usize && level + 3 < self.height as usize;
+        let child_skip_width = if children_far { self.level_skip_bytes[level + 1] } else { 0 };
         *nodes += 1;
         pos.offset += len;
         if pos.offset == self.block_len(pos.block) { pos.block += 1; pos.offset = 0; }
         let mut bytes = len as u64;
         let mut children = word;
+        let mut real_index = 0usize;
         while children != 0 {
             let qi = children.trailing_zeros() as usize;
             children &= children - 1;
             let next_lo = advance_lo(lo, bits, self.level_shifts_cache[level], qi, self.level_child_cell_bits_cache[level]);
             if next_lo.iter().zip(self.dimension_sizes).any(|(&v, size)| v >= size) { return Err(corrupt("stored coordinate exceeds domain")); }
-            if level + 1 < self.height as usize { bytes += self.validate_node(pos, level + 1, next_lo, nodes)?; }
+            if level + 1 < self.height as usize {
+                let child_bytes = self.validate_node(pos, level + 1, next_lo, nodes)?;
+                if children_far {
+                    let array_offset = own_pos.offset + WORD_RECORD_BYTES + real_index * child_skip_width as usize;
+                    let stored = self.block_read_var(own_pos.block, array_offset, child_skip_width);
+                    if stored != child_bytes {
+                        return Err(corrupt("subtree skip does not match topology"));
+                    }
+                }
+                bytes += child_bytes;
+            }
+            real_index += 1;
         }
-        if skip.is_some_and(|s| s != bytes) { return Err(corrupt("subtree skip does not match topology")); }
         Ok(bytes)
     }
 
@@ -3144,7 +3388,7 @@ mod tests {
     use super::*;
     use crate::test_support::{uniform, zipfian_predicates, NaiveIndex, SplitMix64};
 
-    const TEST_CAPACITIES: [usize; 4] = [32, 64, 256, DEFAULT_BLOCK_CAPACITY];
+    const TEST_CAPACITIES: [usize; 4] = [MAX_RECORD_BYTES, MAX_RECORD_BYTES * 2, 2048, DEFAULT_BLOCK_CAPACITY];
 
     /// `Result::unwrap_err` requires the `Ok` type to implement `Debug`,
     /// which the tree struct itself deliberately doesn't (no test in
@@ -3256,7 +3500,7 @@ mod tests {
         // corrupt an unrelated in-domain coordinate -- see the sibling
         // assertion below).
         let triples = vec![(0u32, 0u32, 0u32), (1, 0, 1), (2, 1, 2), (3, 1, 3)];
-        let mut tree = Heap::build_dynamic(triples.clone(), 64);
+        let mut tree = Heap::build_dynamic(triples.clone(), MAX_RECORD_BYTES);
         let dom_s = tree.domain_size(0) as u32;
         assert!(!tree.in_bounds(dom_s, 0, 0));
 
@@ -3274,7 +3518,7 @@ mod tests {
 
     #[test]
     fn insert_batch_rejects_out_of_domain_atomically() {
-        let mut tree = Heap::build_dynamic(vec![(0u32, 0u32, 0u32)], 64);
+        let mut tree = Heap::build_dynamic(vec![(0u32, 0u32, 0u32)], MAX_RECORD_BYTES);
         let dom_s = tree.domain_size(0) as u32;
         let mut batch = vec![(1u32, 0u32, 0u32), (dom_s, 0, 0)];
         let err = tree.insert_batch(&mut batch).unwrap_err();
@@ -3286,7 +3530,7 @@ mod tests {
     fn build_with_order_rejects_oversized_split() {
         let triples = vec![(0u32, 0u32, 0u32)];
         let bad_split = [BASE, BASE, BASE]; // sums to 3*BASE, far over budget
-        let err = expect_err(Heap::build(triples, bad_split, 64));
+        let err = expect_err(Heap::build(triples, bad_split, MAX_RECORD_BYTES));
         assert!(matches!(err, TreeError::InvalidConfig(_)));
     }
 
@@ -3296,7 +3540,7 @@ mod tests {
         let split_at = all.len() / 2;
         let (initial, rest) = all.split_at(split_at);
 
-        let mut heap = Heap::build_dynamic(initial.to_vec(), 64);
+        let mut heap = Heap::build_dynamic(initial.to_vec(), MAX_RECORD_BYTES);
         let mut seen: Vec<Triple> = initial.to_vec();
         for &(s, p, o) in rest {
             let heap_new = heap.insert(s, p, o).unwrap();
@@ -3319,7 +3563,7 @@ mod tests {
             .find(|t| !present.contains(t))
             .expect("a dense 100-triple sample over a 1600-point domain leaves some point absent");
 
-        let mut heap = Heap::build_dynamic(triples.clone(), 64);
+        let mut heap = Heap::build_dynamic(triples.clone(), MAX_RECORD_BYTES);
         let mem_before = heap.mem_size_bytes();
         let words_before = heap.node_word_count();
         assert!(!heap.remove(absent.0, absent.1, absent.2).unwrap());
@@ -3332,7 +3576,7 @@ mod tests {
     #[test]
     fn remove_out_of_domain_returns_false_not_err() {
         let triples = vec![(0u32, 0u32, 0u32), (1, 0, 1), (2, 1, 2), (3, 1, 3)];
-        let mut tree = Heap::build_dynamic(triples.clone(), 64);
+        let mut tree = Heap::build_dynamic(triples.clone(), MAX_RECORD_BYTES);
         let dom_s = tree.domain_size(0) as u32;
         assert!(!tree.in_bounds(dom_s, 0, 0));
         assert!(!tree.remove(dom_s, 0, 0).unwrap());
@@ -3344,7 +3588,7 @@ mod tests {
     fn remove_then_contains_false_matches_naive() {
         let all = uniform(20, 4, 20, 300, 9009);
         let mut naive = NaiveIndex::build(&all);
-        let mut heap = Heap::build_dynamic(all, 64);
+        let mut heap = Heap::build_dynamic(all, MAX_RECORD_BYTES);
         let distinct: Vec<Triple> = (0..20u32).flat_map(|s| (0..4u32).flat_map(move |p| (0..20u32).map(move |o| (s, p, o)))).filter(|&(s, p, o)| naive.contains(s, p, o)).collect();
         for (s, p, o) in distinct {
             assert!(heap.remove(s, p, o).unwrap());
@@ -3364,7 +3608,7 @@ mod tests {
         let b: Triple = (1, 1, 1);
 
         for (first, second) in [(a, b), (b, a)] {
-            let mut heap = Heap::build_dynamic_empty(dimension_sizes, 64);
+            let mut heap = Heap::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES);
             heap.insert(a.0, a.1, a.2).unwrap();
             heap.insert(b.0, b.1, b.2).unwrap();
             assert_eq!(heap.height(), 1, "test assumes the whole domain fits in one node");
@@ -3381,7 +3625,7 @@ mod tests {
     #[test]
     fn remove_last_triple_in_a_subtree_cascades_up_and_shrinks_storage() {
         let dimension_sizes = [64u64, 4u64, 64u64];
-        let mut heap = Heap::build_dynamic_empty(dimension_sizes, 64);
+        let mut heap = Heap::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES);
         heap.insert(0, 0, 0).unwrap();
         heap.insert(63, 3, 63).unwrap();
         assert!(heap.height() >= 2, "test assumes a multi-level tree");
@@ -3410,7 +3654,7 @@ mod tests {
     fn remove_down_to_a_fully_empty_tree_leaves_root_intact() {
         let triples = uniform(10, 2, 10, 30, 42);
         let mut seen: std::collections::HashSet<Triple> = triples.iter().copied().collect();
-        let mut heap = Heap::build_dynamic(seen.iter().copied().collect::<Vec<_>>(), 64);
+        let mut heap = Heap::build_dynamic(seen.iter().copied().collect::<Vec<_>>(), MAX_RECORD_BYTES);
         for &t in seen.clone().iter() {
             assert!(heap.remove(t.0, t.1, t.2).unwrap());
             seen.remove(&t);
@@ -3510,13 +3754,13 @@ mod tests {
             let naive = NaiveIndex::build(&triples);
             let dimension_sizes = [30u64, 6u64, 30u64];
 
-            let mut heap_stream = Heap::build_dynamic_empty(dimension_sizes, 64);
+            let mut heap_stream = Heap::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES);
             for &(s, p, o) in &triples {
                 heap_stream.insert(s, p, o).unwrap();
             }
             cross_check_tree(&heap_stream, &naive, 30, 6, 30, &format!("heap streaming-insert build seed={seed}"));
 
-            let heap_bulk = Heap::build_dynamic(triples.to_vec(), 64);
+            let heap_bulk = Heap::build_dynamic(triples.to_vec(), MAX_RECORD_BYTES);
             assert_eq!(heap_stream.node_word_count(), heap_bulk.node_word_count(), "streaming vs. bulk build should produce the same node count, seed={seed}");
         }
     }
@@ -3531,11 +3775,11 @@ mod tests {
             let naive = NaiveIndex::build(&triples);
             let dimension_sizes = [40u64, 6u64, 40u64];
 
-            let mut heap_batch = Heap::build_dynamic_empty(dimension_sizes, 64);
+            let mut heap_batch = Heap::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES);
             let batch_inserted = heap_batch.insert_batch(&mut triples).unwrap();
             cross_check_tree(&heap_batch, &naive, 40, 6, 40, &format!("heap batch-insert build seed={seed}"));
 
-            let heap_bulk = Heap::build_dynamic(triples.clone(), 64);
+            let heap_bulk = Heap::build_dynamic(triples.clone(), MAX_RECORD_BYTES);
             assert_eq!(heap_batch.node_word_count(), heap_bulk.node_word_count(), "batch-insert vs. bulk build should produce the same node count, seed={seed}");
             assert!(batch_inserted > 0);
 
@@ -3555,7 +3799,7 @@ mod tests {
         // Small block_capacity forces splits (and stack-cache wraps) far
         // more often per triple than production capacities would.
         let dimension_sizes = [200_000u64, 19u64, 200_000u64];
-        let mut file = File::build_dynamic_empty(dimension_sizes, 64);
+        let mut file = File::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES);
         let mut rng = SplitMix64::new(2026);
         let mut seen: Vec<Triple> = Vec::new();
         for i in 0..3_000u32 {
@@ -3578,7 +3822,7 @@ mod tests {
     #[test]
     fn compressed_streaming_insert_stress_small_capacity() {
         let dimension_sizes = [200_000u64, 19u64, 200_000u64];
-        let mut compressed = Compressed::build_dynamic_empty(dimension_sizes, 64);
+        let mut compressed = Compressed::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES);
         let mut rng = SplitMix64::new(2026);
         let mut seen: Vec<Triple> = Vec::new();
         for i in 0..3_000u32 {
@@ -3639,21 +3883,21 @@ mod tests {
     #[test]
     fn interleaved_insert_remove_stress_small_capacity() {
         let dimension_sizes = [200_000u64, 19u64, 200_000u64];
-        interleaved_insert_remove_stress(Heap::build_dynamic_empty(dimension_sizes, 64), "heap");
+        interleaved_insert_remove_stress(Heap::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES), "heap");
     }
 
     #[cfg(feature = "file")]
     #[test]
     fn file_interleaved_insert_remove_stress_small_capacity() {
         let dimension_sizes = [200_000u64, 19u64, 200_000u64];
-        interleaved_insert_remove_stress(File::build_dynamic_empty(dimension_sizes, 64), "file");
+        interleaved_insert_remove_stress(File::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES), "file");
     }
 
     #[cfg(feature = "compressed")]
     #[test]
     fn compressed_interleaved_insert_remove_stress_small_capacity() {
         let dimension_sizes = [200_000u64, 19u64, 200_000u64];
-        interleaved_insert_remove_stress(Compressed::build_dynamic_empty(dimension_sizes, 64), "compressed");
+        interleaved_insert_remove_stress(Compressed::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES), "compressed");
     }
 
     #[test]
@@ -3663,7 +3907,7 @@ mod tests {
             let naive = NaiveIndex::build(&triples);
             let dimension_sizes = [50u64, 8u64, 50u64];
 
-            let mut heap = Heap::build_dynamic_empty(dimension_sizes, 64);
+            let mut heap = Heap::build_dynamic_empty(dimension_sizes, MAX_RECORD_BYTES);
             heap.insert_batch(&mut triples).unwrap();
             let mem_before = heap.mem_size_bytes();
             heap.shrink_to_fit();
@@ -3739,7 +3983,7 @@ mod tests {
         // meant to be opaque to which backend produced or consumes it.
         let triples = zipfian_predicates(40, 10, 40, 600, 1.2, 0xC5A55);
         let naive = NaiveIndex::build(&triples);
-        let cap = 128;
+        let cap = MAX_RECORD_BYTES;
 
         let heap_bytes = Heap::build_dynamic(triples.clone(), cap).serialize();
         let file_bytes = File::build_dynamic(triples.clone(), cap).serialize();
@@ -3762,7 +4006,7 @@ mod tests {
 
     #[test]
     fn deserialize_rejects_truncated_input() {
-        let heap = Heap::build_dynamic(uniform(10, 2, 10, 50, 1), 64);
+        let heap = Heap::build_dynamic(uniform(10, 2, 10, 50, 1), MAX_RECORD_BYTES);
         let bytes = heap.serialize();
         let truncated = &bytes[..bytes.len() / 2];
         let err = expect_err(Heap::deserialize(truncated));
@@ -3771,7 +4015,7 @@ mod tests {
 
     #[test]
     fn deserialize_rejects_unsupported_version() {
-        let heap = Heap::build_dynamic(uniform(10, 2, 10, 50, 1), 64);
+        let heap = Heap::build_dynamic(uniform(10, 2, 10, 50, 1), MAX_RECORD_BYTES);
         let mut bytes = heap.serialize();
         bytes[4] = 200; // version byte, right after the 4-byte magic
         let err = expect_err(Heap::deserialize(&bytes));
@@ -3808,8 +4052,8 @@ mod tests {
             let naive = NaiveIndex::build(&triples);
             let dims = [30u64, 6u64, 30u64];
 
-            let heap_dynamic = Heap::build_dynamic(triples.clone(), 64);
-            let heap_bounded = Heap::build_dynamic_bounded(triples.clone().into_iter(), dims, 64, BulkBuildBudget::UNBOUNDED);
+            let heap_dynamic = Heap::build_dynamic(triples.clone(), MAX_RECORD_BYTES);
+            let heap_bounded = Heap::build_dynamic_bounded(triples.clone().into_iter(), dims, MAX_RECORD_BYTES, BulkBuildBudget::UNBOUNDED);
             assert_eq!(heap_dynamic.node_word_count(), heap_bounded.node_word_count(), "unbounded budget must match build_dynamic exactly, seed={seed}");
             cross_check_tree(&heap_bounded, &naive, 30, 6, 30, &format!("heap unbounded-budget seed={seed}"));
         }
@@ -3822,8 +4066,8 @@ mod tests {
             let dims = [40u64, 6u64, 40u64];
             let tiny_budget = BulkBuildBudget::new(25);
 
-            let heap_dynamic = Heap::build_dynamic(triples.clone(), 64);
-            let heap_bounded = Heap::build_dynamic_bounded(triples.into_iter(), dims, 64, tiny_budget);
+            let heap_dynamic = Heap::build_dynamic(triples.clone(), MAX_RECORD_BYTES);
+            let heap_bounded = Heap::build_dynamic_bounded(triples.into_iter(), dims, MAX_RECORD_BYTES, tiny_budget);
             assert_eq!(heap_dynamic.serialize(), heap_bounded.serialize(), "bounded build with a tiny budget must serialize identically to build_dynamic, seed={seed}");
         }
     }
@@ -3866,10 +4110,10 @@ mod tests {
         let dims = [60u64, 6u64, 50u64];
         let budget = BulkBuildBudget::new(500);
 
-        let heap = Heap::build_dynamic_bounded(triples.clone().into_iter(), dims, 64, budget);
+        let heap = Heap::build_dynamic_bounded(triples.clone().into_iter(), dims, MAX_RECORD_BYTES, budget);
         cross_check_tree(&heap, &naive, 60, 6, 50, "heap bounded-path mixed fits/spills");
 
-        let heap_dynamic = Heap::build_dynamic(triples, 64);
+        let heap_dynamic = Heap::build_dynamic(triples, MAX_RECORD_BYTES);
         assert_eq!(heap.node_word_count(), heap_dynamic.node_word_count(), "bounded build with mixed fits/spills siblings must match the ordinary in-RAM build's node count");
     }
 
@@ -3891,7 +4135,7 @@ mod tests {
 
     #[test]
     fn contains_batch_empty_input_is_empty_output() {
-        let tree = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        let tree = Heap::build_dynamic(vec![(0, 0, 0)], MAX_RECORD_BYTES);
         assert_eq!(tree.contains_batch(&[]), Vec::<bool>::new());
     }
 
@@ -3927,7 +4171,7 @@ mod tests {
     #[test]
     fn contains_batch_preserves_input_order_handles_duplicates_and_out_of_domain() {
         let triples = vec![(0, 0, 1), (1, 1, 2), (2, 2, 3)];
-        let tree = Heap::build_dynamic(triples, 64);
+        let tree = Heap::build_dynamic(triples, MAX_RECORD_BYTES);
         // Deliberately unsorted, with a repeated triple and an
         // out-of-domain one interleaved -- output must align 1:1 with
         // this exact input order, not any internally-sorted order.
@@ -3945,7 +4189,7 @@ mod tests {
 
     #[test]
     fn contains_batch_matches_contains_on_degenerate_height_zero_tree() {
-        let tree = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        let tree = Heap::build_dynamic(vec![(0, 0, 0)], MAX_RECORD_BYTES);
         assert_eq!(tree.height(), 0, "test assumes a [1,1,1]-style degenerate domain");
         let queries = [(0, 0, 0), (0, 0, 0)];
         assert_eq!(tree.contains_batch(&queries), [true, true]);
@@ -3953,7 +4197,7 @@ mod tests {
 
     #[test]
     fn contains_batch_into_reuses_buffer_capacity_across_calls() {
-        let tree = Heap::build_dynamic(uniform(50, 5, 50, 2_000, 0x0B0F), 64);
+        let tree = Heap::build_dynamic(uniform(50, 5, 50, 2_000, 0x0B0F), MAX_RECORD_BYTES);
         let mut out = Vec::with_capacity(1_000);
         let cap_before = out.capacity();
         let queries: Vec<Triple> = (0..1_000u32).map(|i| (i % 50, i % 5, i % 50)).collect();
@@ -4000,7 +4244,7 @@ mod tests {
 
     #[test]
     fn restricted_descent_visit_out_of_domain_and_degenerate_height_zero() {
-        let tree = Heap::build_dynamic(uniform(10, 2, 10, 50, 0x5EED), 64);
+        let tree = Heap::build_dynamic(uniform(10, 2, 10, 50, 0x5EED), MAX_RECORD_BYTES);
         let mut calls = 0;
         let result: ControlFlow<()> = tree.restricted_descent_visit([DimRestriction::Exact(10), DimRestriction::Exact(0), DimRestriction::Free], 2, |_| {
             calls += 1;
@@ -4009,7 +4253,7 @@ mod tests {
         assert_eq!(result, ControlFlow::Continue(()));
         assert_eq!(calls, 0, "an out-of-domain bound value can't match anything, same rule contains() documents");
 
-        let singleton = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        let singleton = Heap::build_dynamic(vec![(0, 0, 0)], MAX_RECORD_BYTES);
         assert_eq!(singleton.height(), 0, "test assumes a [1,1,1]-style degenerate domain");
         let mut got = None;
         let result: ControlFlow<()> = singleton.restricted_descent_visit([DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free], 2, |v| {
@@ -4023,7 +4267,7 @@ mod tests {
     #[test]
     fn restricted_descent_range_matches_scan_filtered_oracle() {
         let triples = uniform(24, 40, 24, 600, 0xA17);
-        let tree = Heap::build_dynamic(triples, 64);
+        let tree = Heap::build_dynamic(triples, MAX_RECORD_BYTES);
         // Includes in-domain, edge-aligned, single-value, and
         // partially out-of-domain ranges (P's domain tops out at 39).
         let ranges = [(0u32, 0u32), (5, 5), (0, 39), (10, 25), (37, 50), (1, 3)];
@@ -4041,7 +4285,7 @@ mod tests {
     #[test]
     fn restricted_descent_multi_ranges_union_and_overlap() {
         let triples = uniform(24, 40, 24, 600, 0xB17);
-        let tree = Heap::build_dynamic(triples, 64);
+        let tree = Heap::build_dynamic(triples, MAX_RECORD_BYTES);
         // Overlapping and out of order -- correctness must not depend
         // on the caller merging or sorting these first.
         let ranges = [(20u32, 30u32), (5, 15), (12, 22), (0, 2)];
@@ -4060,7 +4304,7 @@ mod tests {
 
     #[test]
     fn restricted_descent_out_of_domain_range() {
-        let tree = Heap::build_dynamic(uniform(10, 8, 10, 60, 0xC0DE), 64);
+        let tree = Heap::build_dynamic(uniform(10, 8, 10, 60, 0xC0DE), MAX_RECORD_BYTES);
         let dom_p = tree.domain_size(1) as u32;
         let got = tree.restricted_descent([DimRestriction::Free, DimRestriction::Range(dom_p, dom_p + 50), DimRestriction::Free], 2);
         assert!(got.is_empty(), "a range fully outside the dimension's domain must match nothing, not panic");
@@ -4116,7 +4360,7 @@ mod tests {
         // `first_fully_open_level_restricted` needs to hand a `Range`-
         // restricted (not `Free`) subtree to the bulk decode path.
         let triples = uniform(4000, 4, 4000, 3000, 0xDEEE);
-        let tree = Heap::build_dynamic(triples, 64);
+        let tree = Heap::build_dynamic(triples, MAX_RECORD_BYTES);
         assert!(tree.height() > 4, "test assumes a deep tree so the bulk handoff actually matters");
         for (p_lo, p_hi) in [(0u32, 1u32), (2, 3), (0, 3), (1, 2)] {
             for s in (0..4000u32).step_by(677) {
@@ -4138,7 +4382,7 @@ mod tests {
     #[test]
     fn contains_batch_matches_contains_on_a_tree_taller_than_the_packed_path() {
         let triples = vec![(600_000u32, 0u32, 1u32), (1u32, 0u32, 0u32)];
-        let tree = Heap::build(triples, [1, 1, 1], 64).unwrap();
+        let tree = Heap::build(triples, [1, 1, 1], MAX_RECORD_BYTES).unwrap();
         assert!(tree.height() as usize > 16, "test assumes height > 16, got {}", tree.height());
         let queries = [
             (600_000, 0, 1),  // present
@@ -4191,7 +4435,7 @@ mod tests {
 
     #[test]
     fn count_matching_out_of_domain_bound_is_zero_not_panic() {
-        let tree = Heap::build_dynamic(vec![(0, 0, 0), (1, 1, 1)], 64);
+        let tree = Heap::build_dynamic(vec![(0, 0, 0), (1, 1, 1)], MAX_RECORD_BYTES);
         assert_eq!(tree.count_matching([Some(99), None, None]), 0);
         assert_eq!(tree.count_matching([None, Some(99), None]), 0);
         assert_eq!(tree.count_matching([None, None, Some(99)]), 0);
@@ -4209,7 +4453,7 @@ mod tests {
 
     #[test]
     fn count_matching_matches_contains_on_degenerate_height_zero_tree() {
-        let tree = Heap::build_dynamic(vec![(0, 0, 0)], 64);
+        let tree = Heap::build_dynamic(vec![(0, 0, 0)], MAX_RECORD_BYTES);
         assert_eq!(tree.height(), 0, "test assumes a [1,1,1]-style degenerate domain");
         assert_eq!(tree.count_matching([None, None, None]), 1);
         assert_eq!(tree.count_matching([Some(0), Some(0), Some(0)]), 1);
@@ -4218,7 +4462,7 @@ mod tests {
     #[test]
     fn count_matching_after_remove_matches_naive() {
         let triples = uniform(25, 4, 25, 1_500, 0x5EED5);
-        let mut heap = Heap::build_dynamic(triples.clone(), 64);
+        let mut heap = Heap::build_dynamic(triples.clone(), MAX_RECORD_BYTES);
         let mut naive = NaiveIndex::build(&triples);
         let mut live: Vec<Triple> = triples.clone();
         live.sort_unstable();

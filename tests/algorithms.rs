@@ -48,7 +48,7 @@ fn general_join_matches_exhaustive_assignments() {
     };
     for _ in 0..30 {
         let triples: Vec<_> = (0..18).map(|_| (rand() % 3, rand() % 3, rand() % 3)).collect();
-        let tree = Heap::build_dynamic(triples.clone(), 32);
+        let tree = Heap::build_dynamic(triples.clone(), 1024);
         let term = |x| if x < 3 { V(x as usize) } else { C(x - 3) };
         let mut patterns = vec![TriplePattern { subject: V(0), predicate: V(1), object: V(2) }];
         for _ in 0..3 {
@@ -71,7 +71,7 @@ fn general_join_matches_exhaustive_assignments() {
 #[test]
 fn join_regressions_and_validation() {
     use Term::{Const as C, Var as V};
-    let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 0, 2), (2, 0, 0), (2, 1, 2)], 32);
+    let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 0, 2), (2, 0, 0), (2, 1, 2)], 1024);
     let unanchored = JoinQuery { num_vars: 2, patterns: vec![TriplePattern { subject: V(0), predicate: 0, object: V(1) }] };
     assert_eq!(join_run(&unanchored, &tree).len(), 3);
     let constants = JoinQuery { num_vars: 0, patterns: vec![TriplePattern { subject: C(0), predicate: 0, object: C(2) }] };
@@ -89,7 +89,7 @@ fn join_regressions_and_validation() {
     assert!(s_graph::graph::try_ltj_run(&invalid, &tree).is_err());
     let empty: JoinQuery = JoinQuery { num_vars: 0, patterns: vec![] };
     assert_eq!(join_run(&empty, &tree).to_vec_rows(), vec![Vec::<u32>::new()]);
-    let max = Heap::build_dynamic(vec![(u32::MAX, 0, u32::MAX)], 32);
+    let max = Heap::build_dynamic(vec![(u32::MAX, 0, u32::MAX)], 1024);
     assert_eq!(join_run(&unanchored, &max).to_vec_rows(), vec![vec![u32::MAX, u32::MAX]]);
 }
 
@@ -113,14 +113,14 @@ fn check_scan<S: s_graph::BlockStorage>(tree: &s_graph::tree::RadixTreeDfsInterl
 fn scans_across_backends_and_dimension_orders() {
     let triples = vec![(0, 0, 0), (3, 1, 5), (0, 1, 5), (u32::MAX, 1, 0), (3, 1, 5)];
     for order in [[0, 1, 2], [2, 0, 1], [1, 2, 0]] {
-        check_scan(&Heap::build_dynamic_with_order(triples.clone(), order, 32), &triples);
+        check_scan(&Heap::build_dynamic_with_order(triples.clone(), order, 1024), &triples);
         #[cfg(feature = "file")]
-        check_scan(&s_graph::File::build_dynamic_with_order(triples.clone(), order, 32), &triples);
+        check_scan(&s_graph::File::build_dynamic_with_order(triples.clone(), order, 1024), &triples);
         #[cfg(feature = "compressed")]
-        check_scan(&s_graph::Compressed::build_dynamic_with_order(triples.clone(), order, 32), &triples);
+        check_scan(&s_graph::Compressed::build_dynamic_with_order(triples.clone(), order, 1024), &triples);
     }
-    check_scan(&Heap::build_dynamic(vec![], 32), &[]);
-    check_scan(&Heap::build_dynamic(vec![(0, 0, 0)], 32), &[(0, 0, 0)]);
+    check_scan(&Heap::build_dynamic(vec![], 1024), &[]);
+    check_scan(&Heap::build_dynamic(vec![(0, 0, 0)], 1024), &[(0, 0, 0)]);
 }
 
 fn brute_paths(triples: &[Triple], start: u32, options: PathOptions) -> Vec<GraphPath> {
@@ -168,7 +168,7 @@ fn brute_paths(triples: &[Triple], start: u32, options: PathOptions) -> Vec<Grap
 #[test]
 fn bounded_paths_match_independent_enumeration() {
     let triples = vec![(0, 0, 1), (0, 1, 1), (1, 0, 2), (0, 0, 2), (2, 0, 0), (1, 1, 1)];
-    let tree = Heap::build_dynamic(triples.clone(), 32);
+    let tree = Heap::build_dynamic(triples.clone(), 1024);
     for direction in [Direction::Outgoing, Direction::Incoming, Direction::Both] {
         for predicate in [None, Some(0), Some(1)] {
             for min in 0..=3 {
@@ -227,23 +227,23 @@ fn sparse_ids_zero_hops_cancellation_and_backends() {
         let result = reachable(tree, 0, HopRange::new(0, u32::MAX).unwrap(), Step::default(), &mut ws, |_, _| ControlFlow::Break(9));
         assert_eq!(result, ControlFlow::Break(9));
     }
-    check(&Heap::build_dynamic(triples.clone(), 32));
+    check(&Heap::build_dynamic(triples.clone(), 1024));
     #[cfg(feature = "file")]
-    check(&s_graph::File::build_dynamic(triples.clone(), 32));
+    check(&s_graph::File::build_dynamic(triples.clone(), 1024));
     #[cfg(feature = "compressed")]
-    check(&s_graph::Compressed::build_dynamic(triples, 32));
+    check(&s_graph::Compressed::build_dynamic(triples, 1024));
     assert!(HopRange::new(3, 2).is_err());
 }
 
 #[test]
 fn degenerate_insertion_and_snapshot_validation() {
-    let mut tree = Heap::build_dynamic_empty([1, 1, 1], 32);
+    let mut tree = Heap::build_dynamic_empty([1, 1, 1], 1024);
     assert!(tree.insert(0, 0, 0).unwrap());
     assert!(!tree.insert(0, 0, 0).unwrap());
     assert_eq!(tree.insert_batch(&mut [(0, 0, 0)]).unwrap(), 0);
     assert!(Heap::deserialize(&tree.serialize()).unwrap().contains(0, 0, 0));
-    assert!(Heap::build(vec![(2, 0, 1)], [0, 0, 1], 32).is_err());
-    let bytes = Heap::build_dynamic(vec![(0, 0, 1), (99, 3, 100)], 32).serialize();
+    assert!(Heap::build(vec![(2, 0, 1)], [0, 0, 1], 1024).is_err());
+    let bytes = Heap::build_dynamic(vec![(0, 0, 1), (99, 3, 100)], 1024).serialize();
     for offset in 0..bytes.len() {
         for mask in [1, 0x80, 0xff] {
             let mut bad = bytes.clone();
@@ -270,7 +270,7 @@ fn regular_paths_preserve_automaton_state_and_hop_bounds() {
     let step = |predicate| Step { predicate: Some(predicate), ..Default::default() };
     // Language p0 p1*: accepting after p0, then any number of p1 edges.
     let automaton = PathAutomaton::new(2, 0, &[1], vec![Transition { from: 0, to: 1, step: step(0) }, Transition { from: 1, to: 1, step: step(1) }]).unwrap();
-    let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2), (2, 1, 1), (0, 1, 3), (2, 0, 3)], 32);
+    let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2), (2, 1, 1), (0, 1, 3), (2, 0, 3)], 1024);
     let mut ws = AutomatonWorkspace::default();
     let mut rows = Vec::new();
     let _: ControlFlow<()> = automaton.reachable(&tree, 0, HopRange::new(3, 4).unwrap(), &mut ws, |n, d| {
@@ -301,7 +301,7 @@ fn native_joins_borrow_the_tree_and_are_shareable() {
     send_sync::<NativeJoin<'static, s_graph::storage::HeapStorage>>();
     use Term::Var as V;
     let triples = vec![(0, 0, 1), (1, 1, 2), (2, 2, 0), (0, 0, 2), (2, 1, 1), (1, 2, 0)];
-    let tree = Heap::build_dynamic(triples.clone(), 32);
+    let tree = Heap::build_dynamic(triples.clone(), 1024);
     let triangle = JoinQuery {
         num_vars: 3,
         patterns: vec![
@@ -314,12 +314,12 @@ fn native_joins_borrow_the_tree_and_are_shareable() {
     assert_eq!(collect(&plan, &mut NativeJoinWorkspace::default()), brute_join(&triangle, &triples, 3));
     #[cfg(feature = "file")]
     assert_eq!(
-        collect(&NativeJoin::new(&triangle, &s_graph::File::build_dynamic(triples.clone(), 32)).unwrap(), &mut NativeJoinWorkspace::default()),
+        collect(&NativeJoin::new(&triangle, &s_graph::File::build_dynamic(triples.clone(), 1024)).unwrap(), &mut NativeJoinWorkspace::default()),
         brute_join(&triangle, &triples, 3)
     );
     #[cfg(feature = "compressed")]
-    assert_eq!(collect(&NativeJoin::new(&triangle, &s_graph::Compressed::build_dynamic(triples, 32)).unwrap(), &mut NativeJoinWorkspace::default()).len(), 2);
-    let mut tree = Heap::build_dynamic_empty([3, 1, 3], 32);
+    assert_eq!(collect(&NativeJoin::new(&triangle, &s_graph::Compressed::build_dynamic(triples, 1024)).unwrap(), &mut NativeJoinWorkspace::default()).len(), 2);
+    let mut tree = Heap::build_dynamic_empty([3, 1, 3], 1024);
     tree.insert(0, 0, 1).unwrap();
     let query = JoinQuery { num_vars: 2, patterns: vec![TriplePattern { subject: V(0), predicate: 0, object: V(1) }] };
     {
@@ -339,7 +339,7 @@ fn native_joins_borrow_the_tree_and_are_shareable() {
 fn snapshots_after_block_splits_preserve_scans_and_insertability() {
     fn check<S: s_graph::BlockStorage>() {
         use s_graph::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric as Tree;
-        let mut tree = Tree::<S>::build_dynamic_empty([64,3,64],16);
+        let mut tree = Tree::<S>::build_dynamic_empty([64,3,64],1024);
         let triples: Vec<_> = (0..200u32).map(|i| ((i*37)%64,i%3,(i*17+5)%64)).collect();
         for &(s,p,o) in &triples { tree.insert(s,p,o).unwrap(); }
         let mut expected = triples.clone(); expected.sort_unstable(); expected.dedup();

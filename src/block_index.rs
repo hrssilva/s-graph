@@ -52,6 +52,14 @@ impl BlockIndex {
         }
     }
 
+    /// Total bytes across every block -- the whole tree's own span,
+    /// used when a query enters bulk-listing mode starting at the root
+    /// itself (nothing stores the root's own span, since it has no
+    /// parent to store it in; this is that case's only valid source).
+    pub(crate) fn total(&self) -> u64 {
+        self.total
+    }
+
     pub(crate) fn prefix(&self, mut blocks: usize) -> u64 {
         let mut sum = 0;
         while blocks != 0 {
