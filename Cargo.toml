@@ -11,6 +11,13 @@ name = "algorithms"
 harness = false
 required-features = ["heap"]
 
+# Release plus debug info, for `perf record`/`perf annotate` with source
+# lines. Doesn't touch `[profile.release]`.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+
 [features]
 default = ["heap"]
 # The in-RAM, no-slot-indirection backend. Zero extra dependencies.

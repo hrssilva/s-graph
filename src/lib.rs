@@ -105,6 +105,8 @@ pub mod graph;
 pub mod join;
 pub mod native_join;
 pub mod path;
+#[cfg(feature = "heap")]
+pub mod path_fst;
 pub mod serialize;
 pub mod storage;
 #[cfg(feature = "compressed")]

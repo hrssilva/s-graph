@@ -1360,6 +1360,925 @@ shape (see the O(height) entry above), not a missed batching opportunity.
 No further work is planned here unless a future profiling pass surfaces a
 different mechanism.
 
+### Subtree deduplication (Carmona & Manzini-style): prototyped, measured, kept
+
+Carmona & Manzini's "Depth First Representations of k²-trees"
+(arXiv:2505.11302) and its follow-up "Extended Depth-First Representations
+of k²-trees" (arXiv:2607.28136) propose storing a k²-tree in DFS/preorder
+specifically because it makes identical subtrees contiguous, equal
+substrings -- detectable with a linear-time suffix-array/LCP scan -- so
+every repeat beyond the first occurrence can become a pointer instead of a
+second copy. This crate's tree is already DFS/preorder-laid-out (that
+precondition already holds), and relative, not absolute, skip/span
+encoding (`RecordSink::append_subtree`'s own doc comment: "every skip/span
+value inside bytes is a relative byte distance... so the bytes are fully
+relocatable") means two structurally identical subtrees would, in
+principle, already be byte-for-byte identical wherever they occur -- so
+the question was purely empirical: how much of this tree's actual record
+bytes, for this crate's RDF-triple workloads, are spent on subtrees that
+recur elsewhere at the same level?
+
+**Prototype.** `RadixTreeDfsInterleavedVarSkipUnrolledGeneric::subtree_dedup_report`
+(`src/tree.rs`) walks the live tree in the same DFS order `dfs_records`
+already uses, computing a 64-bit Merkle-style hash per node (own
+existence word, folded with each real child's hash, in `qi` order) and
+grouping by `(level, hash)` -- never across levels, since this crate's
+per-level bit schedule means a level's record encoding depends on
+absolute level, not relative depth. A diagnostic companion,
+`examples/subtree_dedup_proto.rs`, builds a tree for a given dataset shape
+and reports, per level: node count, distinct-hash count, and both an
+*upper-bound* saving (if every repeat were costless to point to) and a
+*net* saving using a second, more honest estimate -- a back-reference
+costs `ceil(log2(distinct_count))` bits, not zero.
+
+**Unlike every other prototype in this document, this one was kept on
+request rather than deleted after measuring** -- the user asked for it to
+remain in the repository so a follow-up idea can be benchmarked against
+the same baseline. `subtree_dedup_report`/`SubtreeDedupReport`/
+`SubtreeDedupLevelReport` are real `pub` surface on the tree type, clearly
+doc-commented as diagnostic-only and not wired into storage, serialization,
+or any query/insert/remove path.
+
+**Measured** (same two domains used throughout this document -- symmetric
+500,000x200x500,000 at 10,000,000 triples, asymmetric 20,000x200x2,000,000
+at 3,000,000 triples -- plus a `zipfian_entities(1.5, 1.5, 1.5)` high-skew
+variant of each, height=8 in every case):
+
+```
+                                       upper bound    net-of-pointer-cost
+uniform (symmetric)                   74.27% saved    55.52% saved
+zipfian predicates (symmetric)        78.56% saved    59.52% saved
+zipfian S+P+O (symmetric, skewed)     78.70% saved    59.04% saved
+uniform (asymmetric)                  76.03% saved    59.25% saved
+zipfian S+P+O (asymmetric, skewed)    82.96% saved    69.88% saved
+```
+
+Headline numbers look large, but the per-level breakdown (also printed by
+the example; see its output for the full table) shows where they actually
+come from, and it's not where the paper's win comes from. For the uniform
+symmetric case: levels 0-3 (the tree's "real" structural levels, closest
+to the root) show **zero** redundancy -- every node's existence word is
+already distinct, `distinct_count == node_count`. Level 4 shows modest
+redundancy (24% fewer distinct than total). The dominant contribution to
+the headline percentage is levels 5-7 (the three levels closest to the
+leaves), which hold 239 MB of the tree's 343 MB total and show 87-100%
+"savings" apparently -- but a leaf-level record is already just one
+8-byte existence word with very low popcount (often 1-2 bits set out of
+64), so with only a few hundred thousand to a few million *possible*
+low-popcount words and tens of millions of leaf nodes, most of that
+"redundancy" is pigeonhole coincidence between semantically unrelated
+parts of the domain, not the kind of real, repeated-structure-from-
+real-world-topology the paper measures on web-graph adjacency matrices
+(where many pages genuinely share the same small out-link set). This
+crate's `zipfian_entities` skew (the closest analog available to "some
+nodes look alike because the underlying graph has repeated structure")
+moved the needle on levels 4-6 (24-57% net saving there, vs. 0-25% in the
+uniform case) but still left the upper levels at zero and didn't change
+the overall picture much, suggesting RDF-triple data in these shapes
+doesn't have the same kind of large-subtree structural repetition
+web-graph adjacency matrices do -- the paper's own technique, applied
+faithfully, but to a workload shape it wasn't designed for.
+
+**A second, independent reason not to build this even if the bytes were
+real:** every prior win in this document came from *removing* indirection
+(hoisting spans into the parent, bigger blocks, fewer `BlockIndex::locate`
+calls), and every attempt to *add* a layer of indirection for some other
+benefit measured as a regression (`Pos.abs`, the bulk-read `far_span_sum`
+rewrite above) specifically because an extra pointer hop costs more, in
+this crate's read-dominated, latency-measured-in-nanoseconds workload,
+than the bytes it saves are worth. A real subtree-dedup implementation
+would need exactly that: an extra dereference (and, on `File`/
+`Compressed`, potentially another `BlockIndex` lookup) on every touch of a
+deduplicated subtree during descent. This document has not measured that
+cost directly -- it wasn't reached, since the byte-saving side of the
+tradeoff already looked weak once pointer cost was priced in -- but it is
+a real cost this technique would add on top of an already-unfavorable
+space story, not a free lunch even in the scenario where the space saving
+were larger.
+
+**Status: not built, prototype kept per explicit request** (not reverted,
+unlike every other negative result in this document) so a different idea
+can be measured against the same `subtree_dedup_report` baseline.
+
+#### Follow-up: does finer (bit-level, not 64-way) granularity find hidden sharing?
+
+A fair objection to the measurement above: `subtree_dedup_report` only ever
+merges whole pre-grouped 64-way digits (up to `BASE`=6 bits, across
+however many dimensions are active, combined into one node before any
+comparison happens). A true bit-level trie (1-bit branching) is a strict
+refinement -- two prefixes that disagree somewhere inside one of today's
+6-bit digits might still share a run of bits *before* the point of
+disagreement, which an all-or-nothing whole-digit comparison can never
+see. If real, that would mean the measured 0% redundancy in the upper/
+middle levels is an artifact of the chunking, not a fact about the data.
+
+`examples/bitlevel_dedup_proto.rs` (kept, same as `subtree_dedup_proto.rs`)
+tests this directly: it duplicates `total_bits_needed`/`dynamic_schedule`'s
+exact per-level, per-dimension bit allocation, un-groups it to individual
+bits in the same order, and builds a real bit-level trie from the sorted
+keys via recursive partitioning, merging states bottom-up by hash exactly
+as `subtree_dedup_rec` does -- the *correct* Myhill-Nerode criterion
+(two prefixes merge only if their entire sets of remaining continuations
+match, not just some element of one overlapping some element of the
+other; a first attempt at this file used a cheaper `HashSet`-over-trailing-
+bit-values shortcut that implicitly assumes every prefix has at most one
+key below it, which is false here and gave a wrong, overstated number --
+caught by it disagreeing with the real tree's measured counts, fixed by
+building the actual trie instead of shortcutting it).
+
+Result, on the same small symmetric case (`5,000x200x5,000`, 100,000
+triples) the full-scale run above also covers: at every real level
+boundary, the bit-level merged-state count matches
+`subtree_dedup_report`'s `distinct_count` **exactly** -- 50,968, 2,033,
+and 30 at levels 3, 4, and 5 respectively, bit for bit. Printing every
+individual bit depth in between (not just the boundaries) shows why:
+within a level's span, the merged-state count only ever gets *larger*
+(less merged) than the boundary value, converging back down to the exact
+same minimum by the next boundary -- never lower. There is no hidden
+sharing the coarse grouping is discarding.
+
+This isn't a coincidence specific to this dataset -- it follows from
+Myhill-Nerode directly: the number of right-language equivalence classes
+at a fixed cut depth is a property of the *data*'s remaining bit values
+from that point on, not of how many symbols you group together to walk
+there. Grouping 6 bits into one 64-way digit and spending 6 separate
+1-bit levels on the same 6 bits produce identical equivalence classes at
+the point where both have consumed exactly the same bits, because
+"two prefixes have the same right-language" doesn't care what alphabet
+you used to get there. **This closes the follow-up: the original
+per-level numbers already are the true minimal bound, not an
+undercount** -- confirmed by direct construction, not just restated
+theory. No further work planned on the compression half of this idea.
+
+### Path FST prototype: a real minimized DAG, `contains` only, static build
+
+The two follow-ups above left two open objections to actually building
+subtree deduplication: (1) a real back-reference needs to be
+distinguishable from an ordinary record inline, costing more than the
+bare `ceil(log2(distinct))`-bit estimate `subtree_dedup_report` used; (2)
+every prior win in this document came from removing indirection, and
+every attempt to add it (`Pos.abs`, the bulk-read `far_span_sum` rewrite)
+measured as a regression. Both turned out to have real prior art one
+repository over: `../s-dict` (a from-scratch byte-packed FST term
+dictionary, `PackedAutomaton`) already builds and ships exactly this
+kind of structure. Its record format answers (1) directly -- every
+transition already needs a child-pointer field (a backward LEB128 delta,
+`field_start - target`, with a `NEXT` flag eliding it to zero bytes for
+the common adjacent-child case) regardless of dedup; pointing that same
+field at an earlier, structurally-identical state costs nothing beyond
+a possibly-larger delta value. `s-dict`'s own DESIGN.md also already ran
+into (2)'s mutation concern directly (a mutable, register-deduplicated
+automaton bloated 20-37x within ~200 inserts on an 800-term base,
+because every insert rewrites every ancestor on its root-to-leaf path)
+and already has a shipped fix: don't keep dedup exact through every
+mutation, just bound the damage and periodically `compact` (full
+bottom-up reachable-only re-walk, exact hash-merge) -- a pattern
+`s-graph`'s own `shrink_to_fit`/`dfs_records` already has the hook for.
+
+**Built, not just reasoned about.** `src/path_fst.rs` (`PathFst`) is a
+real, from-scratch minimized DAG over this crate's own per-level bit
+schedule (`total_bits_needed`/`dynamic_schedule`/`compute_qi`/
+`advance_lo`, reused directly from `tree`, not reimplemented, so the
+comparison against the production `Heap` tree is exact-schedule
+apples-to-apples). Scope, deliberately narrowed per explicit instruction:
+**static build only, `contains` only** -- no `insert`/`remove` yet, so
+the mutation-vs-dedup tradeoff above is set aside for now, not solved.
+
+Build: the same recursive partition-by-digit algorithm as `build_rec`,
+postorder, with an exact (not hashed) register per tree level --
+`HashMap<(existence_word: u64, child_addrs: Vec<u32>), address>` -- so
+two subtrees merge only on true value equality (no birthday-bound false
+merges, unlike the measurement-only `subtree_dedup_report`). One register
+*per level*, not a single global one: nothing in principle stops two
+different levels' schedules from producing an identical `(word,
+child_addrs)` tuple by coincidence for some future domain/schedule shape,
+and a state built for level `L+1`'s decode rules must never be reused as
+if it were level `L'+1`'s -- made impossible by construction instead of
+relying on it being empirically unlikely for the domains tested so far.
+Record format (first pass, simplified): `[existence_word: 8
+bytes][delta: u32]*`, one fixed-width delta per real child, `qi`-
+ascending -- no LEB128/NEXT-elision packing yet (a real version would
+want it; `subtree_dedup_report`'s own "net" column already estimated
+what that saves).
+
+**Correctness**: `examples/path_fst_proto.rs` checks `PathFst::contains`
+against both the production `Heap` tree and a naive `HashSet` ground
+truth -- every real triple, plus 20,000 random in- and out-of-domain
+probes, per dataset shape. Zero mismatches across four shapes (100K and
+10M/3M triples, symmetric and asymmetric, uniform and high-skew
+`zipfian_entities`) -- 320,000 probes total, fully agreeing with a built-
+from-scratch register-per-level merge against two independent oracles.
+
+**Measured, `perf`-naive wall-clock (not yet `perf stat`-rigorous --
+a first signal, to be tightened if this goes further), same domains used
+throughout this document**:
+
+```
+                                    Heap mem    PathFst mem   saved    Heap contains   PathFst contains
+uniform, symmetric, 100K            2.17 MB      1.05 MB      51.5%     161.0 ns          55.0 ns  (0.34x)
+uniform, symmetric, 10M           343.12 MB    105.64 MB      69.2%     581.4 ns         343.2 ns  (0.59x)
+zipfian S+P+O, symmetric, 10M        5.74 MB      3.28 MB      42.9%      90.0 ns          47.5 ns  (0.53x)
+uniform, asymmetric, 3M           109.24 MB     30.03 MB      72.5%     429.8 ns         247.1 ns  (0.57x)
+```
+
+A real, fixed-4-byte-pointer implementation beats even the earlier
+"net-of-pointer-cost" *estimate* (55-60%) on three of four shapes --
+69-72% actual savings on the two uniform shapes, somewhat less (42.9%)
+on the high-skew case (less raw redundancy to exploit there in the first
+place, consistent with `subtree_dedup_report`'s own per-shape spread).
+**`contains` is also faster, not just smaller -- 1.7-2.9x, holding at
+both the 100K and 10M/3M scales**, the opposite of this document's prior
+pattern (every previous attempt to add indirection for some other
+benefit measured as a regression). The likely reason this one doesn't
+follow that pattern: `PathFst`'s read path is *simpler* per level than
+the production tree's, not more complex -- a direct rank-select into a
+fixed-width array and one subtraction, with no `BlockIndex::locate`, no
+block-boundary check, no `far_span_sum`, because there is no block
+structure at all (one flat `Vec<u8>`, a direct consequence of skipping
+insert/remove, not of dedup itself) and no forward-skip-past-a-sibling
+logic to maintain (a DAG's children are reached by direct address, not
+by skipping past an inline predecessor). Some of this win is therefore
+"what a read-only, block-free structure costs" rather than "what dedup
+buys" -- not yet decomposed into those two pieces, an open question if
+this goes further, not a settled attribution.
+
+### Blocking it: isolating "dedup" from "no block structure"
+
+The open question right above -- is the speedup from dedup, or just from
+having no block-indirection hop at all -- is directly testable: put
+`PathFst` on the exact same block-chopped storage the production tree
+uses, and see whether it still wins. Rebuilt `PathFst` on a real
+[`HeapStorage`]/[`BlockStorage`] (same `append_record`/`block_capacity`
+contract `Heap` itself uses, same default `block_capacity` of 65,536),
+with each child reference now a direct `Pos` (block, offset) packed into
+one `u64`, instead of the first version's flat-buffer backward
+byte-delta -- a delta stops being a single scalar once "backward" can
+cross block boundaries in either direction, so this is the natural
+representation once blocking is real, not an arbitrary choice. Costs 8
+bytes per child reference instead of 4, and needs no `BlockIndex` at
+all: a child's `Pos` is already fully resolved (postorder) by the time
+its parent is written, so there's nothing to compute a delta *from*.
+
+**Re-measured, same four shapes, same methodology, both structures now
+on identical storage:**
+
+```
+                                    Heap mem    PathFst mem   saved    Heap blocks  PathFst blocks   Heap contains   PathFst contains
+uniform, symmetric, 100K            2.17 MB      1.67 MB      22.9%        34             26            177.4 ns          73.0 ns  (0.41x)
+uniform, symmetric, 10M           343.12 MB    167.58 MB      51.2%      5234           2559            588.2 ns         443.9 ns  (0.75x)
+zipfian S+P+O, symmetric, 10M        5.74 MB      5.53 MB       3.6%        88             85             92.1 ns          58.3 ns  (0.63x)
+uniform, asymmetric, 3M           109.24 MB     48.05 MB      56.0%      1667            734            437.5 ns         324.2 ns  (0.74x)
+```
+
+Correctness unchanged: same 320,000-probe check (real triples + random
+in/out-of-domain, against both `Heap` and a `HashSet` ground truth),
+zero mismatches, now against the blocked version. **`PathFst` still
+wins on both memory and speed in every shape, with the exact same kind
+of block-indirection hop on both sides of the comparison now.** Memory
+savings are smaller than the unblocked version's (expected -- 8-byte
+`Pos` references cost twice the first prototype's 4-byte deltas; the
+high-skew shape in particular drops to 3.6%, since it had the least raw
+redundancy to begin with per `subtree_dedup_report`, and the wider
+pointer eats most of what there was). Speed is also closer than the
+unblocked version's 0.34-0.59x (now 0.41-0.75x) -- consistent with part
+of the earlier win genuinely being "no block structure," now that both
+sides pay for one. But the remaining gap doesn't vanish, and both block
+*counts* are themselves meaningfully lower for `PathFst` (fewer blocks
+to allocate, touch, and -- on `File`/`Compressed` -- page in), not just
+raw bytes. Per the user's own framing going into this: this crate has
+already spent considerable effort optimizing the DFS tree's blocked
+storage path specifically (block capacity tuning, hoisting, the
+recursive rewrite, O(1) sibling-skip); a blocked `PathFst` that still
+doesn't lose to that already-tuned baseline is reasonably strong
+evidence of a real structural advantage, not an artifact of comparing
+against something less optimized.
+
+### `perf stat`/`perf record`-rigorous numbers, and a second delta variant that beats everything
+
+Two follow-ups, requested together: get real `perf` numbers instead of
+wall-clock timing, and evaluate whether the compact 4-byte delta from
+the first prototype could be kept *and* resolved in `O(1)` instead of
+via `BlockIndex`'s `O(log blocks)` Fenwick walk. The second one turned
+out to resolve the first one's open question too.
+
+**`perf` methodology**: `examples/path_fst_perf.rs` isolates one
+structure's `contains()` loop per process invocation (so
+`perf record`'s call graph attributes to one structure, not a mix), and
+a `[profile.profiling]` (`inherits = "release", debug = true`) was added
+to `Cargo.toml` for symbols. Build cost dominates a short run (a 10M-
+triple build takes seconds; the loop itself is sub-second at low
+iteration counts), so every number below is **baseline-subtracted**:
+each structure is run twice, once with the real iteration count and
+once with `iters=0` (build only, loop skipped entirely), and the
+build-only counters are subtracted out before dividing by call count --
+isolating the loop's own cost, not a mix of build and read.
+
+**`perf stat -e cycles,instructions,cache-references,cache-misses`**,
+20,000,000 calls, same symmetric 10M-triple domain used throughout this
+document, baseline-subtracted:
+
+```
+                          cycles/call   instructions/call   cache-refs/call   cache-misses/call
+Heap                        2433.9           2740.8              50.6              15.9
+PathFst (Pos, 8B)            1901.3            988.4              33.6              15.5
+PathFstDelta (4B+BlockIndex) 2297.4           1794.3              38.9              14.1
+```
+
+This is the rigorous version of the wall-clock finding already in this
+document: `PathFstDelta` (the compact 4-byte version, `BlockIndex::locate`
+resolving each delta) has *fewer* cache misses than either alternative
+(the smaller footprint genuinely helps) but pays nearly 800 more
+instructions/call than the 8-byte `Pos` version -- confirmed directly,
+not just inferred, by `perf record -F 999 --call-graph dwarf` +
+`perf annotate`: `BlockIndex::prefix`/`locate` are fully inlined into
+`contains`, and the disassembly shows the actual Fenwick binary-search
+loop (`bsr` for `leading_zeros`, then `while blocks != 0 { sum +=
+self.sums[blocks - 1]; blocks &= blocks - 1; }`) running on every
+non-leaf hop. This is also *why* the earlier wall-clock numbers showed
+`PathFstDelta` losing to `Heap` outright on the high-skew shape (118.0
+ns vs 90.0 ns, i.e. 1.31x *slower*) -- the Fenwick walk's fixed per-hop
+cost doesn't scale down with the tree, so on a tree small and fast
+enough that `Heap` itself isn't cache-miss-bound, the extra instructions
+are pure loss with nothing to buy them back.
+
+**The fix: `PathFstDeltaPow2`, a second delta variant that doesn't need
+`BlockIndex` at all.** `HeapStorage::append_record` never lets a block
+exceed `block_capacity` -- so if `block_capacity` is a power of two, the
+numbering `virtual_addr = block * block_capacity + offset` has no
+collisions and inverts in one shift and one mask (`block = addr >>
+capacity_bits`, `offset = addr & capacity_mask`), genuinely `O(1)`, not
+just asymptotically cheaper than the Fenwick walk. The "wasted" tail
+bytes a block leaves unused when the next record doesn't fit are priced
+into the numeric *value* of a delta, not into any stored byte -- the
+underlying `Vec<Vec<u8>>` is unaffected, still holding only real record
+bytes. Building can no longer predict its own resulting address before
+calling `append_record` (unlike the running-byte-counter trick the
+`BlockIndex` variant uses, which only works because `HeapStorage` never
+pads): it appends a placeholder record with zeroed deltas, reads back
+the real `Pos` `append_record` actually landed on, computes this node's
+own virtual address from it, then backfills every child's delta via
+`patch_appended` -- the identical mechanism `tree::build_rec` already
+uses for its own forward-skip fields, here for the opposite reason (not
+knowing this node's own future address, rather than a child's future
+size).
+
+**Confirmed in the disassembly, not just by reasoning**: `perf annotate`
+on `PathFstDeltaPow2::contains` shows `shr %cl,%rax` (the `block = addr
+>> capacity_bits` shift) directly in the hot path, and no Fenwick-walk
+loop anywhere in the function -- the mechanism compiled exactly as
+intended.
+
+**Baseline-subtracted `perf stat`, same methodology, all four
+structures**:
+
+```
+                                cycles/call   instructions/call   cache-refs/call   cache-misses/call
+Heap                             2433.9           2740.8              50.6              15.9
+PathFst (Pos, 8B)                 1901.3            988.4              33.6              15.5
+PathFstDelta (4B+BlockIndex)      2297.4           1794.3              38.9              14.1
+PathFstDeltaPow2 (4B+shift/mask)  1648.3           1041.1              24.0              13.9
+```
+
+`PathFstDeltaPow2` wins on *every counter against every other
+structure* -- fewest cycles (even below the 8-byte `Pos` version),
+nearly as few instructions as `Pos` (the shift/mask/subtract itself
+costs almost nothing), fewest cache references, fewest cache misses.
+Memory matches `PathFstDelta` exactly (same 4-byte format); it is not a
+tradeoff against the earlier compact-format win, it is a strict
+improvement on it.
+
+**Wall-clock confirmation at full scale, all four shapes** (`Heap` /
+`PathFst(Pos)` / `PathFstDelta` / `PathFstDeltaPow2`, ratio to `Heap` in
+parens):
+
+```
+uniform, symmetric, 10M     587.9 / 452.0 (0.77x) / 540.0 (0.92x) / 366.0 (0.62x) ns
+zipfian S+P+O, symmetric    90.0  / 58.6  (0.65x) / 118.0 (1.31x) / 55.8  (0.62x) ns
+uniform, asymmetric, 3M     427.8 / 313.6 (0.73x) / 400.9 (0.94x) / 271.7 (0.64x) ns
+```
+
+`PathFstDeltaPow2` is fastest in every shape, including the one
+(high-skew) where the `BlockIndex` delta variant was slower than `Heap`
+outright -- the O(1) navigation removes that regression entirely, not
+just shrinks it.
+
+**Status: three real variants now kept for comparison** (`PathFst`,
+`PathFstDelta`, `PathFstDeltaPow2`, all in `src/path_fst.rs`), plus the
+`perf`-measurement driver (`examples/path_fst_perf.rs`) and the
+`[profile.profiling]` Cargo profile added to support it.
+`PathFstDeltaPow2` is, on this evidence, the one worth carrying forward
+if this continues -- it dominates every other variant measured so far
+on every axis tested. `insert`/`remove` (and therefore the real
+mutation-vs-dedup tradeoff `s-dict` already navigated once) remain
+explicitly out of scope for this pass. The LEB128/NEXT-elision
+record-format tightening is the natural next step if more memory needs
+to come out of the 4-byte-delta format itself, though `block_capacity`
+must stay a power of two for `PathFstDeltaPow2`'s `O(1)` navigation to
+apply -- a non-power-of-two capacity would need `PathFstDelta`'s
+`BlockIndex` (or a real division) instead.
+
+### BGP-style queries on the FST: automaton-walk state reuse, measured honestly
+
+`PathFstDeltaPow2`'s `contains` only ever answers a fully-bound point
+query. The next natural question: can the same deduplicated DAG answer
+the "two-Exact" (`[Exact(s), Exact(p), Free]`) and "one-Exact"
+(`[Exact(s), Free, Free]`) shapes already named, named, and benchmarked
+against `Heap::restricted_descent` elsewhere in this project (see
+`src/path.rs`'s own use of exactly these two shapes), and can it do so
+*better* than `Heap` by exploiting the thing a plain tree structurally
+can't: identical subtrees are the same physical node. The framing that
+motivated this: an FST's whole appeal over a trie is that an automaton
+can revisit the same state from different input prefixes and reuse
+whatever was already computed there (the standard NFA/DFA "cache this
+state's accepted continuations" trick) -- so a BGP query walking a
+deduplicated DAG should, in principle, get that for free.
+
+**The correctness argument, checked before writing any code, not
+assumed**: `restriction_mask` (reused directly from `tree`) folds `lo`
+into its result only through `Exact` dimensions -- `Free`'s branch
+(`expand_run(mask, 0, width, shifts[d])`) never reads `lo[d]` at all --
+and `advance_lo`'s per-level increment to any dimension is a pure
+function of `(qi, dim_bits, shifts, child_cell_bits)`, level constants,
+never of the incoming `lo` value itself. So as long as every restriction
+is `Exact`/`Free` (never `Range`/`Multi`, which can admit more than one
+sub-index and so more than one possible `lo` for the same bound
+dimension at the same level -- the one precondition this whole argument
+needs), an `Exact` dimension's `lo` at a given level is a deterministic
+function of that level and its bound value alone, never of which
+physical address got us there. Two different free-dimension branches
+landing on the *same* deduplicated address at the same level are
+therefore guaranteed to see an identical mask and recurse into identical
+substructure; the only difference between them is a fixed additive
+offset to `emit_dim`'s final value. That makes a `(address, level)`
+pair's contribution cacheable *once*, relative to its own entry
+`lo[emit_dim]`, and reusable by every other branch that reaches it.
+
+**Three variants built to separate what the cache is worth from what
+the traversal itself costs** (all on `PathFstDeltaPow2`, the variant
+`contains` already established as the one worth carrying forward):
+
+- `restricted_descent`/`restricted_descent_with_stats(..., use_cache:
+  bool)`: `collect_rec` returns an owned `Vec<u32>` per recursive call
+  (the relative values get cached under `(addr, level)`, the absolute
+  ones get merged into the parent's `Vec` and returned up).
+- `restricted_descent_visit`: a pure callback (`FnMut(u32) ->
+  ControlFlow<T>`) version, structurally the DAG counterpart of
+  `Heap::query_rec_restricted` -- no cache, no per-node allocation,
+  stops as soon as `emit` returns `Break`.
+
+Measured with `examples/path_fst_bgp_proto.rs` across the same four
+domain shapes `path_fst_proto.rs` already uses, both query shapes,
+checked for correctness against `Heap::restricted_descent` (ground
+truth) on 2,000 two-Exact and 500 one-Exact random probes per shape,
+including the streaming variant (sorted + deduped before comparison,
+matching `Heap`'s own contract) -- **0 mismatches across every shape,
+both query types, all three FST code paths**, confirming the caching
+argument above holds in practice, not just on paper.
+
+**The performance result is a genuine, measured negative for the
+caching half of the hypothesis, and a mixed, structurally-explained
+result for the FST overall:**
+
+| domain | shape | Heap | FST cached | FST no-cache | FST stream | cache hit rate |
+|---|---|---|---|---|---|---|
+| small uniform | two-Exact | 1.5us | 4.7us (3.07x) | 1.3us (0.84x) | **1.1us (0.71x)** | 0.02% |
+| small uniform | one-Exact | 47.1us | 250.8us (5.32x) | 77.5us (1.64x) | 53.4us (1.13x) | 9.05% |
+| 10M uniform | two-Exact | 22.6us | 43.7us (1.93x) | 21.9us (0.97x) | **21.0us (0.93x)** | 0.01% |
+| 10M uniform | one-Exact | 1432.0us | 6241.9us (4.36x) | 2543.7us (1.78x) | 2147.0us (1.50x) | 1.11% |
+| 10M zipfian | two-Exact | 0.3us | 0.6us (1.82x) | 0.2us (0.57x) | **0.1us (0.45x)** | 0.00% |
+| 10M zipfian | one-Exact | 6.9us | 27.3us (3.95x) | 9.0us (1.30x) | **6.3us (0.91x)** | 2.52% |
+| 3M asymmetric | two-Exact | 15.2us | 26.6us (1.76x) | 14.2us (0.94x) | **12.4us (0.82x)** | 0.04% |
+| 3M asymmetric | one-Exact | 812.0us | 3494.5us (4.30x) | 1503.1us (1.85x) | 1250.6us (1.54x) | 1.93% |
+
+Three honest findings, in the order they were actually found:
+
+1. **Caching never pays for itself here.** Hit rates sit at 0.00-9.05%
+   across every shape -- a single BGP query only walks the thin,
+   already-position-pinned slice of the DAG its own `Exact` dimensions
+   force, and the chance that *that specific slice* happens to revisit
+   a shared address at a matching level within one query's lifetime is
+   rare, even on the same dataset whose overall dedup ratio (measured
+   in the `contains`-only section above) is 15-21%. Dataset-wide
+   sharing and single-query-path sharing are different quantities; this
+   is the first direct measurement of the second one, and it's small.
+   `FST(cached)` loses to `FST(no-cache)` in all eight rows -- the
+   `HashMap<(u64, usize), Vec<u32>>` bookkeeping costs more than the
+   rare hits save, every time.
+2. **The `Vec`-returning/merging recursion (`collect_rec`) was itself a
+   real cost independent of caching.** `FST(stream)` (same traversal,
+   zero allocation, callback-based) beats `FST(no-cache)` in every row,
+   confirming the allocation pattern needed to make caching possible at
+   all was already the more expensive design choice -- worth knowing
+   before reaching for a cache as the fix for a slow recursive query
+   path in general.
+3. **Once allocation is out of the picture, the FST's real structural
+   position is shape-dependent, not uniformly worse.** `FST(stream)`
+   *beats* `Heap` outright on two-Exact in 3 of 4 domain shapes (0.71x,
+   0.93x, 0.45x -- small/large/skewed symmetric; 0.82x on the asymmetric
+   shape too) and on one-Exact under high skew (0.91x), but loses on
+   one-Exact in the other three shapes (1.13x-1.54x). The one-Exact
+   loss isn't a DAG-traversal weakness -- it's `Heap::query_rec`'s
+   `bulk_list_subtree` fast path, a dedicated bulk-decode routine for
+   exactly the "many descendants, no further pruning possible" tail of
+   a large result set, something this FST prototype has no counterpart
+   for at all (every result, however many share a prefix, is produced
+   by one more level of node-by-node recursion). That's a known,
+   buildable gap, not a fundamental one -- not attempted in this pass.
+
+**Status before the follow-up below: kept, not pursued further.**
+`restricted_descent`/`restricted_descent_with_stats`/
+`restricted_descent_visit` all live on `PathFstDeltaPow2` in
+`src/path_fst.rs`; `examples/path_fst_bgp_proto.rs` is the comparison
+driver. The honest takeaway: the automaton-walk state-reuse idea is
+*correct* (proven and measured, 0 mismatches) but *not valuable* for
+these domain shapes at single-query granularity -- drop the cache, keep
+the streaming traversal. The streaming FST is a real, if narrow, win on
+two-Exact queries and matches `Heap` under high skew generally; closing
+the one-Exact gap in the other shapes would need a bulk-decode fast
+path analogous to `bulk_list_subtree`, not caching.
+
+### Scoping the cache to the `will_always_match` region precisely: still no win
+
+Reading the `fst` crate's `Automaton` trait (`can_match`/
+`will_always_match`, see its own entry above) named the flaw in the
+caching attempt above directly: it cached *every* `(address, level)`
+visited, mixing a state that's still genuinely restrictive (an `Exact`
+dimension still has unconsumed bits, so the mask is a real subset of
+the word, and a single query's own descent revisits the same address
+there only by accident -- the measured 0.00-9.05% hit rates) with a
+state that's `will_always_match` (every dimension is `Free` or has
+already run out of bits -- `tree`'s own `first_fully_open_level_restricted`
+condition, reimplemented here as `PathFstDeltaPow2::first_fully_open_level`
+since there's no `RadixTree` to call it on). Past that point, "what does
+this address emit" no longer depends on the query at all, only on the
+DAG's own shared structure -- the same quantity the dedup ratio already
+measures. `restricted_descent_fastpath`/`restricted_descent_fastpath_with_stats`
+(`src/path_fst.rs`) scope caching to *exactly* that region
+(`bulk_collect_rec`, entered only once `level >= unconstrained_from`)
+and use the already-established zero-allocation streaming walk
+(`visit_rec_fast`, identical to `restricted_descent_visit`'s traversal)
+everywhere before it.
+
+The scoping argument is correct -- the cache hit rate confirms it
+directly rather than by inference. In the two symmetric domain shapes
+(uniform and zipfian, both 500,000x200x500,000), the fully-open region
+*never exists*: `S` (the one `Exact` dimension in both query shapes)
+has about as many bits as the free dimensions it shares each level's
+budget with, so its bit budget never exhausts before the tree bottoms
+out, and `unconstrained_from` lands at or past `height` -- 0 hits, 0
+misses, every time, confirmed directly rather than assumed. In the
+asymmetric shape (20,000x200x2,000,000), `S`'s much smaller bit budget
+*does* exhaust well before the tree's full height, opening a real
+fully-open region, and the cache lights up exactly as the theory
+predicts: 8.47% hit rate on two-Exact, **97.35%** on one-Exact --
+essentially every fully-open node this query touches was already
+computed by an earlier branch.
+
+And it still doesn't produce a measured win:
+
+| domain | shape | FST stream | FST fastpath | fastpath hit rate |
+|---|---|---|---|---|
+| asymmetric | two-Exact | 12.5us (0.81x) | 12.8us (0.83x) | 8.47% |
+| asymmetric | one-Exact | 1248.1us (1.52x) | 1288.2us (1.57x) | 97.35% |
+
+Fastpath is *slightly slower* than the plain streaming walk even at a
+97.35% hit rate -- the `HashMap` lookup, the `.map(...).collect()` on
+every hit, and the extra `Vec` allocation per miss cost more than the
+redundant re-walk they replace. The nodes being skipped by a cache hit
+in the fully-open region are exactly the cheap, shallow, near-leaf ones
+dedup concentrates sharing in (per the subtree-dedup measurements
+above) -- re-deriving them directly is already fast enough that
+memoizing them is a net loss, not a conditional one. In the two
+symmetric shapes, fastpath and stream are statistically indistinguishable
+(both near-zero cache traffic, differences within wall-clock noise),
+as expected when the region the optimization targets doesn't exist for
+that domain shape at all.
+
+**Conclusion, stated plainly:** correctly scoping the cache to the
+theoretically sound region doesn't rescue the caching idea -- it
+confirms the idea is sound (real hits, at a real rate, on the domain
+shape built to expose it) and *still* not profitable, at any
+granularity tried so far, for this structure. The lever that actually
+closes the one-Exact gap remains what it was before this follow-up: a
+genuine `Heap`-style bulk-decode fast path (reading several siblings'
+records in one shot, no per-node recursion-call or mask overhead), not
+memoization of any kind. `restricted_descent_fastpath` is kept in
+`src/path_fst.rs` alongside the other variants as a documented negative
+result, not pursued further.
+
+### Correcting the one-Exact attribution: it wasn't `bulk_list_subtree`, it was precomputed masks
+
+The conclusion above -- "the one-Exact loss isn't a DAG-traversal
+weakness, it's `Heap`'s `bulk_list_subtree` fast path" -- was wrong for
+two of the three losing shapes, and a direct question about it (why
+would a dedicated DAG with 5-7x fewer physical nodes lose to a plain
+tree on a shape that, per the very next section's own measurement,
+*never reaches* `bulk_list_subtree` at all in a symmetric domain) is
+what surfaced the mistake. Worth separating two different things that
+got conflated: the DAG's node *count* (a storage-time property --
+sharing collapses identical subtrees once, regardless of how many
+queries later walk through them) says nothing about how many traversal
+*steps* one query takes. Without caching -- and caching was already
+shown not to pay off above -- two different branches reaching the same
+shared node still walk it twice, once per branch; dedup never reduces
+a single query's own step count, only the bytes stored. So "fewer
+nodes" was never a reason to expect a faster one-Exact traversal, and
+the real per-step cost needed a real explanation, not an inference from
+the earlier (and, for `one-Exact` in a symmetric domain, inapplicable)
+`bulk_list_subtree` story.
+
+**What `Heap::restricted_descent_visit` actually does that
+`PathFstDeltaPow2::visit_rec` doesn't, found by reading both side by
+side (`src/tree.rs:2210-2343`, `src/path_fst.rs`'s `visit_rec`):**
+`Heap::exact_bound_dims` (`src/tree.rs:2210`) returns `Some` for *zero,
+one, or two* `Exact` dimensions -- not just two -- so **both**
+`one-Exact` and `two-Exact` qualify for the same fast path:
+`precompute_level_masks` (`src/tree.rs:2358`) walks `lo` forward once,
+before any recursion starts, computing one `u64` mask per tree level
+from the restrictions alone, and the entire recursive walk (`query_rec`,
+`src/tree.rs:2401`) then does only `word & level_masks[level]` -- an
+array index and a bitwise AND, nothing else, at every node. `visit_rec`
+(and every other traversal variant built on it: `collect_rec`,
+`visit_rec_fast`) instead calls `restriction_mask` (`src/tree.rs:231`,
+reused directly, not reimplemented) *fresh, from the full restrictions
+array, on every single node visited* -- the full per-dimension branch
+(checking `Exact`/`Free`/`Range`/`Multi` for all three dimensions,
+calling `expand_run` for each `Free` one) repeated at every level of
+every call. `Heap` pays that cost once per query; the FST prototype
+paid it once per node. For `two-Exact`, with only a few dimensions'
+worth of narrowing and correspondingly few nodes touched per query,
+that per-node tax is cheap in absolute terms and `FST(stream)`'s other
+structural advantages (direct popcount-indexed delta addressing --
+`addr - delta`, no `BlockIndex`/`advance_past_children` skip-ahead
+machinery at all) still won outright in most shapes. For `one-Exact`,
+visiting 50-200x more nodes per level (per the earlier `one-Exact`
+batched-skip instrumentation elsewhere in this file), the same per-node
+tax is paid 50-200x more often -- which is a real, sufficient
+explanation for the loss on its own, present identically whether or not
+`bulk_list_subtree` ever fires.
+
+**The fix, mirroring `Heap`'s own trick exactly**:
+`PathFstDeltaPow2::precompute_level_masks` (private) walks `lo` forward
+once per query, advancing only the `Exact` dimensions' contribution (the
+same path-independence argument the caching work above already proved:
+`Free`'s branch never reads `lo[d]`, so only `Exact` dimensions need
+tracking), computing one `restriction_mask` call per *level* instead of
+per *node*. `restricted_descent_precomputed_visit`/
+`restricted_descent_precomputed` use it with the same zero-allocation
+callback-based walk (`visit_rec_precomputed`) as `restricted_descent_visit`,
+differing only in where the mask comes from. Checked for correctness
+against `Heap::restricted_descent` the same way as every other variant
+(0 mismatches, all four domain shapes, both query shapes, 2,000
+two-Exact + 500 one-Exact probes each).
+
+| domain | shape | Heap | FST stream (old) | FST precomputed (new) |
+|---|---|---|---|---|
+| small uniform | two-Exact | 1.5us | 1.0us (0.69x) | **0.8us (0.52x)** |
+| small uniform | one-Exact | 47.1us | 52.9us (1.12x) | **32.8us (0.70x)** |
+| 10M uniform | two-Exact | 22.3us | 20.5us (0.92x) | **16.2us (0.72x)** |
+| 10M uniform | one-Exact | 1423.0us | 2140.9us (1.50x) | 1528.0us (1.07x) |
+| 10M zipfian | two-Exact | 0.4us | 0.2us (0.41x) | 0.2us (0.56x)\* |
+| 10M zipfian | one-Exact | 7.0us | 5.7us (0.82x) | **3.7us (0.53x)** |
+| 3M asymmetric | two-Exact | 15.0us | 12.3us (0.82x) | **10.1us (0.67x)** |
+| 3M asymmetric | one-Exact | 807.9us | 1241.4us (1.54x) | 863.8us (1.07x) |
+
+(\* zipfian two-Exact: precomputed is marginally slower than stream at
+this sample size -- both are sub-microsecond and within wall-clock
+noise, consistent with the near-zero node counts this particular shape
+touches; not a real regression.)
+
+This closes almost the entire one-Exact gap and improves two-Exact
+further on top of the already-measured win: one-Exact now sits at
+0.70x/1.07x/0.53x/1.07x across the four shapes (down from
+1.12x-1.54x), *beating* `Heap` outright in two of them (small uniform,
+zipfian) despite `Heap` using the identical precomputed-mask trick --
+meaning once the one real asymmetry (mask computed once vs. once per
+node) is removed, the FST's cheaper address decode (no
+`BlockIndex`/skip-ahead machinery) shows through on `one-Exact` the same
+way it already did on `two-Exact`. The remaining two shapes (10M
+uniform, 3M asymmetric) land at near parity (1.07x) rather than a clear
+win -- consistent with `Heap`'s `bulk_list_subtree` fast path doing real
+work there specifically (both are large enough and, for the asymmetric
+shape, skewed enough in per-dimension size that `S`'s bits do exhaust
+before the tree bottoms out, unlike the symmetric shapes), closing most
+but not all of the remaining difference.
+
+**Conclusion, stated plainly:** the earlier "it's `bulk_list_subtree`,
+not caching" explanation was itself incomplete -- correct for the
+asymmetric shape, wrong for both symmetric ones, and the error was
+only caught because the symmetric shapes' own `bulk_list_subtree`
+non-firing was already measured and documented one section above,
+making the contradiction checkable rather than a matter of opinion. The
+actual, now-measured, now-fixed cause was a missing precomputation this
+file simply hadn't built yet.
+
+**Follow-up: wired in as the default, API break accepted on
+purpose.** `restricted_descent_precomputed`/
+`restricted_descent_precomputed_visit` no longer exist as separate
+names -- the precomputed-mask traversal *is* now
+`restricted_descent`/`restricted_descent_visit`/`visit_rec`, requested
+explicitly ("it's okay to break the API, I really like the idea of
+just having a `visit_rec` method, even if the semantics include the
+precomputed masks") rather than kept as a second parallel API next to
+a slower default. The old per-node-`restriction_mask` `visit_rec` is
+gone; `Range`/`Multi` restrictions, which can admit more than one
+sub-index per level and so break the one-`lo`-per-level precomputation
+this relies on, now panic explicitly at the top of
+`restricted_descent_visit` instead of silently falling back to a
+slower path the way `Heap::restricted_descent_visit` does (`PathFst`
+has no second engine to fall back to -- nothing in this project's own
+test suite or examples ever called it with `Range`/`Multi`, confirmed
+by grep before accepting the break). `examples/path_fst_bgp_proto.rs`
+dropped the now-redundant fifth "precomputed" column (identical to
+"stream" once merged) and re-ran clean: same numbers as the
+standalone measurement above (within noise), 0 mismatches across every
+shape and both query types, full test suite and clippy green. The
+`(address, level)`-keyed caching experiments
+(`restricted_descent_with_stats`/`restricted_descent_fastpath*`) were
+left exactly as they were -- still documented negative results, not
+part of the default surface, not touched by this merge.
+
+### `perf`-rigorous one-Exact margin: instructions won, cache misses didn't
+
+With the precomputed-mask fix wired in, `one-Exact` still sits at
+near-parity (not a clean win) against `Heap` on the two largest domain
+shapes: 1.06x-1.07x on 10M-triple symmetric and 3M-triple asymmetric.
+Asked where the remaining margin is, rather than guessing from
+wall-clock alone -- same baseline-subtraction methodology as the
+`contains()`-only `perf` work above (`examples/path_fst_bgp_perf.rs`,
+isolating one structure's `restricted_descent_visit` loop per process,
+`iters=0` run subtracted out), `perf stat -e
+cycles,instructions,cache-references,cache-misses,branch-instructions,branch-misses`:
+
+```
+one-Exact, 10M symmetric            pow2          Heap        pow2/Heap
+cycles/call                      6,085,548      5,637,455       1.08x
+instructions/call                6,057,651     11,531,511       0.53x
+cache-references/call              146,054         83,744       1.74x
+cache-misses/call                   61,703         32,640       1.89x
+branch-instructions/call           516,378      1,665,383       0.31x
+branch-misses/call                   9,857         14,658       0.67x
+IPC (instr/cycles)                   ~1.00          ~2.05
+
+one-Exact, 3M asymmetric             pow2          Heap        pow2/Heap
+cycles/call                      3,421,074      3,188,018       1.07x
+instructions/call                3,672,195      7,000,774       0.52x
+cache-references/call               76,336         58,370       1.31x
+cache-misses/call                   26,886         15,018       1.79x
+branch-instructions/call           309,212      1,008,408       0.31x
+branch-misses/call                   6,477          9,929       0.65x
+IPC (instr/cycles)                   ~1.07          ~2.20
+```
+
+Same shape in both domains: `PathFstDeltaPow2` already executes about
+*half* `Heap`'s instructions and a third of its branches per call --
+the dedup win is real and decisive, confirmed at the instruction level,
+not just wall-clock. But it pays 1.3x-1.9x more cache references and
+misses per call, and its IPC collapses to roughly half of `Heap`'s
+(~1.0-1.1 vs ~2.0-2.2) -- it is memory-latency-bound where `Heap` is
+not. The two effects roughly cancel, landing at near-parity cycles
+despite the large instruction-count advantage. Contrast with
+`two-Exact` (already a clean win, measured the same way on the
+symmetric shape: 64,810 vs 89,663 cycles/call, 0.72x): there, `pow2`
+still has *more* cache-misses per call than `Heap` (671 vs 587, 1.14x)
+-- the same qualitative tilt -- but the absolute node count touched is
+small enough that the instruction-count savings dominate outright. For
+`one-Exact`, visiting 50-200x more nodes (per this file's earlier
+batched-skip instrumentation) scales the *absolute* cache-miss cost up
+enough to erase that same advantage.
+
+**Where, mechanically**: `perf record -F 999 --call-graph dwarf` (first
+pass, `iters=5000`, build cost still ~13% of samples) followed by a
+second pass at `iters=60000` to dilute build-time sampling down to
+<6% -- 87.4% of cycle samples land inside `visit_rec` itself at that
+point, confirming the loop (not `build_rec_pow2`'s one-time hashmap
+dedup, the other visible hot spot) is what a user-facing query actually
+pays for. `perf annotate` (both the `cycles` and a separate
+`cache-misses`-event recording, to cross-check) puts the overwhelming
+majority of samples (73-75%) on the instruction immediately after
+`storage.read_var`'s delta-byte load (the `mov (%rax,%rdi,1),%r15` that
+decodes `delta` right before `child_addr = addr - delta`) -- consistent
+with, but not conclusively pinned to, that load being the actual stall:
+this hardware has no PEBS-precise cache-miss event available (`perf
+list` shows no `mem-loads`/`:pp` variant), so cycle/cache-miss sampling
+here is inherently subject to skid (the CPU's out-of-order execution
+attributes a stall to whatever instruction is retiring when the counter
+fires, often a few instructions after the load that actually caused
+it) -- reported as a strong, consistent signal across two independent
+sampling events, not a disassembly-certain single line the way the
+`PathFstDeltaPow2`/`BlockIndex` shift-vs-Fenwick finding earlier in this
+file was.
+
+**What this means for next steps, not yet attempted**: the lever is
+memory locality of the deduplicated DAG's physical layout, not
+instruction count -- that battle is already won. A node that many
+different `one-Exact` query branches share can be referenced from
+parent records built at arbitrary, unrelated times during the bulk
+build's postorder traversal, so its physical address bears no relation
+to how "hot" (widely shared) it is or to where any particular query's
+own descent currently sits; `Heap`'s plain (non-deduplicated) tree, by
+contrast, keeps every query's own subtree physically contiguous by
+construction. Re-ordering storage to place high-fan-in dedup nodes
+near each other (e.g. by descending shared-reference count, or by
+level-then-frequency) instead of pure build-discovery order is a
+concrete, testable next step -- not implemented or measured in this
+pass.
+
+### Deeper FST-only perf dive: a real algorithmic cost, but one this project already learned is dangerous to fix blindly
+
+Asked to dig into `PathFstDeltaPow2` alone (not vs. `Heap`) for an
+*algorithmic* lever, given that layout fixes for a DAG are
+fundamentally limited -- a node with many parents can't be physically
+adjacent to all of them at once, postorder or not. Added temporary
+debug instrumentation (`restricted_descent_visit_histogram`, mirroring
+`visit_rec` but tallying node visits and multi-child fan-out per tree
+level; deleted after collecting the data, same throwaway-instrumentation
+convention as the earlier batched-skip investigation) and ran it over
+1,000 `one-Exact` probes on both the 10M-triple symmetric and 3M-triple
+asymmetric domains:
+
+```
+sym (height=8): total_nodes=36,853.9/probe, 1,837.7 nodes per actual result
+level  dim_bits     nodes/probe   fanout>1
+  0    [2,2,2]          1.00       100.00%
+  1    [2,2,2]         16.00       100.00%
+  2    [2,2,2]        208.00       100.00%
+  3    [2,2,2]      3,092.26        98.74%
+  4    [3,0,3]     27,729.51         0.80%   <- P (the 3rd column) just exhausted
+  5    [3,0,3]      5,086.10         0.01%
+  6    [3,0,3]        641.09         0.00%
+  7    [2,0,2]         79.96         0.00%   <- S fully exhausted here (last level)
+
+asym (height=8): total_nodes=22,024.8/probe, 146.7 nodes per actual result
+level  dim_bits     nodes/probe   fanout>1
+  3    [2,2,2]      3,078.91        97.48%
+  4    [3,0,3]     15,879.59         0.31%
+  5    [3,0,3]      2,391.49         0.00%
+  6    [1,0,5]        299.63         0.00%   <- S fully exhausted here
+  7    [0,0,2]        150.18         0.00%   <- matches total_results/probe almost exactly
+```
+
+**The mechanism, confirmed by the data, not inferred**: `dynamic_schedule`
+spreads `S`'s 19 bits (`uniform`'s domain) evenly across *all 8* levels
+(2,2,2,2,3,3,3,2) rather than resolving them up front -- so `S` is
+still a real, partially-unresolved constraint at every level up to and
+including the last one. `P` (the middle dimension, only 8 bits) fully
+resolves by level 3. From level 4 on, a node's word jointly encodes a
+few more bits of `S` *and* `O` together, `O` fully free, `S` still
+pinned to one sub-range. At level 3, each node has ~9 real matching
+children on average (`O` is unconstrained there, and the data, while
+sparse, still has that much real variety) -- those children are reached
+correctly, but at level 4 most of them turn out to encode the *wrong*
+`S` sub-range for *this* query (they're real because some *other*
+`S` value's path needs them, or simply because the sparse data doesn't
+happen to align), so `relevant` comes back empty and the node dead-ends
+immediately after one word read. That single word read, on a 100MB+
+structure with no relationship between a child's address and its
+logical position, is a real cache-probe cost paid for nothing: level 4
+alone accounts for 27,729 of the 36,854 node visits per `sym` probe
+(75%) and 15,880 of 22,025 per `asym` probe (72%) -- the dominant single
+contributor to the cache-miss count measured in the previous section,
+and the reason there are ~1,838 (`sym`) / ~147 (`asym`) nodes visited
+per actual result returned. This is not a dedup artifact and not a
+layout problem -- a non-deduplicated tree with the identical schedule
+would pay exactly the same dead-end cost, visiting the identical real
+data in the identical order (`Heap` avoids it in practice only because
+its `bulk_list_subtree`/`unconstrained_from` mechanism, present in this
+asymmetric domain, bypasses node-by-node descent *after* `S` actually
+exhausts late in the tree -- a different fix for a related but distinct
+problem, not this one). It is squarely the bit-interleaving *schedule*'s
+doing: `S`'s bits are resolved too slowly relative to how early `O`'s
+fan-out opens up.
+
+**The obvious fix is exactly the one this project already tried and
+reverted, for a documented reason.** `dynamic_schedule`
+(`src/tree.rs:353`) already carries a comment recording a prior
+attempt to weight bit allocation unevenly across dimensions (by
+relative domain size, to speed up the smaller dimension's scans) that
+measured a **16x regression** on the opposite-direction query (fast
+for the dimension it favored, catastrophically slower for a scan bound
+on the dimension it starved) -- reverted back to the current even
+round-robin split specifically because "a weighting heuristic that's
+actually safe across domain shapes remains unsolved." Front-loading
+`S`'s bits (so it fully resolves before `O`'s fan-out opens up,
+eliminating this exact dead-end-fanout cost for `one-Exact`/`two-Exact`
+as benchmarked here) is a *different* axis of asymmetry than the
+reverted attempt -- resolution *order*, not relative bit *budget* --
+but carries the identical structural risk: this schedule is built once
+per dataset and shared by every query shape a caller might issue
+against it, including the mirror case this project hasn't benchmarked
+in this investigation -- `[Free, Free, Exact(o)]`, binding `O` instead
+of `S`. Front-loading `S` would very plausibly reproduce the same kind
+of regression on *that* query shape that the original attempt produced,
+for the same underlying reason (whichever dimension's fan-out opens up
+early pays the dead-end cost that whichever dimension resolves early
+avoids). **Not attempted in this pass**: the honest next step, if this
+is worth pursuing, is building the alternate schedule and benchmarking
+it against *both* query directions (`S`-bound and `O`-bound, not just
+the one this project happens to benchmark by habit) across all four
+domain shapes before trusting it -- exactly the validation the earlier
+attempt skipped the first time, which is why it had to be reverted.
+
 ## Native prefix joins
 
 `native_join::NativeJoin` borrows the tree and compiles its global subdivision

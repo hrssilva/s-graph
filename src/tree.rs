@@ -1139,6 +1139,41 @@ fn advance_lo_dim(lo: u64, dim_bits: u8, shifts: u8, qi: usize, child_cell_bits:
 
 // ==================== the generic tree ====================
 
+/// One tree level's share of [`RadixTreeDfsInterleavedVarSkipUnrolledGeneric::subtree_dedup_report`].
+/// `total_bytes`/`distinct_bytes` are the current on-disk record bytes this
+/// level occupies today vs. if every repeated subtree at this level were
+/// replaced by a single stored copy (no pointer cost included -- an upper
+/// bound on the saving, not a real encoding).
+#[derive(Debug, Clone, Copy)]
+pub struct SubtreeDedupLevelReport {
+    pub level: usize,
+    pub node_count: u64,
+    pub distinct_count: u64,
+    pub total_bytes: u64,
+    pub distinct_bytes: u64,
+}
+
+/// See [`RadixTreeDfsInterleavedVarSkipUnrolledGeneric::subtree_dedup_report`].
+#[derive(Debug, Clone)]
+pub struct SubtreeDedupReport {
+    pub per_level: Vec<SubtreeDedupLevelReport>,
+}
+
+impl SubtreeDedupReport {
+    pub fn total_nodes(&self) -> u64 {
+        self.per_level.iter().map(|l| l.node_count).sum()
+    }
+    pub fn total_distinct(&self) -> u64 {
+        self.per_level.iter().map(|l| l.distinct_count).sum()
+    }
+    pub fn total_bytes(&self) -> u64 {
+        self.per_level.iter().map(|l| l.total_bytes).sum()
+    }
+    pub fn total_distinct_bytes(&self) -> u64 {
+        self.per_level.iter().map(|l| l.distinct_bytes).sum()
+    }
+}
+
 pub struct RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S: BlockStorage> {
     storage: S,
     block_index: crate::block_index::BlockIndex,
@@ -2898,6 +2933,67 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
             child_pos = self.dfs_records_rec(child_pos, level + 1, out);
         }
         child_pos
+    }
+
+    /// Diagnostic prototype only (see `DESIGN.md`'s "subtree deduplication"
+    /// entry) -- explores whether Carmona & Manzini-style identical-subtree
+    /// compression (arXiv:2505.11302 / arXiv:2607.28136: re-lay a k²-tree
+    /// out in DFS/preorder so identical subtrees become contiguous, equal
+    /// substrings, then store one copy and point to it) is worth building
+    /// for this crate's workloads. Not wired into storage, serialization,
+    /// or any query/insert/remove path -- a read-only report over the live
+    /// tree. Kept intentionally, unlike this project's usual throwaway-
+    /// instrumentation convention, so a follow-up idea can be measured
+    /// against the same baseline.
+    ///
+    /// Two subtrees are "identical" here if their structure (existence
+    /// words, recursively, down to the leaves) matches -- never compared
+    /// across different tree levels, since this crate's per-level bit
+    /// schedule means a level's own record encoding (and its children's)
+    /// depends on absolute level, not just relative depth. Identity is
+    /// decided by a 64-bit hash (`DefaultHasher`/SipHash over each node's
+    /// own word plus its children's hashes, in `qi` order) grouped by
+    /// `(level, hash)`; a false merge is possible in principle (birthday
+    /// bound) but not re-verified byte-for-byte here -- acceptable for an
+    /// estimate at the scales this measures, not for a real implementation.
+    pub fn subtree_dedup_report(&self) -> SubtreeDedupReport {
+        let height = self.height as usize;
+        let mut per_level: Vec<std::collections::HashMap<u64, (u64, usize)>> = (0..height).map(|_| std::collections::HashMap::new()).collect();
+        if height > 0 {
+            self.subtree_dedup_rec(Pos::START, 0, &mut per_level);
+        }
+        let per_level = per_level
+            .into_iter()
+            .enumerate()
+            .map(|(level, groups)| {
+                let node_count: u64 = groups.values().map(|&(c, _)| c).sum();
+                let distinct_count = groups.len() as u64;
+                let total_bytes: u64 = groups.values().map(|&(c, len)| c * len as u64).sum();
+                let distinct_bytes: u64 = groups.values().map(|&(_, len)| len as u64).sum();
+                SubtreeDedupLevelReport { level, node_count, distinct_count, total_bytes, distinct_bytes }
+            })
+            .collect();
+        SubtreeDedupReport { per_level }
+    }
+
+    fn subtree_dedup_rec(&self, pos: Pos, level: usize, per_level: &mut [std::collections::HashMap<u64, (u64, usize)>]) -> (Pos, u64) {
+        use std::hash::Hasher;
+        let word = self.block_read_u64(pos.block, pos.offset);
+        let len = self.own_record_bytes(level, word);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        hasher.write_u64(word);
+        let mut child_pos = self.advance(pos, len);
+        if level != self.height as usize - 1 {
+            for _ in 0..word.count_ones() {
+                let (next_pos, child_hash) = self.subtree_dedup_rec(child_pos, level + 1, per_level);
+                hasher.write_u64(child_hash);
+                child_pos = next_pos;
+            }
+        }
+        let hash = hasher.finish();
+        let entry = per_level[level].entry(hash).or_insert((0, len));
+        entry.0 += 1;
+        (child_pos, hash)
     }
 
     /// Shared by [`Self::insert_batch`] and [`Self::remove_batch`]: sorts
