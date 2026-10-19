@@ -55,6 +55,15 @@ const WORD_BYTES: usize = 8;
 const CHILD_PTR_BYTES: usize = 8;
 const DELTA_BYTES: u8 = 4;
 
+/// Chunk size for [`PathFstDeltaPow2::restricted_descent_bfs_visit`]'s
+/// fixed-size, stack-only frontier buffers -- see that method's doc
+/// comment. Large enough to give the CPU plenty of independent
+/// outstanding reads to overlap (modern cores track on the order of a
+/// few dozen concurrent misses), small enough that the two buffers per
+/// recursion frame (`8 + 24` bytes each) stay a trivial fraction of the
+/// default stack across `MAX_HEIGHT` levels of recursion.
+const BFS_WINDOW: usize = 256;
+
 fn pack_pos(pos: Pos) -> u64 {
     debug_assert!(pos.block <= u32::MAX as usize && pos.offset <= u32::MAX as usize);
     ((pos.block as u64) << 32) | (pos.offset as u64)
@@ -916,12 +925,342 @@ impl PathFstDeltaPow2 {
         std::ops::ControlFlow::Continue(())
     }
 
+    /// Prototype: same contract and traversal as
+    /// [`Self::restricted_descent_visit`], but before recursing into any
+    /// of a node's real matching children, first decodes *all* of their
+    /// deltas (cheap -- they're bytes immediately after `word`, already
+    /// in the same cache line that read pulled in, per `DESIGN.md`'s
+    /// "deeper FST-only perf dive" entry) and issues a discarded
+    /// `read_u64` at each child's address, before touching any of them
+    /// for real -- a software-prefetch *hint* via `_mm_prefetch` isn't
+    /// available (this crate is `#![forbid(unsafe_code)]`, and there is
+    /// no safe wrapper in `std`), so a real, safe, result-discarded read
+    /// stands in for it: it still triggers the hardware's cache fill for
+    /// that address, and it carries no correctness risk either way since
+    /// a `HeapStorage` read is already infallible and side-effect-free.
+    ///
+    /// Motivation, from the measured bottleneck: `one-Exact` on the
+    /// larger domains runs at IPC ~1.0 with a 35-42% cache-miss rate --
+    /// memory-latency-bound, not throughput-bound (see `DESIGN.md`'s
+    /// `perf`-rigorous margin entry). Plain [`Self::visit_rec`] discovers
+    /// each child's address and immediately recurses into it, fully
+    /// serializing one miss behind the previous one's entire subtree --
+    /// zero memory-level parallelism. This method issues up to the
+    /// node's own fan-out (bounded, usually small per the node-histogram
+    /// data -- ~9 on average at the level this costs the most) many
+    /// independent reads back-to-back instead of one at a time, so the
+    /// CPU's out-of-order execution can dispatch several of their misses
+    /// concurrently instead of queuing them up serially one recursive
+    /// call at a time. Scoped locally to one node's own children
+    /// (bounded, no growable buffer) rather than a full BFS/frontier
+    /// restructuring across the whole level, specifically to test the
+    /// idea's value without first paying for a bigger, riskier rewrite
+    /// and its own new allocation cost.
+    pub fn restricted_descent_prefetch_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return std::ops::ControlFlow::Continue(()),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("restricted_descent_prefetch_visit only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        self.visit_rec_prefetch(self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim, &mut emit)
+    }
+
+    fn visit_rec_prefetch<T>(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize, emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+        let relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+
+        if is_last {
+            let mut relevant = relevant;
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                emit(child_lo[emit_dim] as u32)?;
+            }
+            return std::ops::ControlFlow::Continue(());
+        }
+
+        // This crate forbids `unsafe` (`#![forbid(unsafe_code)]`), so
+        // there's no `_mm_prefetch` available -- a real, safe
+        // `read_u64` whose result is discarded serves the same purpose:
+        // it still triggers the hardware's cache fill for that address,
+        // and because every one of these reads is independent of the
+        // others (no data dependency between siblings), the CPU's own
+        // out-of-order execution can already dispatch several of them
+        // concurrently once they're issued back-to-back like this,
+        // rather than each one only being issued after the previous
+        // child's entire recursive subtree has finished. `black_box`
+        // stops the optimizer from proving the discarded value is dead
+        // and eliding the read entirely.
+        let mut prefetch_scan = relevant;
+        while prefetch_scan != 0 {
+            let qi = prefetch_scan.trailing_zeros() as usize;
+            prefetch_scan &= prefetch_scan - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr - delta;
+            let child_block = (child_addr >> self.capacity_bits) as usize;
+            let child_offset = (child_addr & self.capacity_mask) as usize;
+            std::hint::black_box(self.storage.read_u64(child_block, child_offset));
+        }
+
+        let mut relevant = relevant;
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr - delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            self.visit_rec_prefetch(child_addr, child_lo, level + 1, level_masks, emit_dim, emit)?;
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Prototype: the BFS/frontier restructuring the sibling-prefetch
+    /// attempt's own negative result argued for (see that method's doc
+    /// comment and `DESIGN.md`'s matching entry). The problem diagnosed
+    /// there wasn't the idea of overlapping memory-level parallelism --
+    /// it was that DFS makes the gap between "prefetch a sibling" and
+    /// "use it" a whole subtree, long enough that the warmed cache line
+    /// is usually evicted again before it's needed. Processing one tree
+    /// *level* flat, all at once, instead of recursing depth-first,
+    /// makes that gap "the rest of this level's frontier" instead -- a
+    /// fundamentally shorter, more survivable distance, at the cost of
+    /// giving up the zero-allocation property every other traversal in
+    /// this file has: the frontier can be large (tens of thousands of
+    /// entries at the level the earlier node-histogram investigation
+    /// found costs the most), so it needs a real, growable buffer.
+    ///
+    /// Issues a discarded `read_u64` (same `#![forbid(unsafe_code)]`
+    /// constraint as [`Self::restricted_descent_prefetch_visit`] -- no
+    /// `_mm_prefetch` available) for *every* node in the current level's
+    /// frontier before reading any of them for real, then does the real
+    /// reads and advances to the next level's frontier. Two buffers
+    /// (`current`/`next`) swapped each level instead of reallocated.
+    pub fn restricted_descent_frontier_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return std::ops::ControlFlow::Continue(()),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("restricted_descent_frontier_visit only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let mut current: Vec<(u64, [u64; NUM_DIMS])> = vec![(self.root_virtual_addr, [0u64; NUM_DIMS])];
+        let mut next: Vec<(u64, [u64; NUM_DIMS])> = Vec::new();
+
+        for level in 0..self.height {
+            if current.is_empty() {
+                break;
+            }
+            let is_last = level == self.height - 1;
+            let mask = level_masks[level];
+            let dim_bits = self.level_dim_bits[level];
+            let shifts = self.level_shifts_cache[level];
+            let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+            for &(addr, _) in &current {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                std::hint::black_box(self.storage.read_u64(block, offset));
+            }
+
+            next.clear();
+            for &(addr, lo) in &current {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                let word = self.storage.read_u64(block, offset);
+                let mut relevant = word & mask;
+
+                if is_last {
+                    while relevant != 0 {
+                        let qi = relevant.trailing_zeros() as usize;
+                        relevant &= relevant - 1;
+                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                        emit(child_lo[emit_dim] as u32)?;
+                    }
+                    continue;
+                }
+
+                while relevant != 0 {
+                    let qi = relevant.trailing_zeros() as usize;
+                    relevant &= relevant - 1;
+                    let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+                    let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+                    let child_addr = addr - delta;
+                    let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                    next.push((child_addr, child_lo));
+                }
+            }
+            std::mem::swap(&mut current, &mut next);
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Same contract as [`Self::restricted_descent`], built on
+    /// [`Self::restricted_descent_frontier_visit`] instead.
+    pub fn restricted_descent_frontier(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.restricted_descent_frontier_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Prototype: the same level-flat prefetch-then-use batching as
+    /// [`Self::restricted_descent_frontier_visit`], but without that
+    /// method's `Vec<(u64, [u64; NUM_DIMS])>` buffers -- every node held
+    /// in flight lives in a fixed-size `[(..); BFS_WINDOW]` array on the
+    /// stack, never the heap. A level's frontier can be wider than
+    /// `BFS_WINDOW`, so it's processed in sequential chunks of at most
+    /// `BFS_WINDOW` nodes each: a chunk is warmed (discarded reads for
+    /// every node in it), then read for real, and any children it
+    /// produces are buffered into a *second* fixed array that gets
+    /// flushed (one recursive call, one level deeper) as soon as it
+    /// fills, instead of being allowed to grow. Recursion depth is
+    /// bounded by `self.height` (<= `MAX_HEIGHT`), same as the plain
+    /// `visit_rec` DFS, so this is no deeper than the existing recursive
+    /// traversal already goes -- it just carries a `BFS_WINDOW`-sized
+    /// array per frame instead of one node's worth of state.
+    ///
+    /// Trade-off versus the `Vec`-based frontier: a level wider than
+    /// `BFS_WINDOW` loses some prefetch breadth (each chunk only warms
+    /// up to `BFS_WINDOW` siblings-across-parents at a time, not the
+    /// whole level at once), but needs no heap allocation at all. Kept
+    /// as a separate, measured variant -- see `DESIGN.md`.
+    pub fn restricted_descent_bfs_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return std::ops::ControlFlow::Continue(()),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("restricted_descent_bfs_visit only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let root = [(self.root_virtual_addr, [0u64; NUM_DIMS])];
+        self.bfs_window_visit(&root, 0, &level_masks, emit_dim, &mut emit)
+    }
+
+    /// Helper for [`Self::restricted_descent_bfs_visit`] -- see its doc
+    /// comment. `nodes` is a caller-owned slice (a chunk of the parent's
+    /// own fixed-size buffer, or the one-element root array), never
+    /// something this function allocates.
+    fn bfs_window_visit<T>(&self, nodes: &[(u64, [u64; NUM_DIMS])], level: usize, level_masks: &[u64], emit_dim: usize, emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        if nodes.is_empty() {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let is_last = level == self.height - 1;
+        let mask = level_masks[level];
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        for chunk in nodes.chunks(BFS_WINDOW) {
+            for &(addr, _) in chunk {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                std::hint::black_box(self.storage.read_u64(block, offset));
+            }
+
+            let mut next_buf = [(0u64, [0u64; NUM_DIMS]); BFS_WINDOW];
+            let mut next_len = 0usize;
+
+            for &(addr, lo) in chunk {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                let word = self.storage.read_u64(block, offset);
+                let mut relevant = word & mask;
+
+                if is_last {
+                    while relevant != 0 {
+                        let qi = relevant.trailing_zeros() as usize;
+                        relevant &= relevant - 1;
+                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                        emit(child_lo[emit_dim] as u32)?;
+                    }
+                    continue;
+                }
+
+                while relevant != 0 {
+                    let qi = relevant.trailing_zeros() as usize;
+                    relevant &= relevant - 1;
+                    let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+                    let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+                    let child_addr = addr - delta;
+                    let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+
+                    next_buf[next_len] = (child_addr, child_lo);
+                    next_len += 1;
+                    if next_len == BFS_WINDOW {
+                        self.bfs_window_visit(&next_buf[..next_len], level + 1, level_masks, emit_dim, emit)?;
+                        next_len = 0;
+                    }
+                }
+            }
+
+            if next_len > 0 {
+                self.bfs_window_visit(&next_buf[..next_len], level + 1, level_masks, emit_dim, emit)?;
+            }
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Same contract as [`Self::restricted_descent`], built on
+    /// [`Self::restricted_descent_bfs_visit`] instead.
+    pub fn restricted_descent_bfs(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.restricted_descent_bfs_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Same contract as [`Self::restricted_descent_visit`], but sorted,
     /// deduplicated, and collected into a `Vec` -- same contract as
     /// `Heap::restricted_descent`.
     pub fn restricted_descent(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
         let mut out = Vec::new();
         let _: std::ops::ControlFlow<()> = self.restricted_descent_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Same contract as [`Self::restricted_descent`], built on
+    /// [`Self::restricted_descent_prefetch_visit`] instead -- for the
+    /// correctness check and timing comparison in
+    /// `examples/path_fst_bgp_proto.rs`.
+    pub fn restricted_descent_prefetch(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.restricted_descent_prefetch_visit(restrictions, emit_dim, |v| {
             out.push(v);
             std::ops::ControlFlow::Continue(())
         });
@@ -1361,4 +1700,657 @@ fn build_rec_pow2(
     register[level].insert(key, addr);
     *node_count += 1;
     addr
+}
+
+// ==================== BFS-ordered layout variant ====================
+
+/// A node discovered during [`PathFstDeltaPow2Bfs::build`]'s bottom-up
+/// dedup pass -- `child_indices` refers to positions within
+/// `levels_nodes[level + 1]`, not yet real storage addresses (those
+/// aren't assigned until the build's second phase).
+struct BfsNodeMeta {
+    existence_word: u64,
+    child_indices: Vec<u32>,
+}
+
+/// Pairs with [`PathFstDeltaPow2`]'s own BFS/frontier and fixed-window
+/// `restricted_descent_bfs_visit` traversals (see `DESIGN.md`): those
+/// win by overlapping or reducing cache-*miss latency* while visiting a
+/// whole tree level at once, but they still pay for the *count* of
+/// misses a level-flat visit causes, because `PathFstDeltaPow2`'s
+/// storage layout is still physically post-order -- a node's address is
+/// wherever its *first* discovering parent happened to leave it, with no
+/// relationship to the other nodes at its own level.
+///
+/// This variant changes that: distinct nodes are still deduplicated the
+/// same way (two DAG nodes with identical `(existence_word,
+/// child_identity)` still share one physical record), but they're
+/// *addressed* in BFS/level order -- every distinct level-0 node first,
+/// then every distinct level-1 node, and so on -- so that the exact set
+/// of nodes a level-flat traversal (`restricted_descent_bfs_visit`,
+/// below) touches together is also contiguous in storage, not scattered
+/// by whichever parent happened to build each one first.
+///
+/// Dedup is inherently bottom-up (you can't know two subtrees are
+/// identical until both are fully built), but this layout is inherently
+/// top-down (level 0 must be *written* before level 1). Building it is
+/// therefore three passes instead of [`build_rec_pow2`]'s one:
+/// 1. [`collect_rec_bfs`] -- the same recursive dedup as
+///    [`build_rec_pow2`], but instead of writing to storage, it records
+///    each distinct node's `(existence_word, child_indices)` into a
+///    per-level `Vec`, where `child_indices` are positions within the
+///    child level's own `Vec`, not addresses.
+/// 2. A level-by-level top-down loop assigns every node's real storage
+///    position (`append_record`, with deltas still zeroed -- a node's
+///    *own* address is known the moment it's appended, but its
+///    children's addresses aren't assigned until the next loop
+///    iteration).
+/// 3. A second top-down loop backfills every real delta via
+///    `patch_appended`, now that every level's addresses are known.
+///    Deltas are still unsigned and `DELTA_BYTES` wide, but the sign is
+///    the opposite of [`PathFstDeltaPow2`]'s: a child is always at a
+///    *higher* address than its parent here (it's written in a later
+///    level), so `delta = child_addr - addr`, and every read path adds
+///    the delta instead of subtracting it.
+pub struct PathFstDeltaPow2Bfs {
+    storage: HeapStorage,
+    root_virtual_addr: u64,
+    height: usize,
+    level_dim_bits: Vec<[u8; NUM_DIMS]>,
+    level_shifts_cache: Vec<[u8; NUM_DIMS]>,
+    level_child_cell_bits_cache: Vec<[u8; NUM_DIMS]>,
+    dimension_sizes: [u64; NUM_DIMS],
+    block_capacity: usize,
+    capacity_bits: u32,
+    capacity_mask: u64,
+    node_count: u64,
+    visited_count: u64,
+}
+
+impl PathFstDeltaPow2Bfs {
+    pub fn build(mut triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], block_capacity: usize) -> Self {
+        assert!(block_capacity.is_power_of_two(), "PathFstDeltaPow2Bfs requires a power-of-two block_capacity, got {block_capacity}");
+        let capacity_bits = block_capacity.trailing_zeros();
+        let capacity_mask = (block_capacity - 1) as u64;
+
+        let dim_order = [0usize, 1, 2];
+        let total_bits = total_bits_needed(dimension_sizes);
+        let level_dim_bits = dynamic_schedule(total_bits);
+        let height = level_dim_bits.len();
+        if height == 0 {
+            return PathFstDeltaPow2Bfs {
+                storage: HeapStorage::empty(),
+                root_virtual_addr: 0,
+                height: 0,
+                level_dim_bits,
+                level_shifts_cache: Vec::new(),
+                level_child_cell_bits_cache: Vec::new(),
+                dimension_sizes,
+                block_capacity,
+                capacity_bits,
+                capacity_mask,
+                node_count: 0,
+                visited_count: 0,
+            };
+        }
+        let level_shifts_cache: Vec<[u8; NUM_DIMS]> = level_dim_bits.iter().map(|&db| level_shifts(db, dim_order)).collect();
+        let level_child_cell_bits_cache: Vec<[u8; NUM_DIMS]> = {
+            let mut remaining = total_bits;
+            level_dim_bits
+                .iter()
+                .map(|&db| {
+                    for d in 0..NUM_DIMS {
+                        remaining[d] -= db[d];
+                    }
+                    remaining
+                })
+                .collect()
+        };
+
+        triples.sort_unstable();
+        triples.dedup();
+
+        // Phase 1: bottom-up dedup, no storage writes yet.
+        let mut register: Vec<HashMap<(u64, Vec<u32>), u32>> = (0..height).map(|_| HashMap::new()).collect();
+        let mut levels_nodes: Vec<Vec<BfsNodeMeta>> = (0..height).map(|_| Vec::new()).collect();
+        let mut visited_count = 0u64;
+        let mut scratch = vec![(0u32, 0u32, 0u32); triples.len()];
+        collect_rec_bfs(
+            &mut triples,
+            &mut scratch,
+            [0; NUM_DIMS],
+            0,
+            height,
+            &level_dim_bits,
+            &level_shifts_cache,
+            &level_child_cell_bits_cache,
+            &mut register,
+            &mut levels_nodes,
+            &mut visited_count,
+        );
+
+        // Phase 2: assign every node's real address, level 0 (the root)
+        // through level `height - 1` (the leaves), top-down -- the
+        // opposite order `build_rec_pow2` appends in, so nodes sharing a
+        // tree level land in contiguous storage. Deltas are zeroed here;
+        // a child's address doesn't exist yet.
+        let mut storage = HeapStorage::empty();
+        let mut addr_of: Vec<Vec<u64>> = Vec::with_capacity(height);
+        let mut pos_of: Vec<Vec<Pos>> = Vec::with_capacity(height);
+        let virtual_addr_of = |pos: Pos| -> u64 { (pos.block as u64) << capacity_bits | pos.offset as u64 };
+        let mut node_count = 0u64;
+        for level in 0..height {
+            let mut level_addrs = Vec::with_capacity(levels_nodes[level].len());
+            let mut level_pos = Vec::with_capacity(levels_nodes[level].len());
+            for node in &levels_nodes[level] {
+                let rec_len = WORD_BYTES + DELTA_BYTES as usize * node.child_indices.len();
+                let mut rec = vec![0u8; rec_len];
+                rec[..WORD_BYTES].copy_from_slice(&node.existence_word.to_le_bytes());
+                let pos = storage.append_record(&rec, block_capacity);
+                level_addrs.push(virtual_addr_of(pos));
+                level_pos.push(pos);
+                node_count += 1;
+            }
+            addr_of.push(level_addrs);
+            pos_of.push(level_pos);
+        }
+
+        // Phase 3: backfill real deltas now that every level's addresses
+        // are known. Always positive: a child's level is always written
+        // strictly after its parent's.
+        for level in 0..height.saturating_sub(1) {
+            for (i, node) in levels_nodes[level].iter().enumerate() {
+                let addr = addr_of[level][i];
+                let pos = pos_of[level][i];
+                for (slot, &child_idx) in node.child_indices.iter().enumerate() {
+                    let child_addr = addr_of[level + 1][child_idx as usize];
+                    debug_assert!(child_addr > addr, "BFS layout expects children at strictly higher addresses than their parent");
+                    let delta = (child_addr - addr) as u32;
+                    storage.patch_appended(pos, WORD_BYTES + slot * DELTA_BYTES as usize, DELTA_BYTES, delta as u64);
+                }
+            }
+        }
+        storage.finish_append(block_capacity);
+
+        let root_virtual_addr = addr_of[0][0];
+
+        PathFstDeltaPow2Bfs {
+            storage,
+            root_virtual_addr,
+            height,
+            level_dim_bits,
+            level_shifts_cache,
+            level_child_cell_bits_cache,
+            dimension_sizes,
+            block_capacity,
+            capacity_bits,
+            capacity_mask,
+            node_count,
+            visited_count,
+        }
+    }
+
+    pub fn contains(&self, s: u32, p: u32, o: u32) -> bool {
+        if self.height == 0 {
+            return false;
+        }
+        if s as u64 >= self.dimension_sizes[0] || p as u64 >= self.dimension_sizes[1] || o as u64 >= self.dimension_sizes[2] {
+            return false;
+        }
+        let coords = [s as u64, p as u64, o as u64];
+        let mut addr = self.root_virtual_addr;
+        let mut lo = [0u64; NUM_DIMS];
+        for level in 0..self.height {
+            let block = (addr >> self.capacity_bits) as usize;
+            let offset = (addr & self.capacity_mask) as usize;
+            let word = self.storage.read_u64(block, offset);
+            let dim_bits = self.level_dim_bits[level];
+            let shifts = self.level_shifts_cache[level];
+            let child_cell_bits = self.level_child_cell_bits_cache[level];
+            let qi = compute_qi(coords, lo, shifts, child_cell_bits);
+            if (word >> qi) & 1 == 0 {
+                return false;
+            }
+            if level == self.height - 1 {
+                return true;
+            }
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            addr += delta;
+            lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+        }
+        unreachable!("height > 0 loop always returns from inside")
+    }
+
+    pub fn mem_size_bytes(&self) -> usize {
+        self.storage.mem_size_bytes()
+            + crate::vec_bytes(&self.level_dim_bits)
+            + crate::vec_bytes(&self.level_shifts_cache)
+            + crate::vec_bytes(&self.level_child_cell_bits_cache)
+    }
+
+    pub fn node_count(&self) -> u64 {
+        self.node_count
+    }
+
+    pub fn visited_count(&self) -> u64 {
+        self.visited_count
+    }
+
+    pub fn block_count(&self) -> usize {
+        self.storage.block_count()
+    }
+
+    pub fn block_capacity(&self) -> usize {
+        self.block_capacity
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// Same contract as [`PathFstDeltaPow2::restricted_descent_visit`] --
+    /// plain DFS, one precomputed mask per level -- on this struct's
+    /// BFS-ordered storage instead.
+    pub fn restricted_descent_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return std::ops::ControlFlow::Continue(()),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_visit only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        self.visit_rec(self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim, &mut emit)
+    }
+
+    fn precompute_level_masks(&self, restrictions: &[DimRestriction; NUM_DIMS]) -> [u64; MAX_HEIGHT] {
+        debug_assert!(self.height <= MAX_HEIGHT);
+        let mut lo = [0u64; NUM_DIMS];
+        let mut masks = [0u64; MAX_HEIGHT];
+        for level in 0..self.height {
+            let dim_bits = self.level_dim_bits[level];
+            let shifts = self.level_shifts_cache[level];
+            let child_cell_bits = self.level_child_cell_bits_cache[level];
+            masks[level] = restriction_mask(dim_bits, shifts, lo, child_cell_bits, restrictions);
+            for d in 0..NUM_DIMS {
+                if let DimRestriction::Exact(v) = restrictions[d] {
+                    let sub = (v as u64 - lo[d]) >> child_cell_bits[d];
+                    lo[d] += sub << child_cell_bits[d];
+                }
+            }
+        }
+        masks
+    }
+
+    fn visit_rec<T>(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize, emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+
+        if is_last {
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                emit(child_lo[emit_dim] as u32)?;
+            }
+            return std::ops::ControlFlow::Continue(());
+        }
+
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            self.visit_rec(child_addr, child_lo, level + 1, level_masks, emit_dim, emit)?;
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Same contract as [`Self::restricted_descent_visit`], sorted,
+    /// deduplicated, collected into a `Vec`.
+    pub fn restricted_descent(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.restricted_descent_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Same contract and fixed-window batching as
+    /// [`PathFstDeltaPow2::restricted_descent_bfs_visit`] -- the
+    /// algorithm this whole struct exists to pair with a layout for --
+    /// on this struct's BFS-ordered storage instead. Should see a bigger
+    /// win here than on `PathFstDeltaPow2`'s post-order storage: every
+    /// node a window's discard-then-real-read pass touches is now also
+    /// physically contiguous, not merely logically grouped.
+    pub fn restricted_descent_bfs_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return std::ops::ControlFlow::Continue(()),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_bfs_visit only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let root = [(self.root_virtual_addr, [0u64; NUM_DIMS])];
+        self.bfs_window_visit(&root, 0, &level_masks, emit_dim, &mut emit)
+    }
+
+    fn bfs_window_visit<T>(&self, nodes: &[(u64, [u64; NUM_DIMS])], level: usize, level_masks: &[u64], emit_dim: usize, emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        if nodes.is_empty() {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let is_last = level == self.height - 1;
+        let mask = level_masks[level];
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        for chunk in nodes.chunks(BFS_WINDOW) {
+            for &(addr, _) in chunk {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                std::hint::black_box(self.storage.read_u64(block, offset));
+            }
+
+            let mut next_buf = [(0u64, [0u64; NUM_DIMS]); BFS_WINDOW];
+            let mut next_len = 0usize;
+
+            for &(addr, lo) in chunk {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                let word = self.storage.read_u64(block, offset);
+                let mut relevant = word & mask;
+
+                if is_last {
+                    while relevant != 0 {
+                        let qi = relevant.trailing_zeros() as usize;
+                        relevant &= relevant - 1;
+                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                        emit(child_lo[emit_dim] as u32)?;
+                    }
+                    continue;
+                }
+
+                while relevant != 0 {
+                    let qi = relevant.trailing_zeros() as usize;
+                    relevant &= relevant - 1;
+                    let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+                    let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+                    let child_addr = addr + delta;
+                    let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+
+                    next_buf[next_len] = (child_addr, child_lo);
+                    next_len += 1;
+                    if next_len == BFS_WINDOW {
+                        self.bfs_window_visit(&next_buf[..next_len], level + 1, level_masks, emit_dim, emit)?;
+                        next_len = 0;
+                    }
+                }
+            }
+
+            if next_len > 0 {
+                self.bfs_window_visit(&next_buf[..next_len], level + 1, level_masks, emit_dim, emit)?;
+            }
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Same contract as [`Self::restricted_descent`], built on
+    /// [`Self::restricted_descent_bfs_visit`] instead.
+    pub fn restricted_descent_bfs(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.restricted_descent_bfs_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Prototype: same window-batched BFS as [`Self::restricted_descent_bfs_visit`],
+    /// but the `word & level_masks[level]` step is pulled out of the
+    /// per-node decode loop into its own flat pass over a plain array,
+    /// instead of being computed inline, one node at a time, interleaved
+    /// with reads/branches/recursive pushes. The reachability question
+    /// ("which nodes are even in this window") is unchanged -- it's
+    /// still established by the normal delta-walk from the real root,
+    /// same as every other traversal in this file; nothing here tries
+    /// to mask a whole level's nodes without first knowing they're
+    /// actually reachable, which the BFS-ordered layout alone can't
+    /// tell you (a node's level doesn't say whether this particular
+    /// query's root path reaches it).
+    ///
+    /// No explicit SIMD intrinsics -- `#![forbid(unsafe_code)]` rules
+    /// out `std::arch`'s `_mm256_and_si256` and friends (those need
+    /// `unsafe`), and portable `std::simd` is nightly-only
+    /// (`#![feature(portable_simd)]`). What this does instead is give
+    /// LLVM's auto-vectorizer the cleanest possible shot: a fixed-size,
+    /// branch-free, elementwise `masked[i] = words[i] & mask` loop over
+    /// plain arrays, with every memory read and every branch moved
+    /// *out* of that loop and into separate passes before/after it.
+    /// Whether this actually compiles down to a real vector AND
+    /// (`pand`/`vpand`) or not is a question for `objdump`, not an
+    /// assumption -- see `DESIGN.md` for what was actually found.
+    pub fn restricted_descent_bfs_masked_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return std::ops::ControlFlow::Continue(()),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_bfs_masked_visit only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let root = [(self.root_virtual_addr, [0u64; NUM_DIMS])];
+        self.bfs_window_masked_visit(&root, 0, &level_masks, emit_dim, &mut emit)
+    }
+
+    fn bfs_window_masked_visit<T>(&self, nodes: &[(u64, [u64; NUM_DIMS])], level: usize, level_masks: &[u64], emit_dim: usize, emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        if nodes.is_empty() {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let is_last = level == self.height - 1;
+        let mask = level_masks[level];
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        for chunk in nodes.chunks(BFS_WINDOW) {
+            for &(addr, _) in chunk {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                std::hint::black_box(self.storage.read_u64(block, offset));
+            }
+
+            // Phase A: every word in the chunk, read into a flat array --
+            // no masking, no branching, just the reads.
+            let mut words = [0u64; BFS_WINDOW];
+            for (i, &(addr, _)) in chunk.iter().enumerate() {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                words[i] = self.storage.read_u64(block, offset);
+            }
+
+            // Phase B: the part this method exists to isolate -- one
+            // flat, branch-free elementwise AND over plain arrays.
+            let mut masked = [0u64; BFS_WINDOW];
+            for i in 0..chunk.len() {
+                masked[i] = words[i] & mask;
+            }
+
+            // Phase C: decode, same logic as `bfs_window_visit`, just
+            // reading `words`/`masked` instead of recomputing them.
+            let mut next_buf = [(0u64, [0u64; NUM_DIMS]); BFS_WINDOW];
+            let mut next_len = 0usize;
+
+            for (i, &(addr, lo)) in chunk.iter().enumerate() {
+                let mut relevant = masked[i];
+                if relevant == 0 {
+                    continue;
+                }
+                let word = words[i];
+
+                if is_last {
+                    while relevant != 0 {
+                        let qi = relevant.trailing_zeros() as usize;
+                        relevant &= relevant - 1;
+                        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                        emit(child_lo[emit_dim] as u32)?;
+                    }
+                    continue;
+                }
+
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                while relevant != 0 {
+                    let qi = relevant.trailing_zeros() as usize;
+                    relevant &= relevant - 1;
+                    let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+                    let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+                    let child_addr = addr + delta;
+                    let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+
+                    next_buf[next_len] = (child_addr, child_lo);
+                    next_len += 1;
+                    if next_len == BFS_WINDOW {
+                        self.bfs_window_masked_visit(&next_buf[..next_len], level + 1, level_masks, emit_dim, emit)?;
+                        next_len = 0;
+                    }
+                }
+            }
+
+            if next_len > 0 {
+                self.bfs_window_masked_visit(&next_buf[..next_len], level + 1, level_masks, emit_dim, emit)?;
+            }
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Same contract as [`Self::restricted_descent`], built on
+    /// [`Self::restricted_descent_bfs_masked_visit`] instead.
+    pub fn restricted_descent_bfs_masked(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.restricted_descent_bfs_masked_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
+/// Phase 1 of [`PathFstDeltaPow2Bfs::build`] -- bottom-up dedup, same
+/// partitioning/dedup logic as [`build_rec_pow2`], but recording each
+/// distinct node's `(existence_word, child_indices)` into `levels_nodes`
+/// instead of writing storage. Returns this node's index within
+/// `levels_nodes[level]`.
+#[allow(clippy::too_many_arguments)]
+fn collect_rec_bfs(
+    points: &mut [Triple],
+    scratch: &mut [Triple],
+    lo: [u64; NUM_DIMS],
+    level: usize,
+    height: usize,
+    level_dim_bits: &[[u8; NUM_DIMS]],
+    level_shifts_cache: &[[u8; NUM_DIMS]],
+    level_child_cell_bits_cache: &[[u8; NUM_DIMS]],
+    register: &mut [HashMap<(u64, Vec<u32>), u32>],
+    levels_nodes: &mut [Vec<BfsNodeMeta>],
+    visited_count: &mut u64,
+) -> u32 {
+    *visited_count += 1;
+    let dim_bits = level_dim_bits[level];
+    let shifts = level_shifts_cache[level];
+    let child_cell_bits = level_child_cell_bits_cache[level];
+    let branching: usize = 1 << (dim_bits[0] + dim_bits[1] + dim_bits[2]) as u32;
+    debug_assert!(branching <= K_SQUARE as usize);
+
+    let qi_of = |pt: &Triple| compute_qi([pt.0 as u64, pt.1 as u64, pt.2 as u64], lo, shifts, child_cell_bits);
+    let mut counts = [0usize; K_SQUARE as usize];
+    for pt in points.iter() {
+        counts[qi_of(pt)] += 1;
+    }
+    let mut offsets = [0usize; K_SQUARE as usize + 1];
+    for i in 0..branching {
+        offsets[i + 1] = offsets[i] + counts[i];
+    }
+    let mut cursor = offsets;
+    for &pt in points.iter() {
+        let qi = qi_of(&pt);
+        scratch[cursor[qi]] = pt;
+        cursor[qi] += 1;
+    }
+    points.copy_from_slice(&scratch[..points.len()]);
+
+    let mut existence_word = 0u64;
+    for qi in 0..branching {
+        if offsets[qi] < offsets[qi + 1] {
+            existence_word |= 1u64 << qi;
+        }
+    }
+
+    if level == height - 1 {
+        let key = (existence_word, Vec::new());
+        if let Some(&idx) = register[level].get(&key) {
+            return idx;
+        }
+        let idx = levels_nodes[level].len() as u32;
+        levels_nodes[level].push(BfsNodeMeta { existence_word, child_indices: Vec::new() });
+        register[level].insert(key, idx);
+        return idx;
+    }
+
+    let mut child_indices = Vec::with_capacity(existence_word.count_ones() as usize);
+    for qi in 0..branching {
+        if offsets[qi] < offsets[qi + 1] {
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            let (child_points, child_scratch) = (&mut points[offsets[qi]..offsets[qi + 1]], &mut scratch[offsets[qi]..offsets[qi + 1]]);
+            let child_idx = collect_rec_bfs(
+                child_points,
+                child_scratch,
+                child_lo,
+                level + 1,
+                height,
+                level_dim_bits,
+                level_shifts_cache,
+                level_child_cell_bits_cache,
+                register,
+                levels_nodes,
+                visited_count,
+            );
+            child_indices.push(child_idx);
+        }
+    }
+
+    let key = (existence_word, child_indices.clone());
+    if let Some(&idx) = register[level].get(&key) {
+        return idx;
+    }
+    let idx = levels_nodes[level].len() as u32;
+    levels_nodes[level].push(BfsNodeMeta { existence_word, child_indices });
+    register[level].insert(key, idx);
+    idx
 }

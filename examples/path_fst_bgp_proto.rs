@@ -22,7 +22,7 @@
 use std::ops::ControlFlow;
 use std::time::Instant;
 
-use s_graph::path_fst::PathFstDeltaPow2;
+use s_graph::path_fst::{PathFstDeltaPow2, PathFstDeltaPow2Bfs};
 use s_graph::tree::DimRestriction;
 use s_graph::{Heap, Triple};
 
@@ -35,6 +35,7 @@ fn report(name: &str, triples: Vec<Triple>, num_s: u32, num_p: u32, num_o: u32) 
 
     let heap_tree = Heap::build_dynamic(triples.clone(), s_graph::DEFAULT_BLOCK_CAPACITY);
     let path_fst = PathFstDeltaPow2::build(triples.clone(), [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+    let path_fst_bfs = PathFstDeltaPow2Bfs::build(triples.clone(), [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
 
     let mut rng = SplitMix64::new(777);
 
@@ -58,15 +59,36 @@ fn report(name: &str, triples: Vec<Triple>, num_s: u32, num_p: u32, num_o: u32) 
         fst_stream_got.sort_unstable();
         fst_stream_got.dedup();
         let fst_fast_got = path_fst.restricted_descent_fastpath([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
+        let fst_prefetch_got = path_fst.restricted_descent_prefetch([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
+        let fst_frontier_got = path_fst.restricted_descent_frontier([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
+        let fst_bfs_got = path_fst.restricted_descent_bfs([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
+        let fst_bfs_layout_dfs_got = path_fst_bfs.restricted_descent([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
+        let fst_bfs_layout_bfs_got = path_fst_bfs.restricted_descent_bfs([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
+        let fst_bfs_layout_masked_got = path_fst_bfs.restricted_descent_bfs_masked([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2);
         heap_results_total += heap_got.len() as u64;
-        if heap_got != fst_got || heap_got != fst_stream_got || heap_got != fst_fast_got {
+        if heap_got != fst_got
+            || heap_got != fst_stream_got
+            || heap_got != fst_fast_got
+            || heap_got != fst_prefetch_got
+            || heap_got != fst_frontier_got
+            || heap_got != fst_bfs_got
+            || heap_got != fst_bfs_layout_dfs_got
+            || heap_got != fst_bfs_layout_bfs_got
+            || heap_got != fst_bfs_layout_masked_got
+        {
             mismatches += 1;
             eprintln!(
-                "  TWO-EXACT MISMATCH (s={s},p={p}): heap={} values, fst={} values, fst_stream={} values, fst_fast={} values",
+                "  TWO-EXACT MISMATCH (s={s},p={p}): heap={} values, fst={} values, fst_stream={} values, fst_fast={} values, fst_prefetch={} values, fst_frontier={} values, fst_bfs={} values, fst_bfs_layout_dfs={} values, fst_bfs_layout_bfs={} values, fst_bfs_layout_masked={} values",
                 heap_got.len(),
                 fst_got.len(),
                 fst_stream_got.len(),
-                fst_fast_got.len()
+                fst_fast_got.len(),
+                fst_prefetch_got.len(),
+                fst_frontier_got.len(),
+                fst_bfs_got.len(),
+                fst_bfs_layout_dfs_got.len(),
+                fst_bfs_layout_bfs_got.len(),
+                fst_bfs_layout_masked_got.len()
             );
         }
     }
@@ -123,8 +145,59 @@ fn report(name: &str, triples: Vec<Triple>, num_s: u32, num_p: u32, num_o: u32) 
     }
     let fst_fast_elapsed = t4.elapsed();
 
+    let t5 = Instant::now();
+    for &(s, p) in &two_exact_probes {
+        let mut out = Vec::new();
+        let _: ControlFlow<()> = path_fst.restricted_descent_prefetch_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+            out.push(v);
+            ControlFlow::Continue(())
+        });
+        std::hint::black_box(out);
+    }
+    let fst_prefetch_elapsed = t5.elapsed();
+
+    let t6 = Instant::now();
+    for &(s, p) in &two_exact_probes {
+        let mut out = Vec::new();
+        let _: ControlFlow<()> = path_fst.restricted_descent_frontier_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+            out.push(v);
+            ControlFlow::Continue(())
+        });
+        std::hint::black_box(out);
+    }
+    let fst_frontier_elapsed = t6.elapsed();
+
+    let t7 = Instant::now();
+    for &(s, p) in &two_exact_probes {
+        let mut out = Vec::new();
+        let _: ControlFlow<()> = path_fst.restricted_descent_bfs_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+            out.push(v);
+            ControlFlow::Continue(())
+        });
+        std::hint::black_box(out);
+    }
+    let fst_bfs_elapsed = t7.elapsed();
+
+    let t8 = Instant::now();
+    for &(s, p) in &two_exact_probes {
+        std::hint::black_box(path_fst_bfs.restricted_descent([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2));
+    }
+    let fst_bfs_layout_dfs_elapsed = t8.elapsed();
+
+    let t9 = Instant::now();
+    for &(s, p) in &two_exact_probes {
+        std::hint::black_box(path_fst_bfs.restricted_descent_bfs([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2));
+    }
+    let fst_bfs_layout_bfs_elapsed = t9.elapsed();
+
+    let t10 = Instant::now();
+    for &(s, p) in &two_exact_probes {
+        std::hint::black_box(path_fst_bfs.restricted_descent_bfs_masked([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2));
+    }
+    let fst_bfs_layout_masked_elapsed = t10.elapsed();
+
     println!(
-        "  two-Exact timing over {two_exact_n} probes: Heap={:.1}us/call, FST(cached)={:.1}us/call ({:.2}x), FST(no-cache)={:.1}us/call ({:.2}x), FST(stream, precomputed masks)={:.1}us/call ({:.2}x), FST(fastpath)={:.1}us/call ({:.2}x)",
+        "  two-Exact timing over {two_exact_n} probes: Heap={:.1}us/call, FST(cached)={:.1}us/call ({:.2}x), FST(no-cache)={:.1}us/call ({:.2}x), FST(stream, precomputed masks)={:.1}us/call ({:.2}x), FST(fastpath)={:.1}us/call ({:.2}x), FST(prefetch)={:.1}us/call ({:.2}x), FST(frontier)={:.1}us/call ({:.2}x), FST(bfs, no heap buffers)={:.1}us/call ({:.2}x), FST(bfs layout, dfs)={:.1}us/call ({:.2}x), FST(bfs layout, bfs)={:.1}us/call ({:.2}x), FST(bfs layout, masked)={:.1}us/call ({:.2}x)",
         heap_elapsed.as_micros() as f64 / two_exact_n as f64,
         fst_cached_elapsed.as_micros() as f64 / two_exact_n as f64,
         fst_cached_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
@@ -134,6 +207,18 @@ fn report(name: &str, triples: Vec<Triple>, num_s: u32, num_p: u32, num_o: u32) 
         fst_stream_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
         fst_fast_elapsed.as_micros() as f64 / two_exact_n as f64,
         fst_fast_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_prefetch_elapsed.as_micros() as f64 / two_exact_n as f64,
+        fst_prefetch_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_frontier_elapsed.as_micros() as f64 / two_exact_n as f64,
+        fst_frontier_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_elapsed.as_micros() as f64 / two_exact_n as f64,
+        fst_bfs_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_layout_dfs_elapsed.as_micros() as f64 / two_exact_n as f64,
+        fst_bfs_layout_dfs_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_layout_bfs_elapsed.as_micros() as f64 / two_exact_n as f64,
+        fst_bfs_layout_bfs_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_layout_masked_elapsed.as_micros() as f64 / two_exact_n as f64,
+        fst_bfs_layout_masked_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
     );
     println!(
         "  two-Exact FST cache (whole-descent): {total_hits} hits, {total_misses} misses ({:.2}% hit rate)",
@@ -164,15 +249,36 @@ fn report(name: &str, triples: Vec<Triple>, num_s: u32, num_p: u32, num_o: u32) 
         fst_stream_got.sort_unstable();
         fst_stream_got.dedup();
         let fst_fast_got = path_fst.restricted_descent_fastpath([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
+        let fst_prefetch_got = path_fst.restricted_descent_prefetch([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
+        let fst_frontier_got = path_fst.restricted_descent_frontier([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
+        let fst_bfs_got = path_fst.restricted_descent_bfs([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
+        let fst_bfs_layout_dfs_got = path_fst_bfs.restricted_descent([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
+        let fst_bfs_layout_bfs_got = path_fst_bfs.restricted_descent_bfs([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
+        let fst_bfs_layout_masked_got = path_fst_bfs.restricted_descent_bfs_masked([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2);
         heap_results_total += heap_got.len() as u64;
-        if heap_got != fst_got || heap_got != fst_stream_got || heap_got != fst_fast_got {
+        if heap_got != fst_got
+            || heap_got != fst_stream_got
+            || heap_got != fst_fast_got
+            || heap_got != fst_prefetch_got
+            || heap_got != fst_frontier_got
+            || heap_got != fst_bfs_got
+            || heap_got != fst_bfs_layout_dfs_got
+            || heap_got != fst_bfs_layout_bfs_got
+            || heap_got != fst_bfs_layout_masked_got
+        {
             mismatches += 1;
             eprintln!(
-                "  ONE-EXACT MISMATCH (s={s}): heap={} values, fst={} values, fst_stream={} values, fst_fast={} values",
+                "  ONE-EXACT MISMATCH (s={s}): heap={} values, fst={} values, fst_stream={} values, fst_fast={} values, fst_prefetch={} values, fst_frontier={} values, fst_bfs={} values, fst_bfs_layout_dfs={} values, fst_bfs_layout_bfs={} values, fst_bfs_layout_masked={} values",
                 heap_got.len(),
                 fst_got.len(),
                 fst_stream_got.len(),
-                fst_fast_got.len()
+                fst_fast_got.len(),
+                fst_prefetch_got.len(),
+                fst_frontier_got.len(),
+                fst_bfs_got.len(),
+                fst_bfs_layout_dfs_got.len(),
+                fst_bfs_layout_bfs_got.len(),
+                fst_bfs_layout_masked_got.len()
             );
         }
     }
@@ -229,8 +335,59 @@ fn report(name: &str, triples: Vec<Triple>, num_s: u32, num_p: u32, num_o: u32) 
     }
     let fst_fast_elapsed = t4.elapsed();
 
+    let t5 = Instant::now();
+    for &s in &one_exact_probes {
+        let mut out = Vec::new();
+        let _: ControlFlow<()> = path_fst.restricted_descent_prefetch_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+            out.push(v);
+            ControlFlow::Continue(())
+        });
+        std::hint::black_box(out);
+    }
+    let fst_prefetch_elapsed = t5.elapsed();
+
+    let t6 = Instant::now();
+    for &s in &one_exact_probes {
+        let mut out = Vec::new();
+        let _: ControlFlow<()> = path_fst.restricted_descent_frontier_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+            out.push(v);
+            ControlFlow::Continue(())
+        });
+        std::hint::black_box(out);
+    }
+    let fst_frontier_elapsed = t6.elapsed();
+
+    let t7 = Instant::now();
+    for &s in &one_exact_probes {
+        let mut out = Vec::new();
+        let _: ControlFlow<()> = path_fst.restricted_descent_bfs_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+            out.push(v);
+            ControlFlow::Continue(())
+        });
+        std::hint::black_box(out);
+    }
+    let fst_bfs_elapsed = t7.elapsed();
+
+    let t8 = Instant::now();
+    for &s in &one_exact_probes {
+        std::hint::black_box(path_fst_bfs.restricted_descent([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2));
+    }
+    let fst_bfs_layout_dfs_elapsed = t8.elapsed();
+
+    let t9 = Instant::now();
+    for &s in &one_exact_probes {
+        std::hint::black_box(path_fst_bfs.restricted_descent_bfs([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2));
+    }
+    let fst_bfs_layout_bfs_elapsed = t9.elapsed();
+
+    let t10 = Instant::now();
+    for &s in &one_exact_probes {
+        std::hint::black_box(path_fst_bfs.restricted_descent_bfs_masked([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2));
+    }
+    let fst_bfs_layout_masked_elapsed = t10.elapsed();
+
     println!(
-        "  one-Exact timing over {one_exact_n} probes: Heap={:.1}us/call, FST(cached)={:.1}us/call ({:.2}x), FST(no-cache)={:.1}us/call ({:.2}x), FST(stream, precomputed masks)={:.1}us/call ({:.2}x), FST(fastpath)={:.1}us/call ({:.2}x)",
+        "  one-Exact timing over {one_exact_n} probes: Heap={:.1}us/call, FST(cached)={:.1}us/call ({:.2}x), FST(no-cache)={:.1}us/call ({:.2}x), FST(stream, precomputed masks)={:.1}us/call ({:.2}x), FST(fastpath)={:.1}us/call ({:.2}x), FST(prefetch)={:.1}us/call ({:.2}x), FST(frontier)={:.1}us/call ({:.2}x), FST(bfs, no heap buffers)={:.1}us/call ({:.2}x), FST(bfs layout, dfs)={:.1}us/call ({:.2}x), FST(bfs layout, bfs)={:.1}us/call ({:.2}x), FST(bfs layout, masked)={:.1}us/call ({:.2}x)",
         heap_elapsed.as_micros() as f64 / one_exact_n as f64,
         fst_cached_elapsed.as_micros() as f64 / one_exact_n as f64,
         fst_cached_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
@@ -240,6 +397,18 @@ fn report(name: &str, triples: Vec<Triple>, num_s: u32, num_p: u32, num_o: u32) 
         fst_stream_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
         fst_fast_elapsed.as_micros() as f64 / one_exact_n as f64,
         fst_fast_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_prefetch_elapsed.as_micros() as f64 / one_exact_n as f64,
+        fst_prefetch_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_frontier_elapsed.as_micros() as f64 / one_exact_n as f64,
+        fst_frontier_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_elapsed.as_micros() as f64 / one_exact_n as f64,
+        fst_bfs_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_layout_dfs_elapsed.as_micros() as f64 / one_exact_n as f64,
+        fst_bfs_layout_dfs_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_layout_bfs_elapsed.as_micros() as f64 / one_exact_n as f64,
+        fst_bfs_layout_bfs_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
+        fst_bfs_layout_masked_elapsed.as_micros() as f64 / one_exact_n as f64,
+        fst_bfs_layout_masked_elapsed.as_secs_f64() / heap_elapsed.as_secs_f64().max(1e-12),
     );
     println!(
         "  one-Exact FST cache (whole-descent): {total_hits} hits, {total_misses} misses ({:.2}% hit rate)",

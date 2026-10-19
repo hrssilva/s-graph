@@ -1512,6 +1512,10 @@ theory. No further work planned on the compression half of this idea.
 
 ### Path FST prototype: a real minimized DAG, `contains` only, static build
 
+The [FST literature review](FST_LITERATURE_REVIEW.md) maps the layout,
+dedup, and batched-traversal literature to this section and everything
+under it; not repeated inline here.
+
 The two follow-ups above left two open objections to actually building
 subtree deduplication: (1) a real back-reference needs to be
 distinguishable from an ordinary record inline, costing more than the
@@ -2278,6 +2282,519 @@ it against *both* query directions (`S`-bound and `O`-bound, not just
 the one this project happens to benchmark by habit) across all four
 domain shapes before trusting it -- exactly the validation the earlier
 attempt skipped the first time, which is why it had to be reverted.
+
+### A full `one-Exact`/`two-Exact` perf sweep, a real allocation fix, and a negative on local sibling prefetching
+
+Three follow-ups, all on `PathFstDeltaPow2` alone (not vs. `Heap`):
+a full baseline-subtracted `perf stat` sweep across both query shapes and
+all four domain shapes (`examples/path_fst_bgp_perf.rs`, extended with
+`small`/`zipf` domains to match `path_fst_bgp_proto.rs`'s four), a real
+fix the sweep's own data motivated, and a test of whether exposing
+memory-level parallelism locally (prefetching a node's own children
+before recursing into any of them) helps the shapes the earlier `perf`
+dive found to be memory-latency-bound.
+
+**The sweep** (cycles, instructions, IPC, cache-references, cache-misses,
+branch-instructions, all per call):
+
+```
+shape/domain      cycles/call   instr/call    IPC    cache-refs  cache-miss  miss%
+small, one-Exact    127,656      388,426     3.04       3,961        702    17.7%
+small, two-Exact      3,123        9,379     3.00         209         40    19.1%
+sym,   one-Exact  6,004,664    6,089,949     1.01     147,796     62,024    42.0%
+sym,   two-Exact     65,497       46,777     0.71       1,378        673    48.9%
+zipf,  one-Exact     12,242       36,587     2.99         401         86    21.4%
+zipf,  two-Exact        932        3,173     3.41          10          1    13.2%
+asym,  one-Exact  3,416,287    3,668,028     1.07      77,209     27,073    35.1%
+asym,  two-Exact     41,726       32,818     0.79       1,059        460    43.4%
+```
+
+The standout: `two-Exact` on the two large domains (`sym`/`asym`) runs
+at IPC *below 1* (0.71, 0.79) -- worse than the much bigger `one-Exact`
+traversal in the *same* domain, backwards from what raw node count
+alone would predict. That pattern -- a fixed per-call cost dominating a
+shape that otherwise does very little real traversal work -- pointed
+straight at a concrete bug: [`PathFstDeltaPow2::precompute_level_masks`]
+returned a heap-allocated `Vec<u64>`, built fresh on *every* query call,
+when the method it was explicitly modeled on
+(`tree::precompute_level_masks`) already returns a fixed-size
+`[u64; MAX_HEIGHT]` array for exactly this reason -- a detail that
+didn't get carried over when the trick was first ported into this file.
+
+**The fix**: switched to `[u64; MAX_HEIGHT]` (`MAX_HEIGHT = 64`,
+`pub(crate)` in `tree.rs`, reused directly, not reimplemented -- every
+real domain's `height` is nowhere close), matching `tree`'s own pattern
+exactly. Zero risk, zero behavior change (0 mismatches across every
+shape, full test suite green). Measured effect, same methodology,
+before -> after:
+
+```
+shape, two-Exact    cycles/call before   cycles/call after   change
+small                      3,123                3,037         -2.8%
+sym                       65,497               63,447         -3.1%
+zipf                         932                  868         -6.9%
+asym                      41,726               39,444         -5.5%
+```
+
+`one-Exact` was unaffected either way (within noise) -- the allocation
+is a fixed per-query cost, invisible once amortized over tens of
+thousands of node visits, exactly as the fixed-cost signature in the
+sweep predicted before the fix was even written.
+
+Checked the other two categories the sweep was run to find, and found
+nothing further to change: `DELTA_BYTES = 4` is a power of two, so
+`real_index * DELTA_BYTES` already compiles to a shift; the one
+non-power-of-two multiply in the hot path (`level * NUM_DIMS`, `NUM_DIMS
+= 3`, for indexing the per-level `[u8; 3]` schedule arrays) already
+lowers to a single `lea`, as cheap as a shift on this hardware. Branch
+misprediction *rates* (not just branch density) computed from the same
+sweep sit at 0.7%-3.4% across all eight rows -- already well-predicted;
+for the expensive shapes specifically (`one-Exact`, `sym`/`asym`, IPC
+~1.0-1.07, 35-42% cache-miss rate), the bottleneck is memory latency,
+not branches, so eliminating the `is_last` check's per-node branch
+wouldn't move the needle there -- not attempted.
+
+**Local sibling prefetching, tested and rejected.** The idea (prompted
+by the observation that `level_masks[level]` is one shared scalar
+constant every node at that level ANDs its own word against, a
+structurally SIMD-shaped operation): rather than vectorizing the
+arithmetic itself (not the bottleneck -- IPC data above already shows
+the expensive shapes are latency-, not throughput-bound), use the same
+"many nodes, one mask" fact to issue several independent memory
+accesses together instead of one at a time, exposing memory-level
+parallelism to the CPU's out-of-order execution instead of the fully
+serial dependent-load chain plain recursion forces (each child's
+address is only computed, and its own word only read, *after* its
+address is decoded, which only happens *inside* the recursive call for
+the previous child). `_mm_prefetch` isn't available -- this crate is
+`#![forbid(unsafe_code)]`, and there's no safe wrapper in `std` -- so
+[`PathFstDeltaPow2::restricted_descent_prefetch_visit`]/
+`visit_rec_prefetch` use a real, safe, result-discarded `read_u64`
+(wrapped in `black_box` so the optimizer can't prove it dead and elide
+it) at each of a node's *own* real children's addresses, decoded ahead
+of time (cheap -- the deltas are bytes right next to the already-read
+`word`, no extra cache miss to get them), before recursing into any of
+them for real. Scoped locally (one node's bounded fan-out, no growable
+buffer) rather than a full BFS/frontier rewrite across a whole level,
+specifically to test the idea cheaply before paying for that bigger,
+riskier redesign.
+
+Correctness held (0 mismatches, every shape, both query types, full
+test suite green) but the performance result is a clean, consistent
+negative for `one-Exact` -- the one shape this was built to help:
+
+```
+one-Exact          stream (precomputed masks)   prefetch (local sibling)
+small                32.5us (0.68x)               41.0us (0.86x)   worse
+sym (10M)           1530.1us (1.07x)             1610.6us (1.13x)  worse
+zipf (10M)            3.6us (0.53x)                4.6us (0.68x)   worse
+asym (3M)            853.6us (1.05x)              892.8us (1.10x)  worse
+```
+
+(`two-Exact` was mixed/within noise across the four shapes -- small
+sample, microsecond-scale, not a clear signal either way.)
+
+**Why, worked out after the fact, not before**: this traversal is DFS,
+not BFS -- after the "prefetch" pass warms children 2..k's cache lines,
+the very next thing that happens is recursing fully into child 1's
+*entire* subtree before ever touching child 2 again. At the level this
+costs the most, that subtree is not shallow. By the time control
+returns to use child 2's supposedly-warmed line, the intervening
+traffic from child 1's whole subtree has very plausibly evicted it from
+L1/L2 already -- the prefetch-to-use *distance* here is "one sibling's
+full subtree," not a few instructions, which is far outside the window
+any practical prefetch depth covers. Meanwhile the technique's fixed
+cost -- a second decode pass over every child's delta, every single
+node, doubling that arithmetic regardless of whether the memory benefit
+ever lands -- is paid unconditionally. The fixed cost is real and
+guaranteed; the memory benefit depends on a cache-line surviving a gap
+that, on this traversal shape, it structurally can't. This argues for,
+not against, the pattern the earlier margin-finding entry already
+flagged as the bigger remaining lever: a real BFS/frontier
+restructuring processes one whole *level* flat before advancing, so the
+gap between "prefetch a frontier node" and "use it" is the rest of that
+level's frontier, not a full subtree -- a fundamentally shorter, more
+survivable distance. That's a bigger rewrite (needs a growable buffer
+sized to the level's node count, which this file's current traversal
+has none of, trading away the zero-allocation property) and hasn't been
+attempted. `restricted_descent_prefetch_visit`/`restricted_descent_prefetch`
+are kept in `src/path_fst.rs` as a documented negative result, same
+convention as every other prototype here.
+
+### BFS/frontier restructuring: a real win, confirmed by `perf` not just wall-clock -- then a second version that gets the same win without the heap buffers
+
+Built the "bigger rewrite" the previous entry flagged:
+`restricted_descent_frontier_visit`/`restricted_descent_frontier` in
+`src/path_fst.rs` process one tree level flat (all nodes across all
+parents at that level, in one batch) instead of recursing depth-first.
+Per level: issue a discarded `read_u64` (same `black_box`-wrapped,
+`#![forbid(unsafe_code)]`-respecting pattern as the local-sibling
+prototype) for every node currently in the frontier, *then* do the real
+reads, decode, and build the next level's frontier. Two `Vec<(u64, [u64;
+NUM_DIMS])>` buffers (`current`/`next`), swapped each level instead of
+reallocated -- the zero-allocation property every other traversal in
+this file has is given up on purpose, in exchange for a prefetch-to-use
+gap of "the rest of this level's frontier" instead of "one sibling's
+whole subtree."
+
+Wall-clock (`examples/path_fst_bgp_proto.rs`, FST(stream) is the
+existing precomputed-mask default, ratio is vs. `Heap`), 0 mismatches
+against `Heap` across every shape:
+
+```
+one-Exact          stream (precomputed masks)   frontier
+small                32.5us (0.68x)               31.1us (0.67x)   slightly better
+sym (10M)           1550.5us (1.08x)             1315.4us (0.92x)  beats Heap outright
+zipf (10M)            3.6us (0.52x)                3.8us (0.55x)   slightly worse
+asym (3M)            873.1us (1.06x)               610.0us (0.74x)  beats Heap outright
+
+two-Exact           stream (precomputed masks)   frontier
+small                 0.8us (0.51x)                1.0us (0.68x)   worse
+sym (10M)            16.1us (0.71x)                9.9us (0.43x)   much better
+zipf (10M)            0.2us (0.62x)                0.3us (0.80x)   worse
+asym (3M)            10.8us (0.72x)                6.2us (0.41x)   much better
+```
+
+Per the explicit instruction not to trust wall-clock alone here, the
+same four biggest-margin combos (sym/asym x one/two-Exact) were measured
+with the same baseline-subtracted `perf stat` methodology as every other
+entry in this section (`examples/path_fst_bgp_perf.rs`, `("frontier",
+...)` arms added to mirror the existing `("pow2", ...)` ones):
+
+```
+shape              cycles (stream->frontier)   cache-miss (stream->frontier)   cycles-per-miss (stream->frontier)
+sym,  one-Exact    6,034,353 -> 5,220,307 (-14%)   61,528 -> 89,622  (+46%)        98.1 -> 58.3  (-41%)
+sym,  two-Exact       63,447 ->   38,219  (-40%)      664 ->    497  (-25%)        95.5 -> 77.0  (-19%)
+asym, one-Exact    3,402,359 -> 2,519,417 (-26%)   27,035 -> 65,664  (+143%)      125.9 -> 38.4  (-70%)
+asym, two-Exact       39,444 ->   24,181  (-39%)      452 ->    404  (-11%)        87.3 -> 59.9  (-31%)
+```
+
+The honest nuance: raw cache-miss *count* went up in 2 of 4 combos (the
+discarded-read-then-real-read pattern reads every node's word twice, the
+same fixed cost the rejected local-sibling prototype paid). What's
+consistent across all four, and what actually explains the cycle drop,
+is **cycles per cache-miss** falling 19%-70% -- the misses that do occur
+cost far less each, because issuing them as a batch of mutually
+independent reads (different parents, no decode dependency between
+them) lets the CPU's out-of-order execution service several concurrently
+instead of one at a time through a serialized dependent-load chain. This
+is genuine memory-level-parallelism overlap, not a reduction in work --
+and it's the mechanism the rejected local-sibling prototype never got
+access to, because DFS's "whole subtree" gap was too long for the
+overlap window to survive, while BFS's "rest of this level" gap isn't.
+Wall-clock and `perf`-derived cycle reductions cross-validate well (e.g.
+sym one-Exact: ~15% wall-clock vs. 14% perf-cycle; asym one-Exact: ~30%
+wall-clock vs. 26% perf-cycle). `small`/`zipf` (tiny per-query work) were
+a wash or mildly negative -- the new heap buffers aren't amortized when
+there's barely any work to spread their cost over.
+
+**Follow-up, same session: the same win without the heap buffers.**
+Asked directly: can the level-flat batching be done without giving up
+the zero-allocation property? `restricted_descent_bfs_visit` (also in
+`src/path_fst.rs`) answers yes, with a different trade: every node held
+in flight lives in a fixed-size `[(u64, [u64; NUM_DIMS]); BFS_WINDOW]`
+array on the stack (`BFS_WINDOW = 256`), never the heap. A level wider
+than `BFS_WINDOW` is processed in sequential chunks -- warm, then read
+real, with any children produced buffered into a *second* fixed array
+that gets flushed (one recursive call, one level deeper) as soon as it
+fills rather than being allowed to grow. Recursion depth is bounded by
+`self.height` (<= `MAX_HEIGHT`), the same bound the plain DFS `visit_rec`
+already has -- this is no deeper, it just carries a window-sized array
+per frame instead of one node's worth of state.
+
+Measured the same way (0 mismatches, full test suite green). Wall-clock,
+with the frontier column repeated for comparison:
+
+```
+one-Exact          frontier         bfs (no heap buffers)
+small               31.1us (0.67x)   28.5us (0.59x)   better
+sym (10M)         1379.4us (0.97x) 1036.6us (0.73x)   much better, widens the win over Heap
+zipf (10M)           3.8us (0.55x)    3.5us (0.52x)   better
+asym (3M)           629.5us (0.77x)  538.5us (0.66x)  better
+
+two-Exact           frontier          bfs (no heap buffers)
+small                1.1us (0.70x)    1.0us (0.66x)   better
+sym (10M)            10.2us (0.45x)    9.6us (0.43x)  slightly better
+zipf (10M)            0.3us (0.79x)    0.5us (1.39x)  worse -- see below
+asym (3M)             6.7us (0.44x)    6.4us (0.42x)  slightly better
+```
+
+`perf stat` on the same four biggest-margin combos (baseline-subtracted
+per-call deltas, `("bfs", ...)` arms added to
+`examples/path_fst_bgp_perf.rs`):
+
+```
+shape              cycles (frontier->bfs)       cache-miss (frontier->bfs)     cycles-per-miss (frontier->bfs)
+sym,  one-Exact    5,220,307 -> 4,206,173 (-19%)   89,622 -> 50,810 (-43%)       58.3 -> 82.8  (+42%)
+sym,  two-Exact       38,219 ->   38,897 (+2%)        497 ->    491 (-1%)        77.0 -> 79.3  (+3%)
+asym, one-Exact    2,519,417 -> 2,207,204 (-12%)   65,664 -> 38,568 (-41%)       38.4 -> 57.2  (+49%)
+asym, two-Exact       24,181 ->   24,714 (+2%)        404 ->    418 (+3%)        59.9 -> 59.1  (-1%)
+```
+
+A genuinely different (and better) story than "same win, smaller
+footprint": `bfs`'s cycles-per-miss is *higher* than the `Vec`-based
+frontier's on both one-Exact combos (less overlap per miss -- expected,
+since a 256-wide window is narrower than an unbounded whole-level
+frontier, so fewer independent reads are ever in flight at once), but
+its total cycle count is still lower in 3 of 4 combos, because it also
+*reduces the cache-miss count itself* relative to frontier (-43%/-41% on
+the two combos that matter most) instead of just overlapping it. The
+`two-Exact` combos are a wash either way (both cycles and misses within
+a couple percent, consistent with the near-noise-level wall-clock gap
+there). Net effect: giving up the heap buffers didn't cost
+performance -- on the shapes this investigation has been chasing all
+along (large-domain one-Exact), it won again. One-Exact on the
+asymmetric domain is now at 0.66x of `Heap` (was 1.06x with the original
+`stream` default this whole investigation started from).
+
+The one real regression: `two-Exact` on the `zipf` domain (0.79x
+frontier -> 1.39x bfs). That shape returns almost nothing (6 total
+results across 2000 probes in the correctness run -- most probes
+terminate in 1-2 node visits before even reaching a level with real
+fanout), so the fixed overhead of `bfs_window_visit`'s extra recursive
+function-call boundary (slice bounds, an `is_last` check, a fresh
+`next_buf` array initialization) costs more, as a fraction of an already
+tiny total, than the frontier's flat per-level loop does. Not
+perf-verified independently (the combo's absolute cost is microseconds,
+below where `perf stat`'s per-call signal is reliable at these iteration
+counts) -- flagged honestly rather than investigated further, consistent
+with `small`/`zipf`'s mixed frontier results never getting a perf pass
+either.
+
+Both `restricted_descent_frontier_visit` and `restricted_descent_bfs_visit`
+are kept in `src/path_fst.rs` as named, documented alternatives to the
+default `restricted_descent_visit` -- neither has been wired in as the
+default, since both win decisively on the large-domain shapes this
+investigation targeted but regress (or are a wash) on `small`/`zipf`'s
+tiny-query shapes. Productionizing either would need a dispatch (e.g. by
+expected result-set size or domain scale) rather than an unconditional
+swap.
+
+### `PathFstDeltaPow2Bfs`: pairing a BFS-ordered *layout* with the BFS *algorithm* -- a real, if different-than-predicted, win
+
+Every traversal above still runs on `PathFstDeltaPow2`'s original
+storage order, which is physically post-order: `build_rec_pow2` appends
+a node the moment it's first discovered (children before parents, so
+delta-encoding's subtraction stays unsigned), and the per-level `register`
+dedup means a shared node keeps whichever address its *first* discovering
+parent happened to leave it at. That's the structural ceiling the
+rejected local-sibling-prefetch entry already named: no reordering pass
+can put a node near *every* parent that references it, because distinct
+parents want it in different places.
+
+But `restricted_descent_bfs_visit` doesn't care about any one parent's
+locality -- it wants every node at the *same tree level* to be close
+together, regardless of which parent built it first. `PathFstDeltaPow2Bfs`
+(new struct, `src/path_fst.rs`) lays storage out that way directly:
+same dedup as `PathFstDeltaPow2` (two DAG nodes with identical
+`(existence_word, child identity)` still share one physical record), but
+nodes are *addressed* in BFS/level order -- every distinct level-0 node,
+then every distinct level-1 node, and so on. Dedup is inherently
+bottom-up (can't know two subtrees are identical until both are fully
+built); this layout is inherently top-down (level 0 must be written
+before level 1). Building it is three passes instead of one:
+
+1. `collect_rec_bfs` -- the same recursive dedup as `build_rec_pow2`,
+   but recording each distinct node's `(existence_word, child_indices)`
+   into a per-level `Vec` instead of writing storage (`child_indices`
+   are positions within the *next* level's own `Vec`, not addresses).
+2. A level-by-level top-down loop assigns every node's real storage
+   position (deltas zeroed -- a node's own address is known the moment
+   it's appended, but its children's addresses don't exist until the
+   next loop iteration).
+3. A second top-down loop backfills every real delta via
+   `patch_appended`, now that every level's addresses are known. The
+   sign flips from `PathFstDeltaPow2`'s: a child is always at a *higher*
+   address than its parent here (written in a later level), so
+   `delta = child_addr - addr`, and every read path *adds* the delta
+   instead of subtracting it.
+
+Measured (0 mismatches against `Heap`, full test suite + clippy green),
+wall-clock on the two biggest-margin domains, old layout's best variant
+repeated for reference:
+
+```
+one-Exact          best on old layout (bfs)   new layout, plain DFS   new layout, bfs-window
+sym (10M)           1033.1us (0.72x)            1266.7us (0.88x)       805.4us (0.56x)
+asym (3M)            537.6us (0.66x)              795.5us (0.98x)       464.7us (0.57x)
+
+two-Exact          best on old layout (bfs)   new layout, plain DFS   new layout, bfs-window
+sym (10M)              9.5us (0.42x)              15.0us (0.66x)         8.1us (0.36x)
+asym (3M)              6.2us (0.40x)               9.0us (0.59x)         5.3us (0.35x)
+```
+
+Two separate things are visible here, and `perf stat` (baseline-subtracted,
+same methodology as every other entry) was used to tell them apart
+instead of guessing from wall-clock alone:
+
+**The layout change by itself helps even the plain-DFS traversal that
+never touches it on purpose** -- a real surprise, since `visit_rec` was
+written with zero awareness of layout. Comparing the *same* DFS
+algorithm on old vs. new layout (`stream` vs. `layout`, no discard-read
+trick on either side, so any miss-count change here is a clean locality
+signal, not conflated with overlap):
+
+```
+shape              cycles (stream->layout, DFS)   cache-miss (stream->layout, DFS)
+sym,  one-Exact    6,034,353 -> 5,000,275 (-17%)    61,528 -> 42,512 (-31%)
+sym,  two-Exact       63,447 ->   56,626  (-11%)       664 ->    595  (-10%)
+asym, one-Exact    3,402,359 -> 3,093,751  (-9%)     27,035 -> 27,522  (+2%)
+asym, two-Exact       39,444 ->   36,082  (-9%)         452 ->    432  (-5%)
+```
+
+On the symmetric domain this is a genuine cache-*miss-count* reduction,
+not just overlap -- exactly what laying same-level nodes out contiguously
+was supposed to buy, and the first result in this whole investigation
+where miss count itself (not just its latency) moved in the right
+direction. On the asymmetric domain the miss count is roughly flat
+(+2%/-5%, noise-level) even though cycles still dropped ~9% -- the win
+there isn't coming from fewer misses; what it is coming from (fewer
+TLB misses? a more regular stride the hardware prefetcher likes better?)
+wasn't isolated further, flagged honestly rather than guessed at. Either
+way, cycles and wall-clock cross-validate tightly (e.g. sym one-Exact:
+-17.1% cycles vs. -17.1% wall-clock, asym one-Exact: -9.1% cycles vs.
+-8.9% wall-clock).
+
+**Pairing the BFS-window traversal back on top of the new layout
+(`layoutbfs`) adds the *other*, already-familiar mechanism on top of
+that first win**, and it's worth being precise that it's not more of the
+same thing:
+
+```
+shape              cycles (layout DFS -> layoutbfs)   cache-miss (layout DFS -> layoutbfs)   cycles-per-miss (layout DFS -> layoutbfs)
+sym,  one-Exact    5,000,275 -> 3,252,006 (-35%)       42,512 -> 53,994 (+27%)                117.6 -> 60.2  (-49%)
+sym,  two-Exact       56,626 ->   34,637  (-39%)          595 ->    634  (+6%)                 95.2 -> 54.7  (-43%)
+asym, one-Exact    3,093,751 -> 1,868,704 (-40%)       27,522 -> 37,566 (+37%)                112.4 -> 49.7  (-56%)
+asym, two-Exact       36,082 ->   21,455  (-41%)          432 ->    433  (flat)                83.6 -> 49.6  (-41%)
+```
+
+Adding the window-BFS traversal on top of the already-better layout
+*increases* raw miss count again (same duplicate discard-then-real-read
+cost the original `bfs`-on-old-layout entry paid), and gets its win the
+same way that entry did: a large drop in cycles-per-miss from batching
+mutually-independent reads so the CPU can overlap them. The two
+mechanisms are additive but distinct -- the layout's own contribution is
+fewer misses (symmetric domain) or some other per-miss-independent
+effect (asymmetric domain); the traversal's contribution on top is
+cheaper misses via overlap, the identical mechanism `restricted_descent_bfs_visit`
+already demonstrated on the old layout. Together they compound to the
+best numbers measured in this entire investigation: one-Exact on the
+asymmetric domain is now at 0.57x of `Heap`, down from the 1.06x the
+very first precomputed-mask fix started this whole line of work at.
+
+`small` and `zipf` show the same pathology every BFS-shaped variant has
+shown: a wash or a real regression (`zipf` two-Exact: still ~1.3x) from
+fixed per-call overhead that tiny queries can't amortize -- unchanged by
+the layout, since it's a traversal-structure cost, not a memory one.
+Not perf-verified independently for the same reason as before (too cheap
+per call for a reliable signal at these iteration counts).
+
+`PathFstDeltaPow2Bfs` is kept in `src/path_fst.rs` alongside
+`PathFstDeltaPow2`, not merged into it or wired in as any kind of
+default -- it's a different build (three passes instead of one, and a
+different, slightly more complex, delta sign convention) with its own
+trade-offs, not a drop-in replacement. Only `restricted_descent_visit`
+(plain DFS) and `restricted_descent_bfs_visit` (fixed-window BFS) are
+ported to it; `restricted_descent_frontier_visit` (the `Vec`-based
+version) was not, since `restricted_descent_bfs_visit` already
+dominates it on this layout the same way it did on the old one.
+
+### SIMD-batching the mask-AND over the BFS window: vectorizes exactly as predicted, loses anyway
+
+Natural follow-up question once nodes at a level are physically
+contiguous: instead of computing `word & level_masks[level]` one node at
+a time, interleaved with reads/branches/decode, why not pull it out into
+its own flat pass over the window and let the compiler vectorize it?
+Two things had to be checked before trusting that: first, whether the
+BFS-ordered *layout* alone lets you skip the frontier altogether (it
+doesn't -- a node's level says nothing about whether *this* query's root
+actually reaches it; that's still only established by walking the real
+parent-to-child deltas, same as every other traversal here, and masking
+a whole level blind would both over-scan and produce false matches from
+unrelated DAG nodes that happen to share a bit pattern). Second, whether
+real vector instructions are even reachable from safe Rust here:
+`#![forbid(unsafe_code)]` rules out `std::arch`'s `_mm256_and_si256` and
+friends (those need `unsafe`), and portable `std::simd` is nightly-only
+(`#![feature(portable_simd)]`) -- so the only lever available is giving
+LLVM's own auto-vectorizer a clean enough loop to work with on stable
+Rust, not calling SIMD directly.
+
+`restricted_descent_bfs_masked_visit` (`src/path_fst.rs`, on
+`PathFstDeltaPow2Bfs`) restructures `bfs_window_visit`'s per-chunk body
+into three separated flat passes instead of one interleaved loop: (A)
+read every node's word into a plain `[u64; BFS_WINDOW]` array, no
+masking or branching; (B) one branch-free `masked[i] = words[i] & mask`
+loop over that array and a second plain array; (C) the normal
+decode/recurse logic, now just reading from `words`/`masked` instead of
+recomputing them inline.
+
+Checked via `objdump` on the release binary, not assumed: phase B really
+did vectorize --
+
+```
+movdqu 0x128(%rsp,%rdx,1),%xmm0
+movdqu 0x138(%rsp,%rdx,1),%xmm1
+pand   %xmm2,%xmm0
+pand   %xmm2,%xmm1
+movdqu %xmm0,0x928(%rsp,%rdx,1)
+movdqu %xmm1,0x938(%rsp,%rdx,1)
+```
+
+two real SSE2 `pand`s, each ANDing 2 `u64` lanes against the broadcast
+mask in one instruction, unrolled by 2. The premise was correct.
+
+It still loses. Wall-clock (`examples/path_fst_bgp_proto.rs`, 0
+mismatches, comparing against `restricted_descent_bfs_visit` on the same
+`PathFstDeltaPow2Bfs` layout):
+
+```
+one-Exact          bfs-window        bfs-window, masked
+sym (10M)           803.0us (0.56x)   873.7us (0.61x)   9% slower
+asym (3M)           459.7us (0.56x)   507.2us (0.62x)   10% slower
+
+two-Exact           bfs-window        bfs-window, masked
+sym (10M)             8.1us (0.36x)     9.2us (0.41x)   14% slower
+asym (3M)             5.1us (0.34x)     5.8us (0.38x)   14% slower
+```
+
+`perf stat` (baseline-subtracted, same methodology as every other
+entry) confirms it's not noise, and is specific about *why*: cache-miss
+count is essentially unchanged in all four combos (the restructuring
+reads the exact same bytes, just through two extra arrays instead of
+directly) -- the entire regression is in cycles:
+
+```
+shape              cycles (bfs-window -> masked)   cache-miss (bfs-window -> masked)
+sym,  one-Exact    3,292,894 -> 3,935,653 (+20%)    54,028 -> 53,303 (flat)
+sym,  two-Exact        31,141 ->   60,492 (+94%)       618 ->    616 (flat)
+asym, one-Exact    1,897,512 -> 1,962,785  (+3%)    36,594 -> 36,520 (flat)
+asym, two-Exact        21,508 ->   20,918  (-3%, noise)   430 ->    428 (flat)
+```
+
+The flat miss counts rule out a memory-access-pattern explanation --
+this is a pure instruction-count/fixed-cost regression. Two real costs,
+neither paid by the window-BFS this was meant to improve: the two extra
+`[u64; BFS_WINDOW]` arrays are zeroed on *every* chunk call regardless
+of how many of their 256 slots are actually used (the same fixed-size-
+array convention `bfs_window_visit`'s own `next_buf` already uses, just
+now two more of them per call), and routing each word through an
+intermediate array before the decode loop reads it back breaks what was
+previously a tight read-then-immediately-use access, adding a round
+trip through L1 that the single interleaved loop didn't have. `two-Exact
+sym`'s outsized +94% (worst of the four, on the cheapest query in the
+set) is consistent with that: a fixed per-call cost lands hardest on
+whichever query has the least real work to amortize it against -- the
+same pathology `small`/`zipf` have shown in every BFS-shaped variant so
+far, just triggered here by array-zeroing instead of traversal structure.
+
+The lesson isn't "SIMD doesn't work here" -- it's that the scalar AND
+was never the bottleneck being paid for. Two cheap, already-well-
+predicted-branch bitwise ANDs per iteration were not where this
+traversal's cost lives; memory latency and the bit-by-bit
+`trailing_zeros`/`count_ones` decode loop are, and this change touches
+neither. `restricted_descent_bfs_masked_visit` is kept in
+`src/path_fst.rs` as a documented negative result, same convention as
+every other rejected prototype in this file.
 
 ## Native prefix joins
 

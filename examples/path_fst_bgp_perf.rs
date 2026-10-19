@@ -10,7 +10,7 @@
 //! to find out *where* the remaining margin is instead of guessing.
 //!
 //! Usage: `cargo run --profile profiling --example path_fst_bgp_perf --features heap -- <which> <shape> <domain> [iters]`
-//! where `<which>` is `heap`|`pow2`, `<shape>` is `one`|`two`, `<domain>` is
+//! where `<which>` is `heap`|`pow2`|`frontier`|`bfs`|`layout`|`layoutbfs`, `<shape>` is `one`|`two`, `<domain>` is
 //! `small`|`sym`|`zipf`|`asym` (the same four domain shapes
 //! `path_fst_bgp_proto.rs` benchmarks).
 //!
@@ -23,7 +23,7 @@
 //!     target/profiling/examples/path_fst_bgp_perf pow2 one sym 50000
 //!   perf report -i /tmp/bgp.data
 
-use s_graph::path_fst::PathFstDeltaPow2;
+use s_graph::path_fst::{PathFstDeltaPow2, PathFstDeltaPow2Bfs};
 use s_graph::tree::DimRestriction;
 use s_graph::{Heap, Triple};
 
@@ -108,7 +108,137 @@ fn main() {
             }
             eprintln!("PathFstDeltaPow2 two-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
         }
-        (w, s) => panic!("unknown combination {w:?}/{s:?}, expected heap|pow2 and one|two"),
+        ("frontier", "one") => {
+            let path_fst = PathFstDeltaPow2::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<u32> = (0..iters).map(|_| rng.next_range(num_s as u64) as u32).collect();
+            let t0 = std::time::Instant::now();
+            for &s in &probes {
+                let _ = path_fst.restricted_descent_frontier_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2(frontier) one-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("frontier", "two") => {
+            let path_fst = PathFstDeltaPow2::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<(u32, u32)> = (0..iters).map(|_| (rng.next_range(num_s as u64) as u32, rng.next_range(num_p as u64) as u32)).collect();
+            let t0 = std::time::Instant::now();
+            for &(s, p) in &probes {
+                let _ = path_fst.restricted_descent_frontier_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2(frontier) two-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("bfs", "one") => {
+            let path_fst = PathFstDeltaPow2::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<u32> = (0..iters).map(|_| rng.next_range(num_s as u64) as u32).collect();
+            let t0 = std::time::Instant::now();
+            for &s in &probes {
+                let _ = path_fst.restricted_descent_bfs_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2(bfs) one-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("bfs", "two") => {
+            let path_fst = PathFstDeltaPow2::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<(u32, u32)> = (0..iters).map(|_| (rng.next_range(num_s as u64) as u32, rng.next_range(num_p as u64) as u32)).collect();
+            let t0 = std::time::Instant::now();
+            for &(s, p) in &probes {
+                let _ = path_fst.restricted_descent_bfs_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2(bfs) two-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("layout", "one") => {
+            let path_fst = PathFstDeltaPow2Bfs::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2Bfs: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<u32> = (0..iters).map(|_| rng.next_range(num_s as u64) as u32).collect();
+            let t0 = std::time::Instant::now();
+            for &s in &probes {
+                let _ = path_fst.restricted_descent_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2Bfs(dfs) one-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("layout", "two") => {
+            let path_fst = PathFstDeltaPow2Bfs::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2Bfs: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<(u32, u32)> = (0..iters).map(|_| (rng.next_range(num_s as u64) as u32, rng.next_range(num_p as u64) as u32)).collect();
+            let t0 = std::time::Instant::now();
+            for &(s, p) in &probes {
+                let _ = path_fst.restricted_descent_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2Bfs(dfs) two-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("layoutbfs", "one") => {
+            let path_fst = PathFstDeltaPow2Bfs::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2Bfs: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<u32> = (0..iters).map(|_| rng.next_range(num_s as u64) as u32).collect();
+            let t0 = std::time::Instant::now();
+            for &s in &probes {
+                let _ = path_fst.restricted_descent_bfs_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2Bfs(bfs) one-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("layoutbfs", "two") => {
+            let path_fst = PathFstDeltaPow2Bfs::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2Bfs: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<(u32, u32)> = (0..iters).map(|_| (rng.next_range(num_s as u64) as u32, rng.next_range(num_p as u64) as u32)).collect();
+            let t0 = std::time::Instant::now();
+            for &(s, p) in &probes {
+                let _ = path_fst.restricted_descent_bfs_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2Bfs(bfs) two-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("layoutmasked", "one") => {
+            let path_fst = PathFstDeltaPow2Bfs::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2Bfs: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<u32> = (0..iters).map(|_| rng.next_range(num_s as u64) as u32).collect();
+            let t0 = std::time::Instant::now();
+            for &s in &probes {
+                let _ = path_fst.restricted_descent_bfs_masked_visit([DimRestriction::Exact(s), DimRestriction::Free, DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2Bfs(masked) one-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        ("layoutmasked", "two") => {
+            let path_fst = PathFstDeltaPow2Bfs::build(triples, [num_s as u64, num_p as u64, num_o as u64], s_graph::DEFAULT_BLOCK_CAPACITY);
+            eprintln!("built PathFstDeltaPow2Bfs: {} bytes, {} blocks", path_fst.mem_size_bytes(), path_fst.block_count());
+            let probes: Vec<(u32, u32)> = (0..iters).map(|_| (rng.next_range(num_s as u64) as u32, rng.next_range(num_p as u64) as u32)).collect();
+            let t0 = std::time::Instant::now();
+            for &(s, p) in &probes {
+                let _ = path_fst.restricted_descent_bfs_masked_visit([DimRestriction::Exact(s), DimRestriction::Exact(p), DimRestriction::Free], 2, |v| {
+                    sink += v as u64;
+                    std::ops::ControlFlow::Continue::<()>(())
+                });
+            }
+            eprintln!("PathFstDeltaPow2Bfs(masked) two-Exact: {:.1} ns/call", t0.elapsed().as_nanos() as f64 / iters.max(1) as f64);
+        }
+        (w, s) => panic!("unknown combination {w:?}/{s:?}, expected heap|pow2|frontier|bfs|layout|layoutbfs|layoutmasked and one|two"),
     }
     std::hint::black_box(sink);
 }
