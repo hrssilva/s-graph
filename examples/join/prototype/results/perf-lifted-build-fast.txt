@@ -1,0 +1,27 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 6K of event 'cycles:u'
+# Event count (approx.): 22501170925
+#
+# Overhead  Symbol                                                                                                                                                                                                                    IPC   [IPC Coverage]
+# ........  ........................................................................................................................................................................................................................  ....................
+#
+    32.36%  [.] <s_graph::lifted_join::Builder>::apply                                                                                                                                                                                -      -            
+    29.63%  [.] <s_graph::lifted_join::Builder>::mk                                                                                                                                                                                   -      -            
+     6.49%  [.] <s_graph::lifted_join::KeyHasher as core::hash::Hasher>::finish                                                                                                                                                       -      -            
+     6.11%  [.] <s_graph::lifted_join::KeyBuildHasher as core::hash::BuildHasher>::hash_one::<&s_graph::lifted_join::Node>                                                                                                            -      -            
+     5.11%  [.] <hashbrown::map::HashMap<(s_graph::lifted_join::Op, u32, u32), u32, s_graph::lifted_join::KeyBuildHasher>>::insert                                                                                                    -      -            
+     4.47%  [.] <s_graph::lifted_join::KeyBuildHasher as core::hash::BuildHasher>::hash_one::<&(s_graph::lifted_join::Op, u32, u32)>                                                                                                  -      -            
+     3.28%  [.] <hashbrown::raw::RawTable<((s_graph::lifted_join::Op, u32, u32), u32)>>::reserve_rehash::<hashbrown::map::make_hasher<(s_graph::lifted_join::Op, u32, u32), u32, s_graph::lifted_join::KeyBuildHasher>::{closure#0}>  -      -            
+     3.16%  [.] <hashbrown::raw::RawTable<(s_graph::lifted_join::Node, u32)>>::reserve_rehash::<hashbrown::map::make_hasher<s_graph::lifted_join::Node, u32, s_graph::lifted_join::KeyBuildHasher>::{closure#0}>                      -      -            
+     2.70%  [.] <hashbrown::map::HashMap<s_graph::lifted_join::Node, u32, s_graph::lifted_join::KeyBuildHasher>>::insert                                                                                                              -      -            
+     2.29%  [.] s_graph::lifted_join::lift_node                                                                                                                                                                                       -      -            
+     1.32%  [.] <s_graph::lifted_join::LiftedJoin>::with_order_and_hash::copy                                                                                                                                                         -      -            
+
+
+#
+# (Tip: Print event counts in machine readable CSV format with: perf stat -x\;)
+#

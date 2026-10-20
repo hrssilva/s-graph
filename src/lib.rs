@@ -54,6 +54,56 @@
 //! dimension may contribute multiple coordinate bits per radix step
 //! (mixed-radix, not strictly dyadic).
 //!
+//! # Which structure to use
+//!
+//! For a **static, build-once, query-and-join-heavy** workload, prefer
+//! [`path_fst::PathFstDeltaPow2Bfs`] (feature `heap`, same default as
+//! [`Heap`]) over `Heap` itself: smaller on disk/in RAM for the same
+//! triples (the whole point of its DAG deduplication). A real
+//! benchmark against production-shaped (power-law) data found this
+//! isn't a strict win on every query shape, though -- see `DESIGN.md`'s
+//! "wired as default" entry and its "a benchmark report, and a
+//! corrected recommendation" follow-up for the honest numbers both
+//! directions, not just the favorable ones.
+//!
+//! For restricted-descent-style pattern queries (`Exact`/`Free`/
+//! `Range`/`Multi` on any position), use
+//! [`path_fst::PathFstDeltaPow2Bfs::restricted_descent_via_composed_automaton`] --
+//! it's at parity with `restricted_descent` for the common case and
+//! strictly more capable, on every query shape tried. One real caveat:
+//! a wide, `Free`-heavy query under a high-fanout predicate (`?s p ?o`
+//! with `p` bound, `s`/`o` free) measured ~2.6-2.7x slower on this
+//! structure than the equivalent `Heap` query on skewed real-world-shaped
+//! data -- a genuine cost of this structure's DAG deduplication for that
+//! access pattern, not fixed here. Benchmark that shape specifically if
+//! it matters for your workload.
+//!
+//! For conjunctive joins, **default to [`fst_join::FstJoin`] or
+//! [`recursive_join::RecursiveJoin`]** (same algorithm, same measured
+//! behavior -- interleaved by level like [`native_join::NativeJoin`],
+//! robust across every shape tried including adversarial skew).
+//! [`automaton_join::AutomatonJoin`] measures 1.7-50x *faster* when
+//! every atom's own search space is comparably selective, but measured
+//! 8-16x *slower* on a realistic shape (one atom structurally
+//! constant-heavy but not actually low-cardinality on the real data,
+//! like `?x rdf:type :SomeClass` where that class covers a large
+//! fraction of all subjects, joined with a much rarer predicate) --
+//! confirmed on a real benchmark report, not a synthetic worst case.
+//! Use it only when you've confirmed your own join atoms are
+//! comparably selective; default to `FstJoin`/`RecursiveJoin`
+//! otherwise, the same way you'd default to `NativeJoin` on `Heap`.
+//!
+//! **Use [`Heap`]/[`File`]/[`Compressed`] instead** for anything
+//! `PathFstDeltaPow2Bfs` doesn't support: local
+//! [`Heap::insert`]/[`Heap::remove`] after the initial build,
+//! [`Heap::serialize`]/[`Heap::deserialize`], [`Heap::contains_batch`]/
+//! [`Heap::count_matching`], or graph traversal/paths
+//! ([`traversal`]) and regular-path automata ([`automaton`]), none of
+//! which `PathFstDeltaPow2Bfs` implements (it isn't a
+//! [`join::PatternBackend`]). `PathFstDeltaPow2Bfs` is a query/join
+//! index over a structure built once; the mutable tree family below is
+//! everything else.
+//!
 //! # Error handling: what returns `Result`, what panics
 //!
 //! [`error::TreeError`] covers three kinds of fallible boundary:
@@ -100,11 +150,18 @@
 
 pub mod error;
 mod block_index;
+mod level_automaton;
 pub mod automaton;
 pub mod graph;
 pub mod join;
 pub mod native_join;
 pub mod path;
+#[cfg(feature = "heap")]
+pub mod automaton_join;
+#[cfg(feature = "heap")]
+pub mod fst_join;
+#[cfg(feature = "heap")]
+pub mod recursive_join;
 #[cfg(feature = "heap")]
 pub mod path_fst;
 pub mod serialize;

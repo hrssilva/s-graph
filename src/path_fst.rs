@@ -1752,6 +1752,35 @@ struct BfsNodeMeta {
 ///    *higher* address than its parent here (it's written in a later
 ///    level), so `delta = child_addr - addr`, and every read path adds
 ///    the delta instead of subtracting it.
+///
+/// **The recommended default for static, query-and-join-heavy
+/// workloads** -- see `DESIGN.md`'s "wired as default" entry and the
+/// crate root's own module docs for the full comparison against
+/// [`crate::Heap`]. Smaller on disk/in RAM than `Heap` for the same
+/// triples (the dedup this whole layout exists for), and every
+/// measured query/join shape in `DESIGN.md` is at parity with or
+/// faster than the equivalent `Heap`-based path. Prefer the
+/// automaton-driven entry points over everything else in this file:
+/// [`Self::restricted_descent_via_composed_automaton`] for restricted-
+/// descent-style pattern queries (`Exact`/`Free`/`Range`/`Multi` on any
+/// position), and [`crate::automaton_join::AutomatonJoin`] for
+/// conjunctive joins. Every other `restricted_descent*` method on this
+/// struct (`restricted_descent`, `_bfs`, `_prefetch`, `_sweep`,
+/// `_leaf_sweep`, every `_parallel*` variant) and
+/// [`crate::fst_join::FstJoin`]/[`crate::native_join::NativeJoin`] are
+/// kept for debugging and comparison -- each one's own doc comment and
+/// `DESIGN.md` record *why* it was built and what it measured, which is
+/// exactly the history that makes the automaton-driven ones the
+/// trustworthy default instead of an unverified guess.
+///
+/// **Not a drop-in replacement for `Heap` in general** -- this struct
+/// has no `insert`/`remove` (static build only, deliberately deferred,
+/// see above), no `serialize`/`deserialize`, no `contains_batch`/
+/// `count_matching`, and doesn't implement [`crate::join::PatternBackend`],
+/// so it can't be used with [`crate::traversal`]'s graph paths/BFS or
+/// [`crate::automaton::PathAutomaton`]'s regular-path evaluation. Reach
+/// for `Heap`/`File`/`Compressed` for any of those; reach for this
+/// struct specifically for the query/join shapes it does support.
 pub struct PathFstDeltaPow2Bfs {
     storage: HeapStorage,
     root_virtual_addr: u64,
@@ -1765,6 +1794,18 @@ pub struct PathFstDeltaPow2Bfs {
     capacity_mask: u64,
     node_count: u64,
     visited_count: u64,
+    /// Every distinct node's real address, grouped by level -- `build`'s
+    /// own `addr_of`, persisted instead of dropped at the end of
+    /// construction. Only [`Self::restricted_descent_sweep_visit`] (a
+    /// prototype, not the default traversal) uses this: it needs to walk
+    /// *every* node at a level, not just the ones a real query reaches,
+    /// and inferring record boundaries by forward byte-arithmetic alone
+    /// doesn't work -- `HeapStorage::append_record`'s block-rollover
+    /// decision depends on the *next* record's length, which isn't known
+    /// without already knowing where it starts. Keeping the addresses
+    /// `build` already computed sidesteps that circularity entirely, at
+    /// the cost of one extra `u64` per node versus the production struct.
+    level_addrs: Vec<Vec<u64>>,
 }
 
 impl PathFstDeltaPow2Bfs {
@@ -1791,6 +1832,7 @@ impl PathFstDeltaPow2Bfs {
                 capacity_mask,
                 node_count: 0,
                 visited_count: 0,
+                level_addrs: Vec::new(),
             };
         }
         let level_shifts_cache: Vec<[u8; NUM_DIMS]> = level_dim_bits.iter().map(|&db| level_shifts(db, dim_order)).collect();
@@ -1887,6 +1929,7 @@ impl PathFstDeltaPow2Bfs {
             capacity_mask,
             node_count,
             visited_count,
+            level_addrs: addr_of,
         }
     }
 
@@ -1949,9 +1992,54 @@ impl PathFstDeltaPow2Bfs {
         self.height
     }
 
+    /// Crate-internal accessors for `fst_join.rs`'s join compiler/executor
+    /// -- not full `LevelAutomaton` walks (see that module's own doc
+    /// comment for why), but still native to this struct's own
+    /// delta-addressed storage, not `PrefixCursor`'s.
+    pub(crate) fn root_addr(&self) -> u64 {
+        self.root_virtual_addr
+    }
+
+    pub(crate) fn dim_sizes(&self) -> [u64; NUM_DIMS] {
+        self.dimension_sizes
+    }
+
+    pub(crate) fn level_schedule(&self, level: usize) -> ([u8; NUM_DIMS], [u8; NUM_DIMS], [u8; NUM_DIMS]) {
+        (self.level_dim_bits[level], self.level_shifts_cache[level], self.level_child_cell_bits_cache[level])
+    }
+
+    /// The full per-level schedule arrays, for callers (like
+    /// `automaton_join.rs`) that build a [`crate::level_automaton::
+    /// DimRestrictionAutomaton`] directly rather than reading one level
+    /// at a time.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn full_schedule(&self) -> (&[[u8; NUM_DIMS]], &[[u8; NUM_DIMS]], &[[u8; NUM_DIMS]]) {
+        (&self.level_dim_bits, &self.level_shifts_cache, &self.level_child_cell_bits_cache)
+    }
+
+    pub(crate) fn read_word(&self, addr: u64) -> u64 {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        self.storage.read_u64(block, offset)
+    }
+
+    pub(crate) fn read_delta(&self, addr: u64, real_index: usize) -> u64 {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES)
+    }
+
     /// Same contract as [`PathFstDeltaPow2::restricted_descent_visit`] --
     /// plain DFS, one precomputed mask per level -- on this struct's
     /// BFS-ordered storage instead.
+    ///
+    /// Debugging/comparison only -- prefer
+    /// [`Self::restricted_descent_via_composed_automaton`], which takes
+    /// the identical fast path for this method's own `Exact`/`Free`-only
+    /// case (so there's no speed cost to switching) and also supports
+    /// `Range`/`Multi`, which this method panics on. Kept because this
+    /// *is* the reference every automaton-driven method on this struct
+    /// was validated against.
     pub fn restricted_descent_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
         for (d, r) in restrictions.iter().enumerate() {
             match *r {
@@ -2020,12 +2108,190 @@ impl PathFstDeltaPow2Bfs {
 
     /// Same contract as [`Self::restricted_descent_visit`], sorted,
     /// deduplicated, collected into a `Vec`.
+    ///
+    /// Debugging/comparison only -- see [`Self::restricted_descent_visit`]'s
+    /// own doc comment; prefer [`Self::restricted_descent_via_composed_automaton`].
     pub fn restricted_descent(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
         let mut out = Vec::new();
         let _: std::ops::ControlFlow<()> = self.restricted_descent_visit(restrictions, emit_dim, |v| {
             out.push(v);
             std::ops::ControlFlow::Continue(())
         });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Generic walk half of the `LevelAutomaton` split (see
+    /// `level_automaton.rs` and `DESIGN.md`'s "Joins and paths as
+    /// automatons" entry) -- structurally identical to [`Self::visit_rec`],
+    /// just reading `automaton.mask(state, level)` instead of indexing a
+    /// flat precomputed array, and carrying `automaton.advance(...)`'s
+    /// result forward as `state` instead of nothing. [`Self::
+    /// restricted_descent_via_automaton`] below plugs in
+    /// `PrecomputedMaskAutomaton` to reproduce today's behavior exactly
+    /// through this walk, as the first, lowest-risk check that the split
+    /// is sound before anything genuinely state-dependent (a join atom,
+    /// a path hop) is built on top of it.
+    #[allow(clippy::too_many_arguments)]
+    fn visit_automaton_rec<A: crate::level_automaton::LevelAutomaton, T>(
+        &self,
+        automaton: &A,
+        addr: u64,
+        lo: [u64; NUM_DIMS],
+        level: usize,
+        state: A::State,
+        emit_dim: usize,
+        emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>,
+    ) -> std::ops::ControlFlow<T> {
+        if !automaton.can_match(&state) {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+        let mut relevant = word & automaton.mask(&state, level);
+        let is_last = level == self.height - 1;
+
+        if is_last {
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros();
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi as usize, child_cell_bits);
+                emit(child_lo[emit_dim] as u32)?;
+            }
+            return std::ops::ControlFlow::Continue(());
+        }
+
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros();
+            relevant &= relevant - 1;
+            let next_state = automaton.advance(&state, level, qi);
+            if !automaton.can_match(&next_state) {
+                continue;
+            }
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi as usize, child_cell_bits);
+            self.visit_automaton_rec(automaton, child_addr, child_lo, level + 1, next_state, emit_dim, emit)?;
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Same contract as [`Self::restricted_descent`], walked through the
+    /// generic [`Self::visit_automaton_rec`] with the simplest possible
+    /// `LevelAutomaton` (`PrecomputedMaskAutomaton`, wrapping the exact
+    /// same `precompute_level_masks` output `restricted_descent_visit`
+    /// uses) instead of `visit_rec`'s bespoke recursion -- reproduces
+    /// `restricted_descent`'s behavior exactly, validated by
+    /// `assert_eq!` against it, as the lowest-risk proof the walk/
+    /// automaton split is sound before building anything
+    /// state-dependent on top of it.
+    ///
+    /// Superseded in practice by [`Self::restricted_descent_via_composed_automaton`],
+    /// which takes this exact code path internally for `Exact`/`Free`-only
+    /// restrictions (so there's no reason to call this one directly
+    /// instead) and also handles `Range`/`Multi`. Kept because it's the
+    /// validation step this file's own history (`DESIGN.md`) depends on
+    /// -- the composed version's fast path was checked against *this*,
+    /// not just against `restricted_descent`.
+    pub fn restricted_descent_via_automaton(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_via_automaton only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        use crate::level_automaton::LevelAutomaton;
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let automaton = crate::level_automaton::PrecomputedMaskAutomaton { masks: &level_masks[..self.height] };
+        let mut out = Vec::new();
+        // Automaton's own `State` happens to be `()` for this particular
+        // instance; `clippy::unit_arg` doesn't know that's inherent to a
+        // *generic* `start()` call, not a mistake here.
+        #[allow(clippy::unit_arg)]
+        let _: std::ops::ControlFlow<()> = self.visit_automaton_rec(&automaton, self.root_virtual_addr, [0u64; NUM_DIMS], 0, automaton.start(), emit_dim, &mut |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// The preferred general-purpose query entry point on this struct
+    /// -- see `DESIGN.md`'s "wired as default" entry. Supports all four
+    /// [`DimRestriction`] variants, unlike every other
+    /// `PathFstDeltaPow2Bfs` traversal in this file (`restricted_descent`
+    /// included), which only ever accepted `Exact`/`Free`.
+    ///
+    /// `Exact`/`Free`-only restrictions (the common case -- a plain
+    /// point or prefix query) take a fast path: one flat
+    /// `[u64; MAX_HEIGHT]` mask array, computed once via the same
+    /// `precompute_level_masks` mechanism `restricted_descent` itself
+    /// uses, zero per-node dispatch. A genuine `Range`/`Multi`
+    /// restriction falls back to three independent
+    /// [`crate::level_automaton::DimRestrictionAutomaton`]s (one per
+    /// dimension, each computed as if the other two were unconstrained)
+    /// composed by intersection ([`crate::level_automaton::And`]) --
+    /// this is the actual proof of "insight 3" from `DESIGN.md`'s
+    /// design entry, that mixing restriction kinds can be genuinely
+    /// composable rather than a `match` arm per combination.
+    ///
+    /// The fast path isn't an optimization layered on top of the
+    /// composed path -- it's the same lesson `automaton_join.rs` learned
+    /// the hard way, applied here before ever recommending this method
+    /// as a default: a first version always went through `And`-composed
+    /// `DimRestrictionAutomaton`s regardless of restriction kind, and
+    /// `perf` on the join side showed that abstraction costs ~1.4-2.1x
+    /// over the flat-array path for the `Exact`/`Free`-only case it
+    /// never actually needed to pay for. Detecting "no real `Range`/
+    /// `Multi` present" and only then reaching for the heavier
+    /// composition keeps this method as fast as `restricted_descent`
+    /// whenever `restricted_descent` would have worked at all, and
+    /// still correct (just slower) when it wouldn't have.
+    pub fn restricted_descent_via_composed_automaton(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            if let DimRestriction::Exact(v) = *r
+                && v as u64 >= self.dimension_sizes[d]
+            {
+                return Vec::new();
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let needs_composition = restrictions.iter().any(|r| matches!(r, DimRestriction::Range(..) | DimRestriction::Multi(..)));
+        let mut out = Vec::new();
+        if needs_composition {
+            use crate::level_automaton::{And, DimRestrictionAutomaton, LevelAutomaton};
+            let dim0 = DimRestrictionAutomaton::new(0, restrictions[0], &self.level_dim_bits, &self.level_shifts_cache, &self.level_child_cell_bits_cache);
+            let dim1 = DimRestrictionAutomaton::new(1, restrictions[1], &self.level_dim_bits, &self.level_shifts_cache, &self.level_child_cell_bits_cache);
+            let dim2 = DimRestrictionAutomaton::new(2, restrictions[2], &self.level_dim_bits, &self.level_shifts_cache, &self.level_child_cell_bits_cache);
+            let automaton = And(And(dim0, dim1), dim2);
+            let state = automaton.start();
+            let _: std::ops::ControlFlow<()> = self.visit_automaton_rec(&automaton, self.root_virtual_addr, [0u64; NUM_DIMS], 0, state, emit_dim, &mut |v| {
+                out.push(v);
+                std::ops::ControlFlow::Continue(())
+            });
+        } else {
+            use crate::level_automaton::{LevelAutomaton, PrecomputedMaskAutomaton};
+            let level_masks = self.precompute_level_masks(&restrictions);
+            let automaton = PrecomputedMaskAutomaton { masks: &level_masks[..self.height] };
+            #[allow(clippy::unit_arg)]
+            let _: std::ops::ControlFlow<()> = self.visit_automaton_rec(&automaton, self.root_virtual_addr, [0u64; NUM_DIMS], 0, automaton.start(), emit_dim, &mut |v| {
+                out.push(v);
+                std::ops::ControlFlow::Continue(())
+            });
+        }
         out.sort_unstable();
         out.dedup();
         out
@@ -2259,6 +2525,1654 @@ impl PathFstDeltaPow2Bfs {
         out.sort_unstable();
         out.dedup();
         out
+    }
+
+    /// Prototype: the "mask tree + sweep" idea -- for every tree level,
+    /// read *every distinct node's* word (not just the ones this
+    /// query's root actually reaches) and AND it with that level's one
+    /// precomputed mask, in a single flat pass over the level's address
+    /// list, before any real traversal starts. Then walk the real
+    /// parent-to-child links exactly like [`Self::restricted_descent_visit`],
+    /// but reading the precomputed `(word, word & mask)` pair instead of
+    /// recomputing the AND inline. Modeled directly on Hyperscan/Teddy's
+    /// and simdjson's "cheap bulk filter pass over the whole input, then
+    /// a slower confirm pass on survivors" shape -- see
+    /// `FST_LITERATURE_REVIEW.md`.
+    ///
+    /// Finding each accepted node during the walk needs a position
+    /// within its level's `Vec`, which is found by binary search over
+    /// `level_addrs[level]` (sound because addresses are assigned in
+    /// strictly increasing order during `build`'s Phase 2, so each
+    /// level's address list is already sorted).
+    ///
+    /// See `DESIGN.md` for why this loses badly in this project's
+    /// domains specifically: the DAG's dedup means a level's *distinct*
+    /// node count can be orders of magnitude larger than the number of
+    /// nodes any single query actually reaches (measured directly, not
+    /// assumed), because the same shared node is stored once but
+    /// reachable from many different root bindings. Teddy/simdjson sweep
+    /// every byte of their input because every byte genuinely needs
+    /// classifying -- there is no equivalent "most of this is already
+    /// known-unreachable before you've even read it" concept in their
+    /// domain the way there is here.
+    pub fn restricted_descent_sweep_visit<T>(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, mut emit: impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return std::ops::ControlFlow::Continue(()),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_sweep_visit only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+
+        let filtered: Vec<Vec<(u64, u64)>> = (0..self.height)
+            .map(|level| {
+                let mask = level_masks[level];
+                self.level_addrs[level]
+                    .iter()
+                    .map(|&addr| {
+                        let block = (addr >> self.capacity_bits) as usize;
+                        let offset = (addr & self.capacity_mask) as usize;
+                        let word = self.storage.read_u64(block, offset);
+                        (word, word & mask)
+                    })
+                    .collect()
+            })
+            .collect();
+
+        self.sweep_walk_rec(self.root_virtual_addr, [0u64; NUM_DIMS], 0, &filtered, emit_dim, &mut emit)
+    }
+
+    fn sweep_walk_rec<T>(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, filtered: &[Vec<(u64, u64)>], emit_dim: usize, emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
+        let idx = self
+            .level_addrs[level]
+            .binary_search(&addr)
+            .expect("every real child address must exist in its own level's address list");
+        let (word, mut relevant) = filtered[level][idx];
+        let is_last = level == self.height - 1;
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                emit(child_lo[emit_dim] as u32)?;
+            }
+            return std::ops::ControlFlow::Continue(());
+        }
+
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            self.sweep_walk_rec(child_addr, child_lo, level + 1, filtered, emit_dim, emit)?;
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+
+    /// Same contract as [`Self::restricted_descent`], built on
+    /// [`Self::restricted_descent_sweep_visit`] instead.
+    pub fn restricted_descent_sweep(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.restricted_descent_sweep_visit(restrictions, emit_dim, |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Prototype only -- see `DESIGN.md`. Inverts the usual shape of
+    /// every other traversal in this file: instead of descending from
+    /// the root and pruning as it goes, this sweeps *only* the leaf
+    /// level's existence words in one branch-free elementwise AND pass
+    /// (same "give LLVM the cleanest shot at auto-vectorizing, verify
+    /// with `objdump`, don't assume" convention as
+    /// [`Self::restricted_descent_bfs_masked_visit`] -- `#![forbid(unsafe_code)]`
+    /// rules out real intrinsics), then, for every leaf with at least
+    /// one surviving bit, walks newly-built parent back-pointers *up*
+    /// toward the root to find out which triple(s) it actually belongs
+    /// to, instead of finding it by descending down to it.
+    ///
+    /// Why this needs back-pointers at all, and why that's a real cost:
+    /// this structure is a DAG, not a plain trie -- [`Self::build`]
+    /// dedups identical subtrees, so one leaf (or any node) can be the
+    /// real child of more than one parent. A forward delta only ever
+    /// points down, so recovering "what paths lead here" needs an
+    /// explicit reverse index built freshly by [`Self::build_parent_index`]
+    /// for every call to this method -- real, uncached work this
+    /// prototype does *not* try to make free, unlike `level_addrs`
+    /// (precomputed once, in [`Self::build`] itself, and reused by
+    /// every sweep-shaped method already in this file).
+    ///
+    /// The DAG sharing cuts both ways here: a leaf with multiple
+    /// parents can have multiple root-to-leaf paths, and *not every one
+    /// of them need satisfy this query's `Exact` restrictions* -- the
+    /// leaf-level mask only ever checked the free dimensions' bits, not
+    /// the pinned ones, so every reconstructed path gets checked against
+    /// the full restriction set before being accepted, exactly like
+    /// re-deriving the full triple and checking it from scratch. And
+    /// because a shared ancestor can be reached by exponentially many
+    /// paths in the worst case, [`Self::paths_to_root`] memoizes per
+    /// address for the duration of one call -- without that, this is
+    /// not just slow, it can fail to terminate in practical time on a
+    /// real domain.
+    pub fn restricted_descent_leaf_sweep(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        let parent_index = self.build_parent_index();
+        self.restricted_descent_leaf_sweep_with_index(restrictions, emit_dim, &parent_index)
+    }
+
+    /// Same as [`Self::restricted_descent_leaf_sweep`], but takes an
+    /// already-built [`Self::build_parent_index`] instead of rebuilding
+    /// one -- lets a caller amortize that cost across many queries
+    /// (what a real implementation would do) to measure the leaf-sweep
+    /// idea's own cost in isolation from the index-rebuild cost this
+    /// prototype doesn't otherwise try to hide.
+    pub fn restricted_descent_leaf_sweep_with_index(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, parent_index: &HashMap<u64, Vec<(u64, u8)>>) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_leaf_sweep only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let leaf_level = self.height - 1;
+        let leaf_mask = level_masks[leaf_level];
+
+        // Phase A: every leaf word, read into a flat array -- no
+        // masking, no branching yet.
+        let leaf_addrs = &self.level_addrs[leaf_level];
+        let mut words = vec![0u64; leaf_addrs.len()];
+        for (i, &addr) in leaf_addrs.iter().enumerate() {
+            let block = (addr >> self.capacity_bits) as usize;
+            let offset = (addr & self.capacity_mask) as usize;
+            words[i] = self.storage.read_u64(block, offset);
+        }
+
+        // Phase B: one flat, branch-free elementwise AND over plain
+        // arrays -- the part this method exists to isolate.
+        let mut masked = vec![0u64; leaf_addrs.len()];
+        for i in 0..leaf_addrs.len() {
+            masked[i] = words[i] & leaf_mask;
+        }
+
+        let dim_bits_by_level = &self.level_dim_bits;
+        let shifts_by_level = &self.level_shifts_cache;
+        let child_cell_bits_by_level = &self.level_child_cell_bits_cache;
+
+        let mut path_cache: HashMap<u64, Vec<Vec<u8>>> = HashMap::new();
+        let mut out = Vec::new();
+        for (i, &addr) in leaf_addrs.iter().enumerate() {
+            let mut relevant = masked[i];
+            if relevant == 0 {
+                continue;
+            }
+            let chains = self.paths_to_root(addr, parent_index, &mut path_cache);
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                for chain in &chains {
+                    let mut lo = [0u64; NUM_DIMS];
+                    for (level, &step_qi) in chain.iter().enumerate() {
+                        lo = advance_lo(lo, dim_bits_by_level[level], shifts_by_level[level], step_qi as usize, child_cell_bits_by_level[level]);
+                    }
+                    let final_lo = advance_lo(lo, dim_bits_by_level[leaf_level], shifts_by_level[leaf_level], qi, child_cell_bits_by_level[leaf_level]);
+                    let matches_restrictions = restrictions.iter().enumerate().all(|(d, r)| match *r {
+                        DimRestriction::Exact(v) => final_lo[d] == v as u64,
+                        DimRestriction::Free => true,
+                        DimRestriction::Range(..) | DimRestriction::Multi(..) => unreachable!("validated above"),
+                    });
+                    if matches_restrictions {
+                        out.push(final_lo[emit_dim] as u32);
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Every real forward edge in the whole structure, inverted: for
+    /// every node below the root, the list of `(parent_addr, qi)` pairs
+    /// describing every real parent that points to it and which of the
+    /// parent's bits was used to do so. Unlike every forward structure
+    /// in this file (`level_addrs` included), this is *not* built in
+    /// [`Self::build`] and cached as part of the struct -- a caller gets
+    /// one by calling this directly, once, and may reuse it across many
+    /// [`Self::restricted_descent_leaf_sweep_with_index`] calls to
+    /// amortize the cost; [`Self::restricted_descent_leaf_sweep`]
+    /// itself rebuilds one fresh on every call, which is real,
+    /// unamortized work this prototype does not try to hide.
+    ///
+    /// Walks every non-leaf level's *unrestricted* existence word (every
+    /// real child, not filtered by any query's mask) and decodes each
+    /// one's address via the same delta read every other traversal in
+    /// this file uses, so this is one full, unfiltered structural pass
+    /// over every node that isn't a leaf.
+    /// Diagnostic only, for measuring [`Self::restricted_descent_leaf_sweep`]
+    /// honestly: the number of distinct leaf-level nodes `build_parent_index`
+    /// and the leaf sweep itself have to touch, regardless of what any
+    /// one query actually needs -- the same "distinct nodes stored once,
+    /// reachable from many different root bindings" count that made the
+    /// whole-level sweep lose badly (see `DESIGN.md`).
+    pub fn leaf_level_node_count(&self) -> usize {
+        if self.height == 0 {
+            0
+        } else {
+            self.level_addrs[self.height - 1].len()
+        }
+    }
+
+    pub fn build_parent_index(&self) -> HashMap<u64, Vec<(u64, u8)>> {
+        let mut parents: HashMap<u64, Vec<(u64, u8)>> = HashMap::new();
+        if self.height == 0 {
+            return parents;
+        }
+        for level in 0..self.height - 1 {
+            for &addr in &self.level_addrs[level] {
+                let block = (addr >> self.capacity_bits) as usize;
+                let offset = (addr & self.capacity_mask) as usize;
+                let word = self.storage.read_u64(block, offset);
+                let mut remaining = word;
+                while remaining != 0 {
+                    let qi = remaining.trailing_zeros() as usize;
+                    remaining &= remaining - 1;
+                    let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+                    let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+                    let child_addr = addr + delta;
+                    parents.entry(child_addr).or_default().push((addr, qi as u8));
+                }
+            }
+        }
+        parents
+    }
+
+    /// Every distinct sequence of transitions (`qi` per level, root
+    /// first) that reaches `addr` from the real root, found by walking
+    /// [`Self::build_parent_index`]'s reverse edges upward. The root
+    /// itself has exactly one path: the empty sequence. Memoized in
+    /// `cache` for the lifetime of one [`Self::restricted_descent_leaf_sweep`]
+    /// call -- a shared ancestor reached from many different leaves (or
+    /// many different paths to the *same* leaf) would otherwise redo
+    /// the same upward walk repeatedly, and in a sufficiently shared DAG
+    /// the raw path *count* itself, not just the per-node work, can
+    /// still grow large even with memoization -- a real scaling
+    /// question for this prototype, not assumed away.
+    fn paths_to_root(&self, addr: u64, parent_index: &HashMap<u64, Vec<(u64, u8)>>, cache: &mut HashMap<u64, Vec<Vec<u8>>>) -> Vec<Vec<u8>> {
+        if addr == self.root_virtual_addr {
+            return vec![Vec::new()];
+        }
+        if let Some(cached) = cache.get(&addr) {
+            return cached.clone();
+        }
+        let mut result = Vec::new();
+        if let Some(parents) = parent_index.get(&addr) {
+            for &(parent_addr, qi) in parents {
+                for parent_chain in self.paths_to_root(parent_addr, parent_index, cache) {
+                    let mut chain = parent_chain;
+                    chain.push(qi);
+                    result.push(chain);
+                }
+            }
+        }
+        cache.insert(addr, result.clone());
+        result
+    }
+}
+
+/// Prototype: a maximally naive rayon parallelization of the plain DFS
+/// `visit_rec` pseudocode (see the conversation/`DESIGN.md`) -- every
+/// recursive call is a candidate for running on a different worker
+/// thread, with no depth or fanout cutoff at all. This project already
+/// has a measured cautionary tale about exactly this shape of naivety,
+/// on a different traversal (`Heap`'s query path, `DESIGN.md`'s "Rayon
+/// fan-out depth sweep" entry): rayon's per-task dispatch overhead is
+/// roughly fixed, so fanning out at every level, all the way down to
+/// near-leaf nodes whose own work is a handful of instructions, is
+/// expected to collapse once dispatch cost dominates the real work
+/// being split. Built and measured anyway, deliberately uncapped, to
+/// see exactly where that happens on *this* traversal rather than
+/// assume the old number transfers -- see `DESIGN.md`.
+///
+/// Returns a `Vec<u32>` directly instead of streaming through a
+/// `ControlFlow`-based `emit` callback like every other traversal in
+/// this file: early-exit (`ControlFlow::Break`) doesn't have an obvious
+/// meaning once multiple branches are running concurrently on different
+/// threads, so this prototype sidesteps that question entirely rather
+/// than guess at an answer.
+#[cfg(feature = "parallel")]
+impl PathFstDeltaPow2Bfs {
+    pub fn restricted_descent_parallel(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let mut out = self.visit_parallel_rec(self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim);
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn visit_parallel_rec(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize) -> Vec<u32> {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            let mut out = Vec::new();
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                out.push(child_lo[emit_dim] as u32);
+            }
+            return out;
+        }
+
+        // Decoding each accepted transition's child address is cheap
+        // (one popcount, one small `read_var`) -- stays sequential. Only
+        // the recursive descent into each resulting child is handed to
+        // rayon, in `parallel_collect`.
+        let mut children: Vec<(u64, [u64; NUM_DIMS])> = Vec::with_capacity(relevant.count_ones() as usize);
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            children.push((child_addr, child_lo));
+        }
+
+        self.parallel_collect(&children, level + 1, level_masks, emit_dim)
+    }
+
+    /// Unconditional binary fan-out -- every split becomes a
+    /// `rayon::join` call, all the way down, no size/depth cutoff (the
+    /// "naive" part). `rayon::join` is still just a *candidate* for
+    /// running on another worker thread (it falls back to sequential
+    /// execution under its own work-stealing logic when the pool is
+    /// busy), so this can't explode into one OS thread per node the way
+    /// `std::thread::spawn` per call would -- but the *coordination*
+    /// overhead (two closures, a join point) is paid at every split
+    /// regardless of whether a second thread ever actually picks it up.
+    fn parallel_collect(&self, children: &[(u64, [u64; NUM_DIMS])], level: usize, level_masks: &[u64], emit_dim: usize) -> Vec<u32> {
+        match children.len() {
+            0 => Vec::new(),
+            1 => {
+                let (addr, lo) = children[0];
+                self.visit_parallel_rec(addr, lo, level, level_masks, emit_dim)
+            }
+            n => {
+                let mid = n / 2;
+                let (left, right) = children.split_at(mid);
+                let (mut l, r) = rayon::join(
+                    || self.parallel_collect(left, level, level_masks, emit_dim),
+                    || self.parallel_collect(right, level, level_masks, emit_dim),
+                );
+                l.extend(r);
+                l
+            }
+        }
+    }
+
+    /// Same idea as [`Self::restricted_descent_parallel`], but with the
+    /// depth cutoff that entry's own doc comment flagged as the obvious
+    /// next step: fan out with `rayon::join` for only the first
+    /// `parallel_depth` tree levels below the root, then fall back to
+    /// the plain sequential `visit_rec` (via
+    /// [`Self::visit_sequential_to_vec`]) for the rest of each subtree.
+    /// `parallel_depth` counts tree levels, not bisection splits --
+    /// bisecting one level's sibling list in half doesn't itself consume
+    /// budget, only actually descending to the next level does -- so
+    /// this is directly comparable to `Heap`'s own `parallel_depth`
+    /// parameter from the "Rayon fan-out depth sweep" entry in
+    /// `DESIGN.md`, not a different kind of knob with the same name.
+    pub fn restricted_descent_parallel_cutoff(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, parallel_depth: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel_cutoff only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let mut out = self.visit_parallel_cutoff_rec(self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim, parallel_depth);
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Same contract as [`Self::visit_rec`], just collecting into an
+    /// owned `Vec` instead of streaming through a `ControlFlow` `emit`
+    /// callback -- reuses the already-correct sequential traversal
+    /// rather than re-deriving it, for the part of a subtree
+    /// [`Self::restricted_descent_parallel_cutoff`] decides isn't worth
+    /// parallelizing any further.
+    fn visit_sequential_to_vec(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        let _: std::ops::ControlFlow<()> = self.visit_rec(addr, lo, level, level_masks, emit_dim, &mut |v| {
+            out.push(v);
+            std::ops::ControlFlow::Continue(())
+        });
+        out
+    }
+
+    fn visit_parallel_cutoff_rec(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize, remaining_depth: usize) -> Vec<u32> {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            let mut out = Vec::new();
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                out.push(child_lo[emit_dim] as u32);
+            }
+            return out;
+        }
+
+        let mut children: Vec<(u64, [u64; NUM_DIMS])> = Vec::with_capacity(relevant.count_ones() as usize);
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            children.push((child_addr, child_lo));
+        }
+
+        self.parallel_collect_cutoff(&children, level + 1, level_masks, emit_dim, remaining_depth)
+    }
+
+    /// Same unconditional-binary-fan-out shape as [`Self::parallel_collect`],
+    /// except once `remaining_depth` reaches zero the rest of every
+    /// child's subtree finishes through [`Self::visit_sequential_to_vec`]
+    /// instead of recursing into more `rayon::join` calls. `remaining_depth`
+    /// is only decremented when a child actually descends to the next
+    /// tree level (the `children.len() == 1` arm) -- bisecting a level's
+    /// sibling list in half, the `n => ..` arm, doesn't consume budget on
+    /// its own.
+    fn parallel_collect_cutoff(&self, children: &[(u64, [u64; NUM_DIMS])], level: usize, level_masks: &[u64], emit_dim: usize, remaining_depth: usize) -> Vec<u32> {
+        if remaining_depth == 0 {
+            return children.iter().flat_map(|&(addr, lo)| self.visit_sequential_to_vec(addr, lo, level, level_masks, emit_dim)).collect();
+        }
+        match children.len() {
+            0 => Vec::new(),
+            1 => {
+                let (addr, lo) = children[0];
+                self.visit_parallel_cutoff_rec(addr, lo, level, level_masks, emit_dim, remaining_depth - 1)
+            }
+            n => {
+                let mid = n / 2;
+                let (left, right) = children.split_at(mid);
+                let (mut l, r) = rayon::join(
+                    || self.parallel_collect_cutoff(left, level, level_masks, emit_dim, remaining_depth),
+                    || self.parallel_collect_cutoff(right, level, level_masks, emit_dim, remaining_depth),
+                );
+                l.extend(r);
+                l
+            }
+        }
+    }
+
+    /// A different cutoff signal than [`Self::restricted_descent_parallel_cutoff`]'s
+    /// depth: instead of a fixed, global, once-spent budget, gate every
+    /// fan-out decision on a purely local property -- how many
+    /// explorable subtrees (real children) are available to split
+    /// *right here* -- and re-evaluate it fresh at every node, all the
+    /// way down. `rayon::join` is only used when a node has *more than*
+    /// `min_parallel_size` real children; at or below that, every one of
+    /// those children is processed by a plain sequential loop (not one
+    /// fork per child the way the depth-cutoff version's single-child
+    /// case works) -- but each of *those* children's own fan-out is
+    /// still re-checked against `min_parallel_size` when its own turn
+    /// comes, so a node deep in an otherwise-sequential region with an
+    /// unusually wide fan-out of its own still gets to parallelize.
+    /// Depth-cutoff can't do that: once its budget hits zero, everything
+    /// below is sequential regardless of how wide any single node's own
+    /// fan-out turns out to be.
+    pub fn restricted_descent_parallel_size_cutoff(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, min_parallel_size: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel_size_cutoff only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let mut out = self.visit_parallel_size_rec(self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim, min_parallel_size);
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn visit_parallel_size_rec(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize, min_parallel_size: usize) -> Vec<u32> {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            let mut out = Vec::new();
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                out.push(child_lo[emit_dim] as u32);
+            }
+            return out;
+        }
+
+        let mut children: Vec<(u64, [u64; NUM_DIMS])> = Vec::with_capacity(relevant.count_ones() as usize);
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            children.push((child_addr, child_lo));
+        }
+
+        self.parallel_collect_by_size(&children, level + 1, level_masks, emit_dim, min_parallel_size)
+    }
+
+    fn parallel_collect_by_size(&self, children: &[(u64, [u64; NUM_DIMS])], level: usize, level_masks: &[u64], emit_dim: usize, min_parallel_size: usize) -> Vec<u32> {
+        if children.len() <= min_parallel_size {
+            return children.iter().flat_map(|&(addr, lo)| self.visit_parallel_size_rec(addr, lo, level, level_masks, emit_dim, min_parallel_size)).collect();
+        }
+        let mid = children.len() / 2;
+        let (left, right) = children.split_at(mid);
+        let (mut l, r) = rayon::join(
+            || self.parallel_collect_by_size(left, level, level_masks, emit_dim, min_parallel_size),
+            || self.parallel_collect_by_size(right, level, level_masks, emit_dim, min_parallel_size),
+        );
+        l.extend(r);
+        l
+    }
+
+    /// Answers a question raised about every `parallel*` variant above:
+    /// what happens to a branch that hits a dead end? Today, nothing
+    /// expensive -- but it still pays a real, avoidable cost. Every
+    /// `rayon::join` call is a value-returning rendezvous: both sides
+    /// must finish and hand back a `Vec<u32>` before the caller can
+    /// `extend` them together, *even when one side is a dead end that
+    /// never had anything to contribute*. That's a `Vec::new()`
+    /// allocation plus an empty `extend` call, paid on every single
+    /// dead-end branch, purely because `join`'s shape requires a result
+    /// to merge regardless of whether there's anything in it.
+    ///
+    /// A thread genuinely can't be "dropped" without being waited on at
+    /// all -- the top-level call still needs every branch's contribution
+    /// (empty or not) to have actually finished before it can return a
+    /// complete answer, and there's no way to know a branch is a dead
+    /// end without running it. But the *merge* doesn't have to go
+    /// through a return value. `rayon::scope` + `Scope::spawn` replaces
+    /// `join`'s "both sides return a `Vec`, caller merges them" shape
+    /// with "every branch writes *directly* into one shared sink, if it
+    /// has anything to write at all, and the only synchronization point
+    /// is the single outer `scope` call waiting for every spawned task
+    /// (however deeply nested) to finish." A dead end -- `relevant == 0`
+    /// at any level, including before any children are even decoded --
+    /// now costs exactly one function call that returns immediately:
+    /// no allocation, no lock, no merge, nothing to join back. Only a
+    /// branch that actually reaches accepted leaves ever touches the
+    /// shared `Mutex`, and only once (results are gathered into a local
+    /// `Vec` first, then pushed in one lock acquisition), not once per
+    /// emitted value.
+    pub fn restricted_descent_parallel_scoped(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, parallel_depth: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel_scoped only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let sink: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+        rayon::scope(|scope| {
+            self.visit_scoped_rec(scope, &sink, self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim, parallel_depth);
+        });
+        let mut out = sink.into_inner().expect("sink mutex never panics while locked");
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn visit_scoped_rec<'a>(&'a self, scope: &rayon::Scope<'a>, sink: &'a std::sync::Mutex<Vec<u32>>, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &'a [u64], emit_dim: usize, remaining_depth: usize) {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+
+        // Dead end: nothing matched at this node at all. No allocation,
+        // no lock, no spawn -- just return. This is the case the
+        // question was actually about.
+        if relevant == 0 {
+            return;
+        }
+
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            let mut local = Vec::new();
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                local.push(child_lo[emit_dim] as u32);
+            }
+            sink.lock().expect("sink mutex never panics while locked").extend(local);
+            return;
+        }
+
+        let mut children: Vec<(u64, [u64; NUM_DIMS])> = Vec::with_capacity(relevant.count_ones() as usize);
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            children.push((child_addr, child_lo));
+        }
+
+        if remaining_depth == 0 {
+            // Still worth gathering sequentially before touching the
+            // lock at all: a sequential dead end anywhere in this
+            // subtree costs nothing extra, same as the parallel case.
+            let mut local = Vec::new();
+            for &(a, l) in &children {
+                local.extend(self.visit_sequential_to_vec(a, l, level + 1, level_masks, emit_dim));
+            }
+            if !local.is_empty() {
+                sink.lock().expect("sink mutex never panics while locked").extend(local);
+            }
+            return;
+        }
+
+        for (child_addr, child_lo) in children {
+            scope.spawn(move |s| {
+                self.visit_scoped_rec(s, sink, child_addr, child_lo, level + 1, level_masks, emit_dim, remaining_depth - 1);
+            });
+        }
+    }
+
+    /// Same mechanism as [`Self::restricted_descent_parallel_scoped`],
+    /// plus one more lever raised directly: `rayon::scope`'s own docs
+    /// say every `Scope::spawn` call heap-allocates its task, unlike
+    /// `rayon::join`'s stack-only two-way split -- so spawning one task
+    /// *per child*, unconditionally, pays that allocation once per
+    /// accepted transition even when a node's fan-out is wide. This
+    /// variant chunks a node's children into at most `max_branch` groups
+    /// (not groups of size `max_branch` -- the cap is on how many tasks
+    /// get spawned *from one node*, matching "branch up to `x` ways,"
+    /// not on how many children end up in each one) and spawns one task
+    /// per chunk; each task then runs its own chunk's children one
+    /// after another, recursing normally (still subject to the same
+    /// `remaining_depth` budget for any *further* fan-out below it).
+    pub fn restricted_descent_parallel_scoped_chunked(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, parallel_depth: usize, max_branch: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel_scoped_chunked only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let max_branch = max_branch.max(1);
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let sink: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+        rayon::scope(|scope| {
+            self.visit_scoped_chunked_rec(scope, &sink, self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim, parallel_depth, max_branch);
+        });
+        let mut out = sink.into_inner().expect("sink mutex never panics while locked");
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn visit_scoped_chunked_rec<'a>(&'a self, scope: &rayon::Scope<'a>, sink: &'a std::sync::Mutex<Vec<u32>>, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &'a [u64], emit_dim: usize, remaining_depth: usize, max_branch: usize) {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+
+        if relevant == 0 {
+            return;
+        }
+
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            let mut local = Vec::new();
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                local.push(child_lo[emit_dim] as u32);
+            }
+            sink.lock().expect("sink mutex never panics while locked").extend(local);
+            return;
+        }
+
+        let mut children: Vec<(u64, [u64; NUM_DIMS])> = Vec::with_capacity(relevant.count_ones() as usize);
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            children.push((child_addr, child_lo));
+        }
+
+        if remaining_depth == 0 {
+            let mut local = Vec::new();
+            for &(a, l) in &children {
+                local.extend(self.visit_sequential_to_vec(a, l, level + 1, level_masks, emit_dim));
+            }
+            if !local.is_empty() {
+                sink.lock().expect("sink mutex never panics while locked").extend(local);
+            }
+            return;
+        }
+
+        let num_chunks = max_branch.min(children.len());
+        let chunk_size = children.len().div_ceil(num_chunks);
+        for chunk in children.chunks(chunk_size) {
+            let chunk = chunk.to_vec();
+            scope.spawn(move |s| {
+                for (child_addr, child_lo) in chunk {
+                    self.visit_scoped_chunked_rec(s, sink, child_addr, child_lo, level + 1, level_masks, emit_dim, remaining_depth - 1, max_branch);
+                }
+            });
+        }
+    }
+
+    /// Lazy binary splitting (Tzannes, Caragea, Barua & Vishkin, 2010),
+    /// adapted to this traversal via `rayon::join_context` instead of
+    /// hand-tuned the way every other `parallel*` variant above is.
+    /// Every other variant decides *in advance*, from a fixed constant,
+    /// whether a given node is worth splitting -- the LBS paper's named
+    /// weakness of eager splitting: a threshold "over-fits... to a
+    /// particular dataset, platform, and calling context." LBS's idea:
+    /// don't decide up front -- split in response to *observed* demand,
+    /// via `rayon::join_context`'s `FnContext::migrated()` (whether a
+    /// closure actually got picked up by a different worker thread),
+    /// the same signal rayon's own parallel-iterator bridge uses
+    /// internally to decide whether to keep splitting a range.
+    ///
+    /// Two real bugs found and fixed while measuring this, not just
+    /// tuning it (see `DESIGN.md` for the numbers both times):
+    ///
+    /// 1. A node with exactly one live child isn't evidence *against*
+    ///    splitting -- `one-Exact`-shaped queries spend their first
+    ///    several levels on a single live path before fan-out actually
+    ///    appears. The first version treated "nothing to split here" the
+    ///    same as "not migrated," permanently abandoning any chance of
+    ///    splitting the instant it passed through that corridor -- often
+    ///    at level 1, well before the real fan-out region. Fixed by
+    ///    recursing straight through a single-child node, carrying
+    ///    `migrated` forward unchanged instead of consuming it.
+    /// 2. Migration *alone*, with no floor, never converges: measured
+    ///    directly (temporary counters, since removed), this traversal
+    ///    sees `rayon::join_context` succeed at migrating roughly 75-80%
+    ///    of attempts on this machine's 12 cores -- there's simply
+    ///    enough idle capacity around that the adaptive signal keeps
+    ///    saying "yes, split more" almost everywhere, reproducing the
+    ///    exact `CountLatch`-dominated collapse the fixed-depth cutoff
+    ///    hit at `parallel_depth=4`, just reached adaptively instead of
+    ///    by a bad constant. This is why rayon's own internal splitter
+    ///    (`plumbing::bridge_producer_consumer`) combines migration
+    ///    status *with* a length-based floor, not migration alone --
+    ///    `max_depth_from_root` plays that role here: splitting still
+    ///    requires both migration *and* being within the first
+    ///    `max_depth_from_root` tree levels.
+    ///
+    /// The root call is seeded as already migrated -- otherwise nothing
+    /// would ever get offered to steal in the first place.
+    pub fn restricted_descent_parallel_lazy(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, max_depth_from_root: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel_lazy only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let sink: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+        // Seeded as `migrated = true`: the one unconditional split
+        // attempt that gets the whole thing started (see doc comment).
+        self.visit_lazy_rec(&sink, self.root_virtual_addr, [0u64; NUM_DIMS], 0, &level_masks, emit_dim, true, max_depth_from_root);
+        let mut out = sink.into_inner().expect("sink mutex never panics while locked");
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn visit_lazy_rec(&self, sink: &std::sync::Mutex<Vec<u32>>, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize, migrated: bool, max_depth_from_root: usize) {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+
+        if relevant == 0 {
+            return;
+        }
+
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            let mut local = Vec::new();
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                local.push(child_lo[emit_dim] as u32);
+            }
+            sink.lock().expect("sink mutex never panics while locked").extend(local);
+            return;
+        }
+
+        let mut children: Vec<(u64, [u64; NUM_DIMS])> = Vec::with_capacity(relevant.count_ones() as usize);
+        while relevant != 0 {
+            let qi = relevant.trailing_zeros() as usize;
+            relevant &= relevant - 1;
+            let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+            let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+            let child_addr = addr + delta;
+            let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+            children.push((child_addr, child_lo));
+        }
+
+        // Exactly one live child: there's nothing to split *here*, but
+        // that's not evidence against splitting -- `one-Exact`-shaped
+        // queries spend their first several levels on a single live
+        // path (the pinned dimension's bits haven't exhausted yet)
+        // before fan-out actually appears. Recurse straight through,
+        // carrying `migrated` forward unchanged, so the real
+        // split-or-not decision gets asked again once there's an
+        // actual choice to make, instead of being permanently decided
+        // by a corridor that had no choice at all.
+        if children.len() == 1 {
+            let (addr, lo) = children[0];
+            self.visit_lazy_rec(sink, addr, lo, level + 1, level_masks, emit_dim, migrated, max_depth_from_root);
+            return;
+        }
+
+        // Migration alone turned out not to be enough (measured, not
+        // assumed -- see `DESIGN.md`): with 12 idle cores and a workload
+        // this size, migration succeeds ~79% of the time regardless of
+        // tree depth, so a pure migration gate never actually converges
+        // to a small number of splits -- it just keeps splitting almost
+        // everywhere, landing in the exact same `CountLatch`-dominated
+        // collapse as an unbounded fixed-depth cutoff, just reached
+        // adaptively instead of by a bad constant. This is exactly why
+        // rayon's own internal splitter (`plumbing::bridge_producer_consumer`,
+        // used by `par_iter`) combines migration status *with* a
+        // length-based floor, not migration alone -- so this does too:
+        // require that we're still within the first `max_depth_from_root`
+        // tree levels *and* migration, not either one on its own.
+        if !migrated || level >= max_depth_from_root {
+            let mut local = Vec::new();
+            for &(a, l) in &children {
+                local.extend(self.visit_sequential_to_vec(a, l, level + 1, level_masks, emit_dim));
+            }
+            if !local.is_empty() {
+                sink.lock().expect("sink mutex never panics while locked").extend(local);
+            }
+            return;
+        }
+
+        // This call *was* migrated -- an idle thread actually reached
+        // out for this exact piece of work a moment ago, real evidence
+        // there's spare capacity nearby right now. Worth offering more.
+        //
+        // `join_context`, unlike `Scope::spawn`, is synchronous -- it
+        // blocks until both closures finish, so `children` is
+        // guaranteed to outlive the call. No need to own/clone `left`
+        // and `right` into fresh `Vec`s the way `Scope::spawn` requires;
+        // borrowing the slices directly (same pattern every `join`-based
+        // variant above already uses) avoids two allocations and two
+        // copies per split for free.
+        let mid = children.len() / 2;
+        let (left, right) = children.split_at(mid);
+        rayon::join_context(
+            |ctx| {
+                let migrated = ctx.migrated();
+                for &(a, l) in left {
+                    self.visit_lazy_rec(sink, a, l, level + 1, level_masks, emit_dim, migrated, max_depth_from_root);
+                }
+            },
+            |ctx| {
+                let migrated = ctx.migrated();
+                for &(a, l) in right {
+                    self.visit_lazy_rec(sink, a, l, level + 1, level_masks, emit_dim, migrated, max_depth_from_root);
+                }
+            },
+        );
+    }
+
+    /// Corrected after a first attempt misunderstood the mechanism being
+    /// proposed (see `DESIGN.md`): not one shared, growing pool of work
+    /// items, but exactly `N` fixed slots, one per worker thread, each
+    /// holding the `(node, open_mask)` pair described directly -- which
+    /// node this thread is currently at, and a bitmask of that node's
+    /// accepted transitions nobody has claimed yet. A thread that runs
+    /// out of work at its own slot looks at every *other* slot for one
+    /// with open bits, claims one, and continues DFS from there --
+    /// exactly the worked example given: thread 0 finds thread 1 at node
+    /// 57 with children 245 and 401 open, claims 245 (clearing that bit
+    /// in slot 1), and starts exploring 245 by writing it, with its own
+    /// first child already claimed, into slot 0.
+    ///
+    /// Claiming a bit is lock-free (a `compare_exchange` loop on an
+    /// `AtomicU64` mask, the same "clear the lowest set bit" trick used
+    /// throughout this file) -- no `Mutex` on the hot path at all. The
+    /// `Mutex` the proposal asked for exists, but only for the *rare*
+    /// event of a slot changing which node it refers to (`Slot::position`),
+    /// not for every claim: a slot's mask is only ever set non-zero
+    /// *after* its `position` is already correct, and a slot is only
+    /// ever republished (by its own owning thread, never a thief) once
+    /// its mask has already hit zero -- so no thief can ever observe a
+    /// non-zero mask paired with a stale position. This also means no
+    /// per-node allocation at all: unlike every other `parallel*`
+    /// variant, a node's children are never collected into a `Vec` --
+    /// the raw accepted-transitions bitmask *is* the published state,
+    /// and a specific child's address is decoded only once actually
+    /// claimed, by whoever claims it.
+    pub fn restricted_descent_parallel_queue(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel_queue only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let sink: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+        let num_workers = rayon::current_num_threads().max(1);
+        let slots: Vec<Slot> = (0..num_workers)
+            .map(|_| Slot {
+                data: std::sync::Mutex::new(SlotData {
+                    position: (0u64, [0u64; NUM_DIMS], 0usize),
+                    open_mask: 0,
+                }),
+            })
+            .collect();
+        // Same global completion counter as the first attempt -- an
+        // empty slot everywhere isn't proof nothing remains (another
+        // thread could be mid-transition), so termination still needs
+        // a count of "discovered but not yet dispatched" work, not just
+        // "every slot I can currently see is empty." Seeded to 1 for
+        // the root before any worker starts.
+        let pending = std::sync::atomic::AtomicUsize::new(1);
+        rayon::scope(|s| {
+            for worker_id in 0..num_workers {
+                let slots = &slots;
+                let level_masks = &level_masks;
+                let sink = &sink;
+                let pending = &pending;
+                s.spawn(move |_| {
+                    if worker_id == 0 {
+                        self.dfs_slot_rec(self.root_virtual_addr, [0u64; NUM_DIMS], 0, level_masks, emit_dim, sink, slots, 0, pending);
+                        pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    self.slot_worker_loop(worker_id, level_masks, emit_dim, sink, slots, pending);
+                });
+            }
+        });
+        let mut out = sink.into_inner().expect("sink mutex never panics while locked");
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Claim attempt against one slot (which may be the caller's own,
+    /// or another thread's -- the slot doesn't know or care which).
+    /// Returns the claimed node's identity plus which transition (`qi`)
+    /// was claimed, or `None` if the slot has nothing open right now.
+    ///
+    /// A first version split this into a lock-free CAS on the mask
+    /// followed by a *separate* locked read of the position, reasoning
+    /// that position only changes after the mask reaches zero so the
+    /// two could never disagree. That reasoning had a real hole: mask
+    /// reaching zero only means *no more bits are claimable*, not that
+    /// every thread that already claimed an earlier bit has finished
+    /// reading the position that went with it. A thief could win the
+    /// CAS, then stall (for any reason -- scheduling, cache miss) before
+    /// reading position; in that window the owner could legitimately
+    /// see the mask at zero, conclude the slot is free, and republish
+    /// it for a completely different node -- leaving the stalled thief
+    /// to read the *new* position paired with a `qi` that was only ever
+    /// valid for the *old* one. Measured directly, not hypothetically:
+    /// this produced real, reproducible out-of-bounds panics once
+    /// multiple real threads were involved (see `DESIGN.md`). Fixed by
+    /// merging the mask and the position into one `Mutex<SlotData>` and
+    /// doing the whole "check mask, pick a bit, clear it, read position"
+    /// sequence as a single locked operation -- trading the lock-free
+    /// claim path away in exchange for there being no gap left for a
+    /// stale read to land in at all.
+    fn slot_try_claim(slot: &Slot) -> Option<(u64, [u64; NUM_DIMS], usize, usize)> {
+        let mut data = slot.data.lock().expect("slot mutex never panics while locked");
+        if data.open_mask == 0 {
+            return None;
+        }
+        let qi = data.open_mask.trailing_zeros() as usize;
+        data.open_mask &= data.open_mask - 1;
+        let (addr, lo, level) = data.position;
+        Some((addr, lo, level, qi))
+    }
+
+    /// Decodes the one transition (`qi`) just claimed from a node at
+    /// `(addr, lo, level)` -- the delta read every other variant in this
+    /// file does once a child is already known to be wanted -- then
+    /// recurses into it as *this* thread's own current work, publishing
+    /// to `slots[my_slot]`, never the slot the claim came from.
+    #[allow(clippy::too_many_arguments)]
+    fn decode_claimed_and_recurse(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, qi: usize, level_masks: &[u64], emit_dim: usize, sink: &std::sync::Mutex<Vec<u32>>, slots: &[Slot], my_slot: usize, pending: &std::sync::atomic::AtomicUsize) {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+        let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+        let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+        let child_addr = addr + delta;
+        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+        self.dfs_slot_rec(child_addr, child_lo, level + 1, level_masks, emit_dim, sink, slots, my_slot, pending);
+        pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Visits one node under `slots[my_slot]`'s exclusive ownership --
+    /// only the thread whose own slot this is ever *writes* to it (reads
+    /// via [`Self::slot_try_claim`] are shared with every other thread).
+    /// Publishes `position` before `open_mask` (never the reverse): a
+    /// thief can only ever observe a non-zero mask once the position it
+    /// describes is already correct, because nothing sets the mask
+    /// non-zero until the position write has already completed, and
+    /// nothing re-publishes a new position until the previous mask has
+    /// already reached zero (no thief can be mid-claim against an
+    /// identity that's about to change, because "about to change" only
+    /// happens once there's nothing left to claim).
+    ///
+    /// Crucial subtlety a first version got wrong (see `DESIGN.md`): a
+    /// thread recursing into a child it just claimed must check whether
+    /// its *own* slot is still occupied by an ancestor's still-open
+    /// siblings before touching it again. Overwriting an occupied slot
+    /// -- which plain recursion would do unconditionally, since every
+    /// level of the tree wants to publish its own fan-out -- silently
+    /// strands those siblings: nothing points at them anymore, nobody
+    /// (not even this thread) can ever claim them, and the global
+    /// `pending` count they were added under can never be decremented,
+    /// hanging the whole query forever. The fix: only publish/share a
+    /// node's fan-out when `slots[my_slot]` is currently empty;
+    /// otherwise finish that node's entire subtree by plain recursion
+    /// instead (still correct, just unshared at that level) -- and
+    /// since this same check runs again at every level below, sharing
+    /// resumes the instant the slot actually frees up, however deep
+    /// that turns out to be, rather than never resuming at all.
+    #[allow(clippy::too_many_arguments)]
+    fn dfs_slot_rec(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, level_masks: &[u64], emit_dim: usize, sink: &std::sync::Mutex<Vec<u32>>, slots: &[Slot], my_slot: usize, pending: &std::sync::atomic::AtomicUsize) {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let word = self.storage.read_u64(block, offset);
+        let mut relevant = word & level_masks[level];
+        let is_last = level == self.height - 1;
+
+        if relevant == 0 {
+            return;
+        }
+
+        let dim_bits = self.level_dim_bits[level];
+        let shifts = self.level_shifts_cache[level];
+        let child_cell_bits = self.level_child_cell_bits_cache[level];
+
+        if is_last {
+            let mut local = Vec::new();
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                local.push(child_lo[emit_dim] as u32);
+            }
+            sink.lock().expect("sink mutex never panics while locked").extend(local);
+            return;
+        }
+
+        // Check whether my own slot is free *and*, if so, publish this
+        // node into it, as one locked operation -- nothing else can
+        // change a slot while its mask reads zero (only this node's own
+        // owning thread ever sets a new, non-zero mask), so there's no
+        // gap here for a thief to land in, but keeping the check and
+        // the publish under the same lock acquisition makes that true
+        // by construction instead of by argument.
+        let published = {
+            let mut data = slots[my_slot].data.lock().expect("slot mutex never panics while locked");
+            if data.open_mask != 0 {
+                false
+            } else {
+                // `pending` goes up *before* releasing the lock that
+                // makes the new mask visible to anyone -- by the time a
+                // thief can see a non-zero mask here, these units are
+                // already accounted for.
+                pending.fetch_add(relevant.count_ones() as usize, std::sync::atomic::Ordering::SeqCst);
+                data.position = (addr, lo, level);
+                data.open_mask = relevant;
+                true
+            }
+        };
+        if !published {
+            // My own slot is still occupied by an ancestor's open
+            // siblings -- don't touch it. Finish this node's whole
+            // subtree by plain recursion; each child re-runs this same
+            // check, so sharing resumes the moment the slot frees up.
+            while relevant != 0 {
+                let qi = relevant.trailing_zeros() as usize;
+                relevant &= relevant - 1;
+                let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+                let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+                let child_addr = addr + delta;
+                let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+                self.dfs_slot_rec(child_addr, child_lo, level + 1, level_masks, emit_dim, sink, slots, my_slot, pending);
+            }
+            return;
+        }
+
+        // Race for a share of what was just published, exactly like any
+        // thief would through the same `slot_try_claim` entry point --
+        // no special-cased "this is mine first" fast path.
+        while let Some((a2, l2, lvl2, qi)) = Self::slot_try_claim(&slots[my_slot]) {
+            self.decode_claimed_and_recurse(a2, l2, lvl2, qi, level_masks, emit_dim, sink, slots, my_slot, pending);
+        }
+    }
+
+    /// A worker with nothing left at its own slot: scan every other
+    /// slot once for a claimable bit. `pending == 0` is the only
+    /// global stop signal; finding nothing claimable anywhere on one
+    /// pass just means yielding and trying again, since real work may
+    /// still be arriving from a thread that's mid-recursion.
+    fn slot_worker_loop(&self, my_slot: usize, level_masks: &[u64], emit_dim: usize, sink: &std::sync::Mutex<Vec<u32>>, slots: &[Slot], pending: &std::sync::atomic::AtomicUsize) {
+        loop {
+            if pending.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            if let Some((a2, l2, lvl2, qi)) = Self::slot_try_claim(&slots[my_slot]) {
+                self.decode_claimed_and_recurse(a2, l2, lvl2, qi, level_masks, emit_dim, sink, slots, my_slot, pending);
+                continue;
+            }
+            let mut stole = false;
+            for (other, slot) in slots.iter().enumerate() {
+                if other == my_slot {
+                    continue;
+                }
+                if let Some((a2, l2, lvl2, qi)) = Self::slot_try_claim(slot) {
+                    self.decode_claimed_and_recurse(a2, l2, lvl2, qi, level_masks, emit_dim, sink, slots, my_slot, pending);
+                    stole = true;
+                    break;
+                }
+            }
+            if !stole {
+                std::thread::yield_now();
+            }
+        }
+    }
+
+    /// Same per-thread-slot idea as [`Self::restricted_descent_parallel_queue`],
+    /// but with the recursion flattened out: instead of one cell per
+    /// thread, this is `N` threads by `height` columns, one cell per
+    /// *tree depth* a thread is currently holding along its own path --
+    /// so every ancestor level of a thread's current descent is its own
+    /// independently stealable cell, not just its single deepest one.
+    /// This removes the single-slot design's "my slot is occupied by an
+    /// ancestor, fall back to plain recursion" escape hatch entirely:
+    /// there is no longer a reason for it to exist, since an ancestor
+    /// and its descendant never compete for the same cell.
+    ///
+    /// A column's identity is *not* the real tree level -- after a
+    /// thread steals a fresh starting point, its own column 0 can be
+    /// any real level, which is exactly why [`MatrixCell::real_level`]
+    /// is stored explicitly rather than inferred from the column index.
+    ///
+    /// `prefer_shallow` selects between two steal-order heuristics
+    /// compared directly rather than guessed at: `true` always steals
+    /// from the shallowest open column found across every other
+    /// thread's row (more remaining subtree, in expectation, since
+    /// higher levels of this tree tend to still have more than one
+    /// live child), `false` always steals from the deepest. Both are
+    /// plain linear scans with no per-row "anything open" summary bit
+    /// -- deliberately: that is a real optimization opportunity if the
+    /// scan itself turns out to matter, but it is not built until a
+    /// measurement says it is worth building, not decided from
+    /// reasoning alone.
+    pub fn restricted_descent_parallel_matrix(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize, prefer_shallow: bool) -> Vec<u32> {
+        for (d, r) in restrictions.iter().enumerate() {
+            match *r {
+                DimRestriction::Exact(v) if (v as u64) >= self.dimension_sizes[d] => return Vec::new(),
+                DimRestriction::Range(..) | DimRestriction::Multi(..) => panic!("PathFstDeltaPow2Bfs::restricted_descent_parallel_matrix only supports Exact/Free restrictions (dimension {d})"),
+                _ => {}
+            }
+        }
+        if self.height == 0 {
+            return Vec::new();
+        }
+        let level_masks = self.precompute_level_masks(&restrictions);
+        let sink: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+        let num_workers = rayon::current_num_threads().max(1);
+        let matrix: Vec<Vec<std::sync::Mutex<MatrixCell>>> =
+            (0..num_workers).map(|_| (0..self.height).map(|_| std::sync::Mutex::new(MatrixCell::empty())).collect()).collect();
+        let pending = std::sync::atomic::AtomicUsize::new(0);
+
+        // Initialization lives entirely outside the per-thread loop, as
+        // its own one-time bootstrap step: the root is a single node,
+        // there is nothing to parallelize about visiting it, so it is
+        // handled directly here rather than by special-casing thread 0
+        // inside its own loop body. One bit is claimed from it
+        // immediately so that no thread's *own* active position is ever
+        // real tree level 0 -- level 0 only ever exists, from this point
+        // on, as an ordinary stealable backlog cell at `matrix[0][0]`,
+        // found through the exact same scan every other steal goes
+        // through, whether root's fan-out is narrower or wider than
+        // `num_workers`.
+        let thread0_descended = match self.matrix_initialize(&level_masks, emit_dim, &sink, &matrix, &pending) {
+            None => return Vec::new(),
+            Some(descended) => descended,
+        };
+
+        rayon::scope(|s| {
+            for worker_id in 0..num_workers {
+                let matrix = &matrix;
+                let level_masks = &level_masks;
+                let sink = &sink;
+                let pending = &pending;
+                s.spawn(move |_| {
+                    let start_depth = if worker_id == 0 && thread0_descended { Some(1) } else { None };
+                    self.matrix_worker_loop(worker_id, start_depth, level_masks, emit_dim, sink, matrix, pending, prefer_shallow);
+                });
+            }
+        });
+        let mut out = sink.into_inner().expect("sink mutex never panics while locked");
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// One-time bootstrap for [`Self::restricted_descent_parallel_matrix`]:
+    /// publishes the root into `matrix[0][0]`, then immediately claims
+    /// and dispatches exactly one of its transitions so `matrix[0][1]`
+    /// (the real starting point for thread 0's own loop) is already
+    /// filled before any thread starts running. Returns `None` only when
+    /// the root itself has nothing accepted (an empty result for the
+    /// whole query); otherwise `Some(did_descend)`, where `did_descend`
+    /// is `false` only in the degenerate `height == 1` case (the root's
+    /// own level is already the last one, so the one claimed transition
+    /// was emitted directly instead of producing a child cell).
+    fn matrix_initialize(
+        &self,
+        level_masks: &[u64],
+        emit_dim: usize,
+        sink: &std::sync::Mutex<Vec<u32>>,
+        matrix: &[Vec<std::sync::Mutex<MatrixCell>>],
+        pending: &std::sync::atomic::AtomicUsize,
+    ) -> Option<bool> {
+        let block = (self.root_virtual_addr >> self.capacity_bits) as usize;
+        let offset = (self.root_virtual_addr & self.capacity_mask) as usize;
+        let root_word = self.storage.read_u64(block, offset);
+        let root_mask = root_word & level_masks[0];
+        if root_mask == 0 {
+            return None;
+        }
+        // One pending unit per bit in the published mask, exactly like
+        // every other publish site (`dispatch_claimed_bit`'s own
+        // `child_mask` case) -- not one unit for "the root" as a whole,
+        // which would undercount whenever root has more than one
+        // accepted child and let `pending` hit zero while real siblings
+        // are still sitting unclaimed in `matrix[0][0]`.
+        pending.fetch_add(root_mask.count_ones() as usize, std::sync::atomic::Ordering::SeqCst);
+        let published = Self::matrix_publish(&matrix[0][0], self.root_virtual_addr, [0u64; NUM_DIMS], 0, root_word, root_mask);
+        debug_assert!(published, "matrix_initialize: root cell cannot already be occupied, nothing has run yet");
+        let (addr, lo, real_level, word, qi) =
+            Self::matrix_try_claim(&matrix[0][0]).expect("just published a non-zero mask with no other thread running yet");
+        let descended = self.dispatch_claimed_bit(addr, lo, real_level, word, qi, level_masks, emit_dim, sink, pending, matrix, 0, 1);
+        Some(descended)
+    }
+
+    /// A worker's steady-state loop: work its own column, deepest-first,
+    /// backing up a column at a time when the current one is exhausted
+    /// -- mirroring [`Self::restricted_descent_parallel_queue`]'s "while
+    /// let claim, else return to the caller" recursion, just flattened
+    /// into an explicit loop over an explicit stack instead of the call
+    /// stack. Once backed up past column 0 with nothing left (`depth`
+    /// becomes `None`), falls back to stealing a brand new starting
+    /// point via [`Self::matrix_scan_and_steal`], always landing at
+    /// column 0 of its *own* row regardless of which column it was
+    /// stolen from.
+    #[allow(clippy::too_many_arguments)]
+    fn matrix_worker_loop(
+        &self,
+        my_id: usize,
+        mut depth: Option<usize>,
+        level_masks: &[u64],
+        emit_dim: usize,
+        sink: &std::sync::Mutex<Vec<u32>>,
+        matrix: &[Vec<std::sync::Mutex<MatrixCell>>],
+        pending: &std::sync::atomic::AtomicUsize,
+        prefer_shallow: bool,
+    ) {
+        loop {
+            if pending.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            let d = match depth {
+                None => match Self::matrix_scan_and_steal(matrix, my_id, prefer_shallow) {
+                    None => {
+                        std::thread::yield_now();
+                        continue;
+                    }
+                    Some((addr, lo, real_level, word, qi)) => {
+                        let descended = self.dispatch_claimed_bit(addr, lo, real_level, word, qi, level_masks, emit_dim, sink, pending, matrix, my_id, 0);
+                        depth = if descended { Some(0) } else { None };
+                        continue;
+                    }
+                },
+                Some(d) => d,
+            };
+            match Self::matrix_try_claim(&matrix[my_id][d]) {
+                None => {
+                    depth = if d == 0 { None } else { Some(d - 1) };
+                }
+                Some((addr, lo, real_level, word, qi)) => {
+                    let descended = self.dispatch_claimed_bit(addr, lo, real_level, word, qi, level_masks, emit_dim, sink, pending, matrix, my_id, d + 1);
+                    depth = Some(if descended { d + 1 } else { d });
+                }
+            }
+        }
+    }
+
+    /// Claim one transition from a cell, regardless of whether it is the
+    /// caller's own current column or a steal target -- the cell itself
+    /// carries everything needed to decode it (`word`, cached once at
+    /// publish time, never re-read from storage after), so a claim never
+    /// needs `level_masks` at all; that array is only ever touched in
+    /// [`Self::dispatch_claimed_bit`], exactly once, at the moment a
+    /// *new* child cell is created.
+    fn matrix_try_claim(cell: &std::sync::Mutex<MatrixCell>) -> Option<(u64, [u64; NUM_DIMS], usize, u64, usize)> {
+        let mut data = cell.lock().expect("matrix cell mutex never panics while locked");
+        if data.open_mask == 0 {
+            return None;
+        }
+        let qi = data.open_mask.trailing_zeros() as usize;
+        data.open_mask &= data.open_mask - 1;
+        Some((data.addr, data.lo, data.real_level, data.word, qi))
+    }
+
+    /// Read-only peek at a cell's real level, without claiming anything
+    /// -- used only by the steal scan to compare candidates by depth
+    /// before committing to one. Still requires the lock (there is no
+    /// lock-free summary field here; see this method's own doc on
+    /// [`Self::restricted_descent_parallel_matrix`] for why that is
+    /// deliberately deferred).
+    fn matrix_peek_level(cell: &std::sync::Mutex<MatrixCell>) -> Option<usize> {
+        let data = cell.lock().expect("matrix cell mutex never panics while locked");
+        if data.open_mask == 0 {
+            None
+        } else {
+            Some(data.real_level)
+        }
+    }
+
+    /// Publish a freshly discovered node into a cell. Every call site
+    /// only ever targets a cell it has just confirmed (by construction,
+    /// not by re-checking here) is not currently occupied: a column
+    /// backed away from because it was exhausted (`open_mask == 0`) can
+    /// only become occupied again by this same thread, and a steal
+    /// target is always this thread's *own* column 0, never written by
+    /// anyone else. Returns whether the publish actually happened, but
+    /// every caller treats a `false` here as a real bug (`debug_assert!`),
+    /// not a condition to handle -- if it is ever hit, the surrounding
+    /// invariant has broken somewhere and needs to be understood, not
+    /// papered over.
+    fn matrix_publish(cell: &std::sync::Mutex<MatrixCell>, addr: u64, lo: [u64; NUM_DIMS], real_level: usize, word: u64, open_mask: u64) -> bool {
+        let mut data = cell.lock().expect("matrix cell mutex never panics while locked");
+        if data.open_mask != 0 {
+            return false;
+        }
+        data.addr = addr;
+        data.lo = lo;
+        data.real_level = real_level;
+        data.word = word;
+        data.open_mask = open_mask;
+        true
+    }
+
+    /// Scans every *other* thread's row for an open cell, preferring
+    /// the shallowest or the deepest real level found depending on
+    /// `prefer_shallow`, then makes exactly one claim attempt against
+    /// the best candidate seen. The candidate can lose the race between
+    /// being peeked and being claimed (someone else takes its last bit
+    /// first) -- handled by simply returning `None` for this poll
+    /// iteration, same as finding nothing at all; the caller's loop
+    /// just tries again, since real work may still be arriving from
+    /// threads still mid-descent.
+    fn matrix_scan_and_steal(matrix: &[Vec<std::sync::Mutex<MatrixCell>>], my_id: usize, prefer_shallow: bool) -> Option<(u64, [u64; NUM_DIMS], usize, u64, usize)> {
+        let mut best: Option<(usize, usize, usize)> = None;
+        for (t, row) in matrix.iter().enumerate() {
+            if t == my_id {
+                continue;
+            }
+            for (c, cell) in row.iter().enumerate() {
+                if let Some(lvl) = Self::matrix_peek_level(cell) {
+                    let better = match best {
+                        None => true,
+                        Some((_, _, best_lvl)) => {
+                            if prefer_shallow {
+                                lvl < best_lvl
+                            } else {
+                                lvl > best_lvl
+                            }
+                        }
+                    };
+                    if better {
+                        best = Some((t, c, lvl));
+                    }
+                }
+            }
+        }
+        let (t, c, _) = best?;
+        Self::matrix_try_claim(&matrix[t][c])
+    }
+
+    /// Decodes and dispatches one claimed transition `qi` from a node
+    /// already fully described by `(addr, lo, real_level, word)` --
+    /// `word` came from the cell itself, never re-read from storage,
+    /// since it cannot have changed since the cell was published (this
+    /// structure is immutable once built).
+    ///
+    /// Three outcomes, matching [`Self::dfs_slot_rec`]'s leaf/dead-end/
+    /// descend split exactly, just returning which one happened instead
+    /// of recursing:
+    /// - leaf level: emits directly, returns `false` (nothing to
+    ///   publish, caller stays at its current column and tries claiming
+    ///   more from the same cell);
+    /// - dead end (the child exists but has nothing accepted under it):
+    ///   returns `false` for the same reason;
+    /// - real descent: publishes the child into `matrix[target_thread][target_column]`
+    ///   and returns `true`, so the caller knows to move its own active
+    ///   column to `target_column`.
+    ///
+    /// `pending`'s increment for the child's own fan-out happens
+    /// *before* its decrement for this now-resolved claim, so the count
+    /// can never be observed transiently at zero while real work still
+    /// exists -- the same ordering [`Self::dfs_slot_rec`] uses.
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_claimed_bit(
+        &self,
+        addr: u64,
+        lo: [u64; NUM_DIMS],
+        real_level: usize,
+        word: u64,
+        qi: usize,
+        level_masks: &[u64],
+        emit_dim: usize,
+        sink: &std::sync::Mutex<Vec<u32>>,
+        pending: &std::sync::atomic::AtomicUsize,
+        matrix: &[Vec<std::sync::Mutex<MatrixCell>>],
+        target_thread: usize,
+        target_column: usize,
+    ) -> bool {
+        let dim_bits = self.level_dim_bits[real_level];
+        let shifts = self.level_shifts_cache[real_level];
+        let child_cell_bits = self.level_child_cell_bits_cache[real_level];
+        let child_lo = advance_lo(lo, dim_bits, shifts, qi, child_cell_bits);
+
+        if real_level == self.height - 1 {
+            sink.lock().expect("sink mutex never panics while locked").push(child_lo[emit_dim] as u32);
+            pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            return false;
+        }
+
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        let real_index = (word & ((1u64 << qi) - 1)).count_ones() as usize;
+        let delta = self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES);
+        let child_addr = addr + delta;
+        let child_block = (child_addr >> self.capacity_bits) as usize;
+        let child_offset = (child_addr & self.capacity_mask) as usize;
+        let child_word = self.storage.read_u64(child_block, child_offset);
+        // The one and only place `level_masks` is touched for this
+        // child: `open_mask` collapses the level's structural
+        // constraint and this specific node's own existence bits into
+        // one value, permanently, right here -- nothing downstream
+        // (`matrix_try_claim`, `matrix_peek_level`, the worker loop)
+        // ever indexes `level_masks` again for this cell.
+        let child_mask = child_word & level_masks[real_level + 1];
+
+        if child_mask == 0 {
+            pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            return false;
+        }
+        pending.fetch_add(child_mask.count_ones() as usize, std::sync::atomic::Ordering::SeqCst);
+        let published = Self::matrix_publish(&matrix[target_thread][target_column], child_addr, child_lo, real_level + 1, child_word, child_mask);
+        debug_assert!(published, "dispatch_claimed_bit: target cell was unexpectedly occupied");
+        pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        true
+    }
+}
+
+/// One worker thread's current position, published for any other idle
+/// thread to steal from -- the `(node_id, open_mask)` pair proposed
+/// directly. `position` (which node) and `open_mask` (which of that
+/// node's transitions remain unclaimed) are guarded by the *same* lock
+/// deliberately, not two independent ones -- see
+/// [`PathFstDeltaPow2Bfs::slot_try_claim`]'s doc comment for the race
+/// that motivated merging them.
+#[cfg(feature = "parallel")]
+struct SlotData {
+    position: (u64, [u64; NUM_DIMS], usize),
+    open_mask: u64,
+}
+
+#[cfg(feature = "parallel")]
+struct Slot {
+    data: std::sync::Mutex<SlotData>,
+}
+
+/// One cell of [`PathFstDeltaPow2Bfs::restricted_descent_parallel_matrix`]'s
+/// `threads x height` matrix -- a single tree-depth's worth of a single
+/// thread's current descent path. `real_level` is stored explicitly
+/// rather than inferred from the column index, because after a steal a
+/// thread's own column 0 can hold a node from *any* real tree level, not
+/// necessarily 0. `word` is cached here too, read from storage exactly
+/// once at publish time: since this structure is immutable once built,
+/// nothing can ever invalidate it, so every claim against this cell
+/// afterward (by its owner or by a thief) decodes straight from the
+/// cell's own fields with no further storage access for the word itself.
+#[cfg(feature = "parallel")]
+struct MatrixCell {
+    addr: u64,
+    lo: [u64; NUM_DIMS],
+    real_level: usize,
+    word: u64,
+    open_mask: u64,
+}
+
+#[cfg(feature = "parallel")]
+impl MatrixCell {
+    fn empty() -> Self {
+        MatrixCell { addr: 0, lo: [0u64; NUM_DIMS], real_level: 0, word: 0, open_mask: 0 }
     }
 }
 

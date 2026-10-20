@@ -1,0 +1,14 @@
+   Compiling s-graph v0.1.0 (/tmp/sgraph-join-lab-g4y0f9ur)
+warning: function `walk_leaf_rec` is never used
+   --> src/memo_join.rs:298:4
+    |
+298 | fn walk_leaf_rec<const TRACK: bool, T>(tree: &PathFstDeltaPow2Bfs, masks: &[u64], addr: u64, lo: [u64; NUM_DIMS], level: usize, nod...
+    |    ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `s-graph` (lib) generated 1 warning
+    Finished `profiling` profile [optimized + debuginfo] target(s) in 3.83s
+     Running `/tmp/sgraph-join-lab/target/profiling/examples/investigate`
+skew-c20-r0.01-o500000: heap=9384187 FST=5427898 height=7
+memo: cache_hits=96089 entries=65536 key_bytes=40

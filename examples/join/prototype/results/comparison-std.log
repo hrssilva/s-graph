@@ -1,0 +1,28 @@
+assignment order: shared-first
+filter uniform: FST=6144522 bytes
+filter asymmetric: FST=2477256 bytes
+filter zipf: FST=521816 bytes
+join uniform-star: FST=6144522 heap=25997093
+uniform-star lifted-lazy: build_nodes=592030 cached_products=591212 apply_calls=1253467 apply_hits=66751
+uniform-star lifted-merged: build_nodes=700400 cached_products=710764 apply_calls=1492574 apply_hits=77654
+join uniform-triangle: FST=6144522 heap=25997093
+uniform-triangle lifted-lazy: build_nodes=872063 cached_products=871892 apply_calls=1850469 apply_hits=107190
+uniform-triangle lifted-merged: build_nodes=979094 cached_products=1057901 apply_calls=2222491 apply_hits=118075
+join uniform-anchored: FST=6144522 heap=25997093
+uniform-anchored lifted-lazy: build_nodes=295746 cached_products=295317 apply_calls=626252 apply_hits=33404
+uniform-anchored lifted-merged: build_nodes=295761 cached_products=295346 apply_calls=626313 apply_hits=33404
+join skew: FST=5427898 heap=9384187
+skew lifted-lazy: build_nodes=1449884 cached_products=1449114 apply_calls=3286902 apply_hits=192115
+skew lifted-merged: build_nodes=1516686 cached_products=1590579 apply_calls=3569835 apply_hits=248519
+join parity-triangle-32: FST=430 heap=12577
+parity-triangle-32 lifted-lazy: build_nodes=769 cached_products=405 apply_calls=1269 apply_hits=188
+parity-triangle-32 lifted-merged: build_nodes=772 cached_products=412 apply_calls=1287 apply_hits=189
+join parity-triangle-64: FST=430 heap=12577
+parity-triangle-64 lifted-lazy: build_nodes=885 cached_products=468 apply_calls=1467 apply_hits=219
+parity-triangle-64 lifted-merged: build_nodes=888 cached_products=475 apply_calls=1485 apply_hits=220
+join parity-triangle-128: FST=430 heap=12577
+parity-triangle-128 lifted-lazy: build_nodes=1405 cached_products=743 apply_calls=2305 apply_hits=358
+parity-triangle-128 lifted-merged: build_nodes=1408 cached_products=750 apply_calls=2323 apply_hits=359
+join dense-star: FST=192 heap=346
+dense-star lifted-lazy: build_nodes=210 cached_products=104 apply_calls=306 apply_hits=30
+dense-star lifted-merged: build_nodes=211 cached_products=105 apply_calls=311 apply_hits=30

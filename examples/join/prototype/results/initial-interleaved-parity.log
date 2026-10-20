@@ -1,0 +1,9 @@
+join parity-triangle-32: FST=430 heap=12577
+parity-triangle-32 lifted-lazy: build_nodes=823 cached_products=420 apply_calls=1299 apply_hits=189
+parity-triangle-32 lifted-merged: build_nodes=825 cached_products=427 apply_calls=1317 apply_hits=190
+join parity-triangle-64: FST=430 heap=12577
+parity-triangle-64 lifted-lazy: build_nodes=950 cached_products=486 apply_calls=1503 apply_hits=219
+parity-triangle-64 lifted-merged: build_nodes=952 cached_products=493 apply_calls=1521 apply_hits=220
+join parity-triangle-128: FST=430 heap=12577
+parity-triangle-128 lifted-lazy: build_nodes=1501 cached_products=768 apply_calls=2355 apply_hits=357
+parity-triangle-128 lifted-merged: build_nodes=1503 cached_products=775 apply_calls=2373 apply_hits=358

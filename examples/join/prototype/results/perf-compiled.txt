@@ -1,0 +1,19 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 4K of event 'cycles:u'
+# Event count (approx.): 18804375677
+#
+# Overhead  Symbol                                                                                              IPC   [IPC Coverage]
+# ........  ..................................................................................................  ....................
+#
+    58.87%  [.] <s_graph::compiled_filter::CompiledFilter>::walk::<(), composition_profile::main::{closure#2}>  -      -            
+    27.35%  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word                                             -      -            
+    13.70%  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta                                            -      -            
+
+
+#
+# (Tip: Order by the overhead of source file name and line number: perf report -s srcline)
+#

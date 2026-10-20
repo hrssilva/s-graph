@@ -1,0 +1,2 @@
+kind,case,engine,rows,compile_us,visit_us,end_to_end_us,end_to_end_min_us,end_to_end_max_us,plan_heap_bytes,retained_states,source_reads,source_reuses,work,workspace_heap_bytes
+join,uniform-star,lifted-lazy,4950,68573.102000,96517.023000,164023.908000,163113.313000,165480.280000,2098192,78439,15678,19878,4997071,16

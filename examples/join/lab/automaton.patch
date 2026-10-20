@@ -1,0 +1,102 @@
+--- a/src/automaton_join.rs
++++ b/src/automaton_join.rs
+@@ -114,6 +114,8 @@
+ pub struct AutomatonJoinStats {
+     pub atom_entries: u64,
+     pub results: u64,
++    pub node_visits: u64,
++    pub candidates: u64,
+ }
+ 
+ impl<'a> AutomatonJoin<'a> {
+@@ -150,7 +152,7 @@
+         // Same reordering heuristic as `FstJoin`/`NativeJoin` -- pure
+         // query planning, independent of how each atom then gets walked.
+         used.fill(false);
+-        for i in 0..atoms_terms.len() {
++        for i in 0..if std::env::var_os("JOIN_INPUT_ORDER").is_some() { 0 } else { atoms_terms.len() } {
+             let best = (i..atoms_terms.len())
+                 .max_by_key(|&j| {
+                     let constants = atoms_terms[j].iter().filter(|t| matches!(t, Term::Const(_))).count();
+@@ -192,10 +194,15 @@
+     }
+ 
+     pub fn visit<T>(&self, bindings: &mut Vec<u32>, mut emit: impl FnMut(&[u32]) -> ControlFlow<T>) -> ControlFlow<T> {
+-        self.visit_with_stats(bindings, &mut AutomatonJoinStats::default(), &mut emit)
++        self.run::<false, T>(bindings, &mut AutomatonJoinStats::default(), &mut emit)
+     }
+ 
+     pub fn visit_with_stats<T>(&self, bindings: &mut Vec<u32>, stats: &mut AutomatonJoinStats, mut emit: impl FnMut(&[u32]) -> ControlFlow<T>) -> ControlFlow<T> {
++        self.run::<true, T>(bindings, stats, &mut emit)
++    }
++
++    fn run<const TRACK: bool, T>(&self, bindings: &mut Vec<u32>, stats: &mut AutomatonJoinStats, mut emit: impl FnMut(&[u32]) -> ControlFlow<T>) -> ControlFlow<T> {
++        *stats = AutomatonJoinStats::default();
+         if self.empty {
+             return ControlFlow::Continue(());
+         }
+@@ -205,10 +212,10 @@
+             stats.results += 1;
+             return emit(bindings);
+         }
+-        self.walk_atom(0, bindings, stats, &mut emit)
+-    }
+-
+-    fn walk_atom<T>(&self, atom_idx: usize, bindings: &mut Vec<u32>, stats: &mut AutomatonJoinStats, emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>) -> ControlFlow<T> {
++        self.walk_atom::<TRACK, T>(0, bindings, stats, &mut emit)
++    }
++
++    fn walk_atom<const TRACK: bool, T>(&self, atom_idx: usize, bindings: &mut Vec<u32>, stats: &mut AutomatonJoinStats, emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>) -> ControlFlow<T> {
+         stats.atom_entries += 1;
+         let plan = &self.atoms[atom_idx];
+         let mut restrictions = [DimRestriction::Free, DimRestriction::Free, DimRestriction::Free];
+@@ -227,7 +234,9 @@
+         let masks = compute_atom_masks(self.tree, &restrictions);
+         let is_last_atom = atom_idx + 1 == self.atoms.len();
+ 
+-        walk_leaf_rec(self.tree, &masks, self.tree.root_addr(), [0u64; NUM_DIMS], 0, &mut |child_lo: [u64; NUM_DIMS]| -> ControlFlow<T> {
++        let mut nodes = 0;
++        let mut candidates = 0;
++        let result = walk_leaf_rec::<TRACK, T>(self.tree, &masks, self.tree.root_addr(), [0u64; NUM_DIMS], 0, &mut nodes, &mut candidates, &mut |child_lo: [u64; NUM_DIMS]| -> ControlFlow<T> {
+             for (d, term) in plan.terms.iter().enumerate() {
+                 if plan.first_occurrence[d]
+                     && let Term::Var(v) = *term
+@@ -239,9 +248,12 @@
+                 stats.results += 1;
+                 emit(bindings)
+             } else {
+-                self.walk_atom(atom_idx + 1, bindings, stats, emit)
+-            }
+-        })
++                self.walk_atom::<TRACK, T>(atom_idx + 1, bindings, stats, emit)
++            }
++        });
++        stats.node_visits += nodes;
++        stats.candidates += candidates;
++        result
+     }
+ }
+ 
+@@ -277,10 +289,12 @@
+ /// one dimension's resolved value into `bindings`, not only one, so a
+ /// single scalar emit doesn't fit here the way it does for a plain
+ /// restriction query.
+-fn walk_leaf_rec<T>(tree: &PathFstDeltaPow2Bfs, masks: &[u64], addr: u64, lo: [u64; NUM_DIMS], level: usize, on_leaf: &mut impl FnMut([u64; NUM_DIMS]) -> ControlFlow<T>) -> ControlFlow<T> {
++fn walk_leaf_rec<const TRACK: bool, T>(tree: &PathFstDeltaPow2Bfs, masks: &[u64], addr: u64, lo: [u64; NUM_DIMS], level: usize, nodes: &mut u64, candidates: &mut u64, on_leaf: &mut impl FnMut([u64; NUM_DIMS]) -> ControlFlow<T>) -> ControlFlow<T> {
++    if TRACK { *nodes += 1; }
+     let word = tree.read_word(addr);
+     let (dim_bits, shifts, child_cell_bits) = tree.level_schedule(level);
+     let mut relevant = word & masks[level];
++    if TRACK { *candidates += relevant.count_ones() as u64; }
+     let is_last = level == tree.height() - 1;
+ 
+     if is_last {
+@@ -300,7 +314,7 @@
+         let delta = tree.read_delta(addr, real_index);
+         let child_addr = addr + delta;
+         let child_lo = advance_lo(lo, dim_bits, shifts, qi as usize, child_cell_bits);
+-        walk_leaf_rec(tree, masks, child_addr, child_lo, level + 1, on_leaf)?;
++        walk_leaf_rec::<TRACK, T>(tree, masks, child_addr, child_lo, level + 1, nodes, candidates, on_leaf)?;
+     }
+     ControlFlow::Continue(())
+ }

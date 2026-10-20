@@ -27,6 +27,11 @@ concentrated data the way the k²-tree family's unconditional per-level
 fan-out does (see `examples/README.md` §5 for the measured ~2000x gap
 this design avoids structurally).
 
+If your workload doesn't need that local-insertion property -- build
+once, then query and join a lot -- `PathFstDeltaPow2Bfs` (same `heap`
+feature) measures smaller and at least as fast on every shape tried so
+far; see "The FST layout" below.
+
 ## Install
 
 ```toml
@@ -38,7 +43,7 @@ Feature flags (`heap` is the only one on by default):
 
 | Feature | Adds | For |
 |---|---|---|
-| `heap` | `Heap` backend | In-RAM, fastest, no extra dependencies |
+| `heap` | `Heap` backend *and* `PathFstDeltaPow2Bfs` | In-RAM, fastest, no extra dependencies -- see "The FST layout" below for which one to reach for |
 | `file` | `File` backend | Real backing file, `pread`/`pwrite`, near-zero steady-state RAM |
 | `compressed` | `Compressed` backend | LZ4-compressed in-RAM blocks, for RAM-constrained/no-disk deployments |
 | `parallel` | `rayon`-based bulk-build fan-out | ~4x faster bulk build at large N (measured); off by default so a single-threaded consumer isn't forced to accept the dependency |
@@ -225,6 +230,68 @@ backend and inherit its threading constraints; Heap plans can be shared with
 separate workspaces.
 
 See [DESIGN.md](DESIGN.md) for complexity, memory, semantics and tradeoffs.
+
+### The FST layout: prefer this for static, query-and-join-heavy workloads
+
+Everything above builds on `Heap`/`File`/`Compressed` -- the mutable
+tree family, needed whenever you insert/remove after the initial
+build, serialize, batch-check existence, or walk graph paths/regular-path
+automata. If your workload is **build once, then query and join a lot**,
+build a `PathFstDeltaPow2Bfs` instead (same `heap` feature, on by
+default) and use its automaton-driven methods specifically:
+
+```rust
+use s_graph::path_fst::PathFstDeltaPow2Bfs;
+use s_graph::tree::DimRestriction;
+use s_graph::automaton_join::AutomatonJoin;
+use s_graph::graph::{JoinQuery, Term, TriplePattern};
+
+let triples = vec![(0, 0, 1), (1, 1, 2), (0, 0, 3)];
+let tree = PathFstDeltaPow2Bfs::build(triples, /* dimension sizes */ [2, 2, 4], /* block_capacity */ 4096);
+
+// Restricted-descent-style pattern queries: Exact/Free/Range/Multi on
+// any position, same `DimRestriction` convention as `Heap::restricted_descent`.
+let objects_of_0_via_pred_0 = tree.restricted_descent_via_composed_automaton(
+    [DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free],
+    2, // emit object
+);
+assert_eq!(objects_of_0_via_pred_0, vec![1, 3]);
+
+// Conjunctive joins: "subject 0 --p0--> ?a . ?a --p1--> ?b"
+let query = JoinQuery::<Term> {
+    num_vars: 2,
+    patterns: vec![
+        TriplePattern { subject: Term::Const(0), predicate: Term::Const(0), object: Term::Var(0) },
+        TriplePattern { subject: Term::Var(0), predicate: Term::Const(1), object: Term::Var(1) },
+    ],
+};
+let plan = AutomatonJoin::new(&query, &tree).unwrap();
+let mut bindings = Vec::new();
+let _: std::ops::ControlFlow<()> = plan.visit(&mut bindings, |row| {
+    assert_eq!(row, &[1, 2]); // row: &[u32], indexed by variable ID
+    std::ops::ControlFlow::Continue(())
+});
+```
+
+Every query/join shape measured in `DESIGN.md`'s "wired as default"
+entry runs at parity with or faster than the equivalent `Heap`-based
+path, on a structure that's also smaller on disk/in RAM for the same
+triples (the whole point of its DAG deduplication). **Always reach for
+`restricted_descent_via_composed_automaton` and `AutomatonJoin`
+specifically** -- not `PathFstDeltaPow2Bfs::restricted_descent` (and
+its many other `restricted_descent*` variants), not `FstJoin`, not
+`NativeJoin` on a `PathFstDeltaPow2Bfs`-sized problem. Those are kept
+for debugging and comparison: each has its own doc comment and a
+`DESIGN.md` entry recording what it measured, which is exactly the
+history that makes the automaton-driven ones trustworthy as the
+default instead of an unverified guess.
+
+`PathFstDeltaPow2Bfs` is a query/join index over a structure built
+once -- it has no `insert`/`remove`, `serialize`/`deserialize`,
+`contains_batch`/`count_matching`, and isn't a `join::PatternBackend`
+(so no graph traversal/paths, no regular-path automata). Reach for
+`Heap`/`File`/`Compressed` for any of that; reach for
+`PathFstDeltaPow2Bfs` specifically for the query/join shapes above.
 
 ### Batched reads
 

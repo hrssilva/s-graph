@@ -66,3 +66,13 @@ libc = "0.2"
 # every-touch workload better than a higher-ratio/slower-decode codec
 # would.
 lz4_flex = "0.14"
+
+[[example]]
+name = "join_perf_four"
+path = "examples/join/join_perf_four.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "skew_repro3"
+path = "examples/join/skew_repro3.rs"
+required-features = ["heap"]

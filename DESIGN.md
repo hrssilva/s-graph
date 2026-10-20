@@ -2796,6 +2796,1704 @@ neither. `restricted_descent_bfs_masked_visit` is kept in
 `src/path_fst.rs` as a documented negative result, same convention as
 every other rejected prototype in this file.
 
+### The "mask tree + whole-level sweep" idea: measured, and decisively rejected
+
+A follow-up proposal, explicitly modeled on Hyperscan/Teddy's and
+simdjson's "cheap bulk filter pass over the whole input, then a slower
+confirm pass on survivors" design (see `FST_LITERATURE_REVIEW.md`):
+instead of computing `word & level_masks[level]` only for the nodes a
+query's real descent actually reaches, sweep an *entire tree level* at
+once -- read every distinct node's word and AND it with that level's
+one mask, in a single flat pass over the level's whole address range --
+then walk the real parent-to-child links as always, just reading the
+precomputed `(word, word & mask)` pair instead of recomputing the AND
+inline.
+
+Checked for a real blocker before writing any code: is "the data tree"
+even a flat, uniformly-strided structure a sweep could walk without
+knowing addresses in advance? No -- `PathFstDeltaPow2Bfs`'s records are
+variable-length (`WORD_BYTES + popcount(word) * DELTA_BYTES`), and
+`HeapStorage::append_record`'s block-rollover decision for record `i+1`
+depends on record `i+1`'s own length, which isn't known without already
+knowing where it starts -- a real circular dependency, not a detail that
+falls out by construction. Worked around by persisting `build`'s own
+`addr_of` on the struct (`level_addrs: Vec<Vec<u64>>`, one extra `u64`
+per node versus the production struct) instead of re-deriving positions
+by walking bytes, and finding a node's index within its level via binary
+search (sound because addresses are assigned in strictly increasing
+order during `build`'s Phase 2, so each level's `Vec` is already
+sorted). `restricted_descent_sweep_visit`/`restricted_descent_sweep` in
+`src/path_fst.rs`.
+
+But before writing that code, the real question was checked with data
+already in hand from this session's own build: how much bigger is a
+level's *distinct* node population than what any single query actually
+needs? Instrumented once (`build`, temporary, removed after collecting
+the numbers):
+
+```
+sym (height 8):   1, 64, 3328, 191170, 5142944, 130344, 2034, 29   distinct nodes per level
+asym (height 8):  1, 48, 2080, 122512, 1351566, 25577, 391, 6      distinct nodes per level
+```
+
+against the already-measured average total node-visit count for one
+`one-Exact` query (from the whole-descent cache's hits+misses, divided
+by probe count): **~36,800/query on `sym`, ~21,900/query on `asym`**.
+`sym`'s level 4 alone holds **5,142,944** distinct nodes -- well over
+*100x* every node a single query touches across its *entire* 8-level
+descent, combined. That ratio is the whole story, and it's a direct,
+measured consequence of the DAG dedup that makes `PathFst*` smaller than
+`Heap` in the first place: the same shared node is stored once but
+reachable from many different `S` bindings, so "distinct nodes at a
+level" and "nodes one query's root actually reaches" are nowhere close
+to the same quantity. Teddy and simdjson sweep every byte of their input
+because every byte of a byte stream genuinely needs classifying --
+nothing is already known-irrelevant before it's read. A level of this
+DAG has no equivalent property: the overwhelming majority of it is
+provably unreachable from any one query's root, but *which* nodes those
+are isn't recoverable from position or level alone (the same point
+raised when "skip the frontier entirely" was considered a few turns
+earlier) -- so a position-based bulk sweep necessarily does work on
+nodes that were never going to be visited, and the ratio above says
+that's the overwhelming majority of the work.
+
+Built and measured anyway, instead of trusting the ratio alone -- 20/20
+correctness probes matched `restricted_descent` on every domain and
+shape tested, so the implementation itself is sound:
+
+```
+shape               best existing variant   stream baseline   sweep (this prototype)
+one-Exact sym (10M)    803.0us                1528.8us          31,863.7us   (~40x / ~21x slower)
+one-Exact asym (3M)    459.7us                 873.1us          10,424.3us   (~23x / ~12x slower)
+two-Exact sym (10M)      8.1us                  16.1us          21,979.9us  (~2700x / ~1370x slower)
+two-Exact asym (3M)      5.1us                  10.0us           4,883.0us   (~960x / ~490x slower)
+```
+
+`two-Exact`'s regression is far worse than `one-Exact`'s, even though
+`two-Exact` visits *fewer* real nodes per query -- consistent with the
+ratio argument: the sweep's cost is roughly *fixed per level*
+(independent of query shape), so it dominates far more when the useful
+work it's paying for is smaller. Measured at reduced iteration counts
+(5-20 probes, not the usual 500-2000) given the predicted and confirmed
+per-call cost; not worth the wall-clock time to run the full comparison
+at the usual scale once the first few probes already showed this.
+
+So: the proposal's engineering *pattern* (separate a cheap bulk
+classification pass from a slower confirm pass) is real and well
+established in the literature, and the implementation concern it raised
+(records aren't a flat fixed-stride array, so "one sweep" needs either
+precomputed addresses or a storage redesign) was a genuine, worth-
+checking detail, not a non-issue. But the pattern's precondition --
+"most of what you're about to classify will actually get used, or at
+least the ratio is close enough that batching pays for itself" -- is
+false here by a wide, measured margin, for a structural reason specific
+to this project's DAG dedup rather than a tuning problem. `restricted_descent_sweep_visit`
+is kept in `src/path_fst.rs` as a documented negative result, same
+convention as every other rejected prototype in this file; `level_addrs`
+is kept on `PathFstDeltaPow2Bfs` since removing it would mean rebuilding
+it from scratch to re-run this experiment, at the cost of one extra
+`u64`/node this struct already wasn't trying to minimize relative to the
+production default.
+
+### A naive rayon parallelization of plain `visit_rec`: wins where the old caution said it wouldn't
+
+This project already has a cautionary tale on file about naive task-level
+parallelism, from a different traversal: `Heap`'s query path, "Rayon
+fan-out depth sweep" above. There, fanning out across tree levels with no
+depth cutoff collapsed catastrophically once the frontier ballooned past
+what the thread pool could usefully dispatch (one call took 8.47
+*seconds* at `parallel_depth=4` on a cheap dataset) -- the lesson drawn
+was that rayon's roughly-fixed per-task dispatch cost needs real
+per-branch work to amortize against, and uncapped fan-out finds the point
+where it doesn't fast.
+
+Revisited directly on `PathFstDeltaPow2Bfs`'s plain DFS `visit_rec`
+instead of assuming the old number transfers:
+`restricted_descent_parallel` (`src/path_fst.rs`, gated behind the
+existing `parallel` feature, same as every other rayon use in this
+crate) decodes one node's accepted children sequentially (cheap: one
+`popcount`, one small `read_var` each), then hands the *recursive
+descent* into each child to `rayon::join`, splitting the child list in
+half and recursing on both halves, all the way down, with no depth or
+fanout cutoff at all -- deliberately as naive as the earlier `Heap`
+experiment, to see where *this* traversal's version of the collapse
+happens rather than assume it's the same place. Returns a `Vec<u32>`
+directly instead of streaming through `restricted_descent_visit`'s
+`ControlFlow`-based `emit`: early-exit doesn't have an obvious meaning
+once branches are running on different threads, so this prototype
+sidesteps that question rather than guess at an answer.
+
+`rayon::join` is why this is safe to run at all despite being fully
+uncapped: it's only ever a *candidate* for running on another worker
+thread (rayon's work-stealing pool falls back to inline/sequential
+execution when no thread is free to steal the work), so it degrades
+toward plain sequential recursion under load instead of exploding into
+one OS thread per call the way a literal `std::thread::spawn` per node
+would. That's a real, structural difference from the failure mode the
+`Heap` experiment hit.
+
+Measured (0 mismatches against `restricted_descent` on every probe,
+reduced correctness-probe count given the cost of a full 500-probe run
+-- 5 probes for the two expensive large-domain combos, 20 for the cheap
+`small`-domain ones): the result is the opposite of the `Heap`
+precedent, not a repeat of it --
+
+```
+shape               best existing (single-threaded)   stream baseline   naive parallel
+one-Exact sym (10M)    803.0us                           1528.8us          521.96us   (1.54x faster than best, 2.93x faster than baseline)
+one-Exact asym (3M)    459.7us                            873.1us          362.58us   (1.27x faster than best, 2.41x faster than baseline)
+two-Exact sym (10M)      8.1us                             16.1us           29.90us   (3.69x slower than best, 1.86x slower than baseline)
+two-Exact asym (3M)      5.1us                             10.0us           27.81us   (5.45x slower than best, 2.78x slower than baseline)
+```
+
+`one-Exact` -- real per-branch work, deep trees, the shape this whole
+investigation has targeted -- genuinely wins, beating every
+single-threaded variant measured so far, naive uncapped fan-out and all.
+`two-Exact` repeats the `Heap`-side lesson exactly: cheap per-branch
+work, dispatch overhead dominates, naive fan-out is a clear loss. Same
+shape of result as the old caution, just confirming it holds here too
+for the cheap shape, while being a genuine surprise for the expensive
+one (the old entry's depth-1-is-usually-best finding doesn't transfer
+directly -- this traversal's fully uncapped version still wins on
+`one-Exact`, not just an early-cutoff version of it).
+
+`perf stat` on the two winning combos (aggregate across all of rayon's
+worker threads, not one core -- a materially different metric now that
+real OS-level concurrency is involved, not a single-core latency-hiding
+trick like every earlier entry in this investigation):
+
+```
+shape               aggregate cycles/call (parallel)   single-threaded best's cycles/call   ratio
+one-Exact sym          ~8,647,867                         ~3,252,006 (layoutbfs)                2.66x more aggregate cycles
+one-Exact asym         ~11,775,172                        ~1,868,704 (layoutbfs)                6.30x more aggregate cycles
+```
+
+(`two-Exact`'s aggregate-cycle deltas came out *negative* at these probe
+counts -- the real signal, tens of microseconds times 20 calls, is
+smaller than the run-to-run noise floor from rayon's own thread-pool
+startup jitter across separate process invocations. The wall-clock
+result for `two-Exact` is unambiguous regardless; this is a limit of the
+baseline-subtraction methodology at this probe count for a
+multi-threaded, cheap-per-call workload, not a contradiction of it.)
+
+The honest read: this isn't a free win. `one-Exact` sym spends roughly
+2.66x the total CPU-cycles of the best single-threaded variant to buy a
+1.54x wall-clock improvement -- call it needing on the order of 4 cores'
+worth of concurrent work to net less than 2x latency; asym's ratio is
+worse, roughly 8 cores' worth of aggregate work for a 1.27x latency win.
+Legitimate if latency is what's being optimized for and spare cores are
+genuinely idle, but it is trading throughput for latency, not creating
+free throughput -- a real cost, not a rounding error, and one every
+earlier entry in this investigation (all single-threaded) didn't have to
+account for.
+
+Not wired in as a default: it's `parallel`-feature-gated, uncapped (no
+depth/size heuristic yet, matching the deliberately naive brief), and
+returns a `Vec` instead of streaming. The obvious next step the `Heap`
+precedent suggests -- a depth or fanout cutoff, falling back to
+sequential `visit_rec` below some threshold, closer to how `tree.rs`'s
+own build-time fan-out already gates on `BUILD_PARALLEL_MIN_POINTS` --
+hasn't been tried yet; this entry is the naive baseline it would be
+measured against.
+
+### Depth-cutoff follow-up: a real further win on `one-Exact`, and a sharper lesson on `two-Exact`
+
+Built the obvious next step: `restricted_descent_parallel_cutoff`
+(`src/path_fst.rs`, same `parallel` feature gate) takes a
+`parallel_depth` parameter -- `rayon::join` fan-out is only used for the
+first `parallel_depth` *tree levels* below the root; everything deeper
+falls back to the plain sequential `visit_rec` (via a new
+`visit_sequential_to_vec` helper that just collects `visit_rec`'s own
+`ControlFlow` stream into a `Vec`, reusing the already-correct
+traversal rather than re-deriving it). `parallel_depth` counts actual
+tree-level descents, not bisection splits -- halving one level's sibling
+list in `parallel_collect_cutoff` doesn't consume budget on its own,
+only a child actually moving to the next level does -- so it's directly
+comparable to `Heap`'s own `parallel_depth` from the "Rayon fan-out
+depth sweep" entry, not a differently-shaped knob reusing the name.
+
+Swept `parallel_depth` from 0 (fully sequential) to 4, same methodology
+as that earlier entry, 0 mismatches against `restricted_descent` at
+every depth tested:
+
+```
+one-Exact sym (10M)     depth=0: 1151.2us   depth=1: 342.7us   depth=2: 268.2us*   depth=3: 283.0us   depth=4: 591.2us
+one-Exact asym (3M)      depth=0: 706.7us   depth=1: 214.5us   depth=2: 185.7us*   depth=3: 241.5us   depth=4: 315.6us
+```
+(* reproduced on a second run: 275.7us / 175.6us -- consistent with the
+first, not a fluke.)
+
+`parallel_depth=2` is the sweet spot on both domains -- past it, the
+same collapse the `Heap` precedent described sets back in (depth=4 is
+already worse than depth=1). At its sweet spot, this beats *both*
+reference points decisively: **~1.9-2.0x faster than the fully naive
+version** (268.2us vs. 521.96us on `sym`, 185.7us vs. 362.58us on
+`asym`) and **~2.5-3.0x faster than the best single-threaded variant**
+(803.0us / 459.7us). The naive version's win over single-threaded code
+undersold what was available -- bounding the fan-out depth doesn't just
+avoid a regression, it roughly doubles the win again.
+
+`two-Exact` tells a sharper version of the same story, not a different
+one:
+
+```
+two-Exact sym (10M)      depth=0: 18.9us*   depth=1: 22.7us   depth=2: 23.9us   depth=3: 28.1us
+two-Exact asym (3M)      depth=0: 11.9us*   depth=1: 25.2us   depth=2: 23.1us   depth=3: 53.0us
+```
+(* best at every domain tested.)
+
+Where `Heap`'s old precedent found `parallel_depth=1` usually best with
+real (if modest) gains available, this traversal's `two-Exact` has *no*
+useful depth at all -- `depth=0` (parallelism fully disabled) wins
+outright, and `depth=1` is already a clear loss. Consistent with the
+naive version's finding (dispatch overhead dominates a shape this
+cheap), just with zero tolerance instead of a small one: there's no
+depth at which `two-Exact` has enough real per-branch work to clear
+even one `rayon::join`'s coordination cost.
+
+Tried to cross-validate `sym`/`asym` one-Exact's depth=2 win with `perf
+stat`'s aggregate-cycle methodology, same as every single-threaded entry
+in this investigation -- and it didn't produce a trustworthy number.
+Baseline-subtracted aggregate cycles at `depth=2` came out *higher* than
+the fully naive version's (~24.8M/call on `sym`, ~4.8M/call on `asym`,
+vs. the naive version's ~8.6M/~11.8M), which would require an
+implausible >20 cores' worth of simultaneous activity given this
+machine's 12 -- not a real result. The likely explanation: rayon's
+worker threads stay alive and can spin before parking between calls:
+once a persistent thread pool exists, "cycles consumed by the process"
+over a measurement window includes idle-but-spinning worker threads'
+cycles, not just real traversal work, and that idle-spin cost doesn't
+cleanly cancel out of a baseline subtraction across separate process
+invocations the way it did for every single-threaded traversal measured
+so far. Not independently confirmed (would need `perf stat --per-thread`
+or sampling, not attempted) -- flagged honestly as an open methodology
+gap rather than trusted at face value. Wall-clock is the metric actually
+being optimized for here (latency, not throughput), it's clean and
+reproduced across repeat runs, and it's what every number in the tables
+above is based on; the aggregate-cycle cross-check this investigation
+has relied on throughout simply doesn't transfer cleanly to a
+persistent-thread-pool workload, and that's a real limit of the method,
+not a hidden problem with the result.
+
+Net effect: `one-Exact` wants `parallel_depth=2`; `two-Exact` wants
+`parallel_depth=0`. One fixed constant can't serve both -- whatever
+wires this in for real would need to pick a depth from something about
+the query (expected result-set size, or simply which BGP shape it is),
+the same unresolved dispatch question the frontier/window-BFS variants
+already raised for the `small`/`zipf` regression. Still not wired in
+anywhere; `restricted_descent_parallel_cutoff` is kept in
+`src/path_fst.rs` alongside the naive version, both `parallel`-gated,
+both unused outside this file's own measurement drivers.
+
+### Size instead of depth as the cutoff signal: a real idea, measured wrong for this traversal
+
+Natural follow-up question: depth isn't the only plausible cutoff
+metric, and `tree.rs`'s own build-time fan-out already gates on a
+*size* signal (`BUILD_PARALLEL_MIN_POINTS`, not a depth), so maybe the
+right local decision is "only fan out when a node actually has more
+than `x` real children to explore," re-checked fresh at every node,
+rather than a fixed, globally-spent depth budget.
+
+`restricted_descent_parallel_size_cutoff` (`src/path_fst.rs`, same
+`parallel` feature gate) implements exactly that: `rayon::join` is only
+used when a node has more than `min_parallel_size` real children; at or
+below that, every child in the list is processed by a plain sequential
+loop, but each child's *own* fan-out is re-evaluated against the same
+threshold when its turn comes (unlike the depth-cutoff version, where
+once the budget hits zero nothing below it can parallelize no matter
+how wide any single node's own fan-out turns out to be).
+
+Swept `x` from 2 to 64, 0 mismatches against `restricted_descent` at
+every value tested:
+
+```
+one-Exact sym (10M)   x=2: 967.8us   x=4: 1495.1us   x=6: 926.0us   x=8: 1197.5us   x=12: 794.2us   x=16: 1803.5us   x=24: 1839.4us   x=32: 1827.6us   x=48: 1896.2us   x=64: 1864.7us
+one-Exact asym (3M)   x=2: 551.3us   x=4:  674.8us   x=6: 516.4us   x=8:  593.4us   x=12: 613.3us   x=16: 1216.3us   x=24: 1217.7us   x=32: 1238.7us   x=48: 1180.1us   x=64: 1288.0us
+
+two-Exact sym (10M)   x=2:  43.2us   x=4:   24.3us   x=8:   24.7us   x=16:   24.7us   x=32:   24.2us   x=64:   24.5us
+two-Exact asym (3M)  (same shape -- every x tested lands worse than depth=0's 11.9us)
+```
+
+Worse than the depth cutoff's sweet spot at *every* value tried, on
+both shapes. The best size-cutoff result on `one-Exact` (`sym` x=12:
+794.2us, `asym` x=6: 516.4us) doesn't even beat the fully naive, uncapped
+version from the previous entry (521.96us / 362.58us) -- let alone the
+depth-cutoff's 268.2us / 185.7us -- and past `x=16` it gets
+*catastrophically* worse (1.2-1.9ms, worse than even `depth=0`'s fully
+sequential baseline), because once the threshold exceeds the tree's own
+maximum per-node branching factor (`K_SQUARE`, capped at 64, and in
+practice usually well under that except right at the one level where a
+pinned dimension's bits exhaust), no node anywhere ever clears it and
+the traversal is sequential everywhere, with the added fixed cost of
+checking the threshold at every level for nothing.
+
+Worked out *why* size doesn't transfer from the build-time case, not
+just that it doesn't: at build time, a node's local fan-out (how many
+active children groups remain) is a reasonable proxy for how much work
+is downstream, because fewer surviving children at a split generally
+means fewer total points left to place. In this traversal, that
+correlation doesn't hold -- a node's fan-out counts how many *values of
+one dimension* are live here, which says nothing about how much
+*further exploration* (remaining free dimensions, remaining tree depth)
+sits below any one of those children. Two children of the same node can
+have identical, large, expensive subtrees below them regardless of
+whether there are 2 siblings or 20 -- so gating on local fan-out count
+either forks indiscriminately too often (small `x`, not much better than
+naive) or, more damagingly, sequentializes real, substantial,
+genuinely-parallelizable work whenever it happens to arrive in a small
+sibling group (larger `x`) -- actively discarding achievable overlap,
+not just failing to find overhead to cut. Depth, by contrast, really
+does correlate with downstream work here: near the root, every child's
+subtree (whatever its immediate fan-out) still has many levels left to
+explore; near the leaves, there's little left regardless of how wide any
+one node's fan-out happens to be. That's the real reason depth was the
+right metric for *this* traversal and size is the right metric for
+*build* -- not an accident of tuning, a difference in what each
+traversal's local shape actually predicts about remaining work.
+
+One honest implementation caveat: the "don't fork" path in this
+prototype still routes through `visit_parallel_size_rec`'s own
+per-level `Vec`-collecting decode, re-evaluating the threshold at every
+level, rather than falling through to the cheap, allocation-light
+`visit_rec` the way the depth-cutoff version's exhausted-budget path
+does via `visit_sequential_to_vec`. That costs a little extra at every
+`x` (visible in `two-Exact`: even `x=64`, which can never fire given the
+tree's branching cap, still lands at ~24.5us against `depth=0`'s
+18.9us) -- but it's nowhere near large enough to explain `one-Exact`'s
+2-4x gap against the depth cutoff's sweet spot, which is the structural
+effect described above, not an implementation artifact.
+
+`restricted_descent_parallel_size_cutoff` is kept in `src/path_fst.rs`
+as a documented negative result, same convention as every other
+rejected prototype in this file -- depth, not local fan-out, is this
+traversal's real cutoff signal.
+
+### Dead ends and `rayon::join`: a real cost, fixed with `rayon::scope`, smaller than first guessed
+
+A question raised about every `parallel*` variant above: what actually
+happens to a branch that hits a dead end? Every one of them, so far,
+still pays a real cost for it -- `rayon::join(a, b)` is a
+value-returning rendezvous, so even a branch that contributes nothing
+(`relevant == 0`, no real children at all) has to run to completion,
+return an empty `Vec::new()`, and have that empty `Vec` `extend`ed into
+its sibling's result, purely because `join`'s shape requires something
+to merge regardless of whether there's anything in it.
+
+A thread genuinely can't be dropped without being waited on *at all* --
+the top-level call still needs every branch's contribution before it
+can return a complete answer, and there's no way to know in advance
+that a branch is a dead end without running it. But the *merge*
+mechanism doesn't have to be the thing that does the waiting.
+`restricted_descent_parallel_scoped` (`src/path_fst.rs`, same
+`parallel` feature gate, same depth-cutoff shape as
+`restricted_descent_parallel_cutoff`) replaces `rayon::join`'s "both
+sides return a `Vec`, caller merges them" with `rayon::scope` +
+`Scope::spawn`: every branch writes *directly* into one shared
+`Mutex<Vec<u32>>` if it has anything to write, and the only
+synchronization point is the single outer `scope` call waiting for
+every spawned task (however deeply nested) to finish. A dead end now
+costs exactly one function call that returns immediately after checking
+`relevant == 0` -- no allocation, no lock, no merge, nothing to join
+back. Only a branch that actually reaches accepted leaves touches the
+`Mutex`, and only once per branch (local results are gathered into a
+plain `Vec` first, then pushed in one lock acquisition), not once per
+emitted value.
+
+Measured carefully this time -- the first same-depth comparison looked
+like a decisive 20-26% win from a single sample each, which turned out
+to be exactly the kind of thing this project's own discipline exists to
+catch. Multiple samples at the shared sweet spot, `parallel_depth=2`:
+
+```
+one-Exact sym (10M)    scoped: 198.5, 265.0, 213.2, 278.3, 242.4us (avg 239.5us)   join: 268.2, 275.7, 235.1, 225.9, 240.3us (avg 249.0us)
+one-Exact asym (3M)    scoped: 147.7, 203.3, 155.4, 194.2us (avg 175.2us)          join: 185.7, 175.6, 203.4, 185.6us (avg 187.6us)
+```
+
+A real, consistently-signed improvement once averaged -- `scoped` beats
+`join` by about 3.8% on `sym` and 6.6% on `asym` -- but nowhere near the
+one-sample-each 20-26% first glance suggested, and well within the
+~20-30% run-to-run noise either mechanism shows at this iteration count
+on its own. The direction is trustworthy (both domains agree, across
+several independent samples each); the exact magnitude isn't something
+to over-read from five samples.
+
+`two-Exact` adds a genuine surprise, not just a repeat of "still too
+cheap to parallelize": at `parallel_depth=0` (no real forking at all),
+`scoped` is roughly *2x worse* than `join`'s equivalent (`sym`: 36.8-45.1us
+vs. 18.0-19.1us, reproduced, not noise). `rayon::scope` itself has a
+real, measurable fixed entry/exit cost -- registering a scope with the
+thread pool and waiting on its completion latch -- that's paid even when
+zero tasks are ever spawned, unlike `rayon::join`'s more local,
+cheaper-when-idle cost. For a workload this cheap (tens of microseconds
+total), that fixed cost dominates outright. But `scoped` has its *own*
+different sweet spot, not zero -- at `parallel_depth=2`, where real
+(if modest) forking starts happening, `scoped` recovers to 16.3-20.3us
+(avg ~17.8us), matching or very slightly beating `join`'s own best
+(`depth=0`, avg ~18.7us). Comparing the two mechanisms at the *same*
+fixed depth for `two-Exact` would have been the wrong comparison --
+each needs its own depth found independently, because `scope`'s
+non-zero floor cost means "no parallelism at all" isn't actually
+`scoped`'s cheapest option the way it is for `join`.
+
+Net: the dead-end-avoidance idea is real and validated, not just
+plausible-sounding -- it measurably helps on the shape with real work
+to parallelize, and at worst (once each mechanism's own best depth is
+used, not a shared guess) roughly matches the join-based version even
+on the shape that wants no parallelism. It just isn't the dramatic,
+free win "don't join dead threads" suggested before measuring
+carefully -- `rayon::scope`'s own fixed cost is a real, separate price,
+and the join-based version's dead-end cost (one empty `Vec` allocation
+and an empty `extend`) was already small enough that removing it only
+buys a few percent, not a multiplier, once genuine work dominates.
+`restricted_descent_parallel_scoped` is kept in `src/path_fst.rs`
+alongside both cutoff variants, same `parallel` gate, still not wired
+in anywhere -- a small, real, measured improvement on the shape that
+already won, not a new shape of win.
+
+### Literature check, a branching-factor variant, and the real `perf` breakdown this project's rayon work was missing
+
+Looked for published guidance on rayon/fork-join tuning before trying
+more variants by feel. Three findings worth recording:
+
+- **`rayon::join`'s "sequential fallback" is not a special mode -- it's
+  the normal case.** Per `rayon-core`'s own docs: calling `join(a, b)`
+  runs `a` on the current thread and makes `b` available to steal; if
+  nobody steals it before `a` finishes, the same thread just runs `b`
+  itself, with no cross-thread handoff at all. This follows Cilk's
+  "work-first principle" (the MIT Cilk project, 1990s): the cost of
+  exposing potential parallelism should fall on a thief, not be paid
+  unconditionally by the task itself. `rayon::scope`'s docs are
+  explicit about *not* having this property the same way: `Scope::spawn`
+  tasks are heap-allocated (`rayon-core`'s own `HeapJob`), where `join`
+  stays entirely on the stack -- a real, documented reason to expect
+  `scope` to cost more per call, not a hypothesis, which matches what
+  was measured two entries up.
+- **Grain-size/threshold tuning (what `parallel_depth` already is) is
+  the textbook-correct lever, and the textbook also warns it's
+  brittle.** Cilk/TBB literature calls this "grain size": too fine loses
+  to overhead, too coarse underuses idle cores, and a *fixed* threshold
+  "over-fits... to a particular dataset, platform, and calling context"
+  (Tzannes et al., *Lazy Binary Splitting*, 2010). LBS's actual proposal
+  -- decide whether to split further based on whether a steal is
+  actually happening at runtime, not a hard-coded depth -- is exactly
+  the kind of mechanism that could resolve this investigation's own
+  unresolved "`one-Exact` wants depth=2, `two-Exact` wants depth=0"
+  dispatch problem without hand-tuning either number. Not implemented
+  here (it's a real scheduler, not a quick prototype), but it's the
+  named, published answer to the exact problem this document has been
+  manually tuning around since the naive-parallelism entry.
+
+**Branching factor, tried directly.** `restricted_descent_parallel_scoped_chunked`
+(`src/path_fst.rs`) caps how many tasks get spawned *from one node* at
+`max_branch`, chunking a wide fan-out into groups instead of one
+`Scope::spawn` per child (each `spawn` is a heap allocation per the
+point above, so fewer, larger spawns should cost less). Swept
+`max_branch` from 2 to 256 at the already-good `parallel_depth=2`:
+results bounced between 205-280us on `sym` with no consistent trend
+once past 8, because at `depth=2` the real per-node fan-out this early
+in the tree rarely exceeds single digits anyway -- most tested values of
+`max_branch` never actually trigger chunking, so the "differences" are
+noise, not signal. More tellingly: tried `max_branch=8` at `depth=4`
+(the setting that collapsed catastrophically two entries up) to see if
+capping per-node width could rescue a deeper budget -- it didn't
+(1072.7us, essentially unchanged from unbounded `scoped`'s own 1129.8us
+at the same depth). The collapse is driven by *total spawned-task count
+compounding across levels* (even an 8-way cap still multiplies out to
+thousands of tasks by 4 levels deep), not by how wide any single node's
+own fan-out is -- confirming depth remains the dominant axis, branching
+width a minor, mostly-inert refinement on top of it.
+
+**The `perf` breakdown this investigation was missing.** Every earlier
+`parallel*` entry measured wall-clock (and one attempt at
+baseline-subtracted aggregate cycles that turned out unreliable for a
+persistent thread pool) without ever actually looking at *where* the
+cycles go. `perf record -F 999` (no call-graph, enough iterations that
+the one-time tree build is a small fraction of total samples) on
+`restricted_descent_parallel_scoped` gives that directly, symbol by
+symbol, at both the good and the collapsed configuration:
+
+```
+parallel_depth=2 (wall-clock sweet spot, ~227us/call):
+  76.49%  visit_rec (the real sequential-fallback traversal)
+   4.07%  visit_scoped_rec (the real parallel-dispatch/decode work)
+  ~8.2%   collect_rec_bfs + its hashing (tree build, not the query loop)
+   0.79%  crossbeam_deque::Stealer::steal
+   0.53%  rayon_core::latch::CountLatch::set
+   0.33%  rayon_core::job::HeapJob::execute
+  ~4.1%   malloc/free/memset/memmove (Vec growth for children lists, HeapJob boxing)
+   0.07%  Mutex::lock_contended  <- essentially zero contention on the shared sink
+
+parallel_depth=4 (the collapsed configuration, ~1052us/call):
+  38.30%  visit_scoped_rec
+  27.40%  rayon_core::latch::CountLatch::set   <-- was 0.53% at depth=2
+   7.81%  collect_rec_bfs (tree build)
+   2.97%  crossbeam_deque::Worker::pop
+   2.59%  rayon_core::registry::Registry::inject_or_push
+   1.87%  visit_rec
+   1.82%  rayon_core::scope::ScopeBase::execute_job_closure
+   0.78%  rayon_core::job::HeapJob::execute
+```
+
+At the good depth, real traversal work (`visit_rec` + `visit_scoped_rec`)
+is ~80% of all samples once the one-time build is excluded, and every
+individual rayon-machinery symbol is under 1% -- there's no single
+dominant overhead source because there isn't much overhead at all. At
+the collapsed depth, `CountLatch::set` alone -- the function that does
+nothing but decrement a scope's outstanding-task counter and check
+whether it's reached zero -- jumps to 27.40%, becoming a *larger* cost
+than all of `visit_rec` and `visit_scoped_rec` combined would need to be
+competitive. That one symbol, by itself, is the quantified fingerprint
+of "too many small tasks": not stealing, not allocation, not lock
+contention (both depths show negligible `Mutex` time) -- just the
+sheer number of times a completion counter has to be touched once
+task count compounds across levels. This is the concrete mechanism
+behind every depth-sweep collapse measured in this whole investigation,
+not just a label for it.
+
+**Idle-time probing, attempted and blocked.** `perf sched record` (the
+standard tool for per-thread wait/run-time histograms, via `perf sched
+timehist`) requires read access to the kernel's scheduler tracepoints;
+this sandbox doesn't have it (`No permissions to read
+/sys/kernel/tracing//events/sched/sched_switch`). Not worked around --
+the `perf record` cycle-sampling breakdown above already answers the
+question it would have answered (where the non-useful cycles go), just
+via sampled instruction pointers instead of scheduler events. Flagged
+honestly as attempted rather than silently skipped.
+
+`restricted_descent_parallel_scoped_chunked` is kept in `src/path_fst.rs`
+alongside every other `parallel*` variant, `parallel`-gated, not wired
+in anywhere -- a real lever (fewer heap-allocated spawns) that doesn't
+move the needle much at the depth this traversal already wants, because
+that depth's own fan-out rarely gets wide enough to exercise it.
+
+### Lazy Binary Splitting, implemented for real: two bugs found, a clean negative result either way
+
+The previous entry's literature check named Lazy Binary Splitting (LBS,
+Tzannes et al. 2010) as the published answer to this investigation's
+unresolved dispatch problem ("`one-Exact` wants `parallel_depth=2`,
+`two-Exact` wants `parallel_depth=0`, no fixed constant serves both").
+Worth actually building, not just citing.
+
+`restricted_descent_parallel_lazy` (`src/path_fst.rs`, `parallel`
+feature gate) adapts LBS via `rayon::join_context`: each closure's
+`FnContext::migrated()` reports whether it was actually picked up by a
+different worker thread, the same signal rayon's own parallel-iterator
+bridge (`plumbing::bridge_producer_consumer`) uses internally to decide
+whether to keep splitting. The rule, in its first version: a node's
+children only get bisected if the call that reached this node was
+itself the product of a real migration; otherwise the whole remaining
+subtree finishes through the plain sequential `visit_rec`.
+
+**First measurement, and the first real bug.** On `sym` `one-Exact`:
+~1.1-1.3ms/call -- indistinguishable from fully sequential (`depth=0`'s
+~1.15ms). Essentially zero parallelism was happening. The cause wasn't
+subtle once looked at directly: `one-Exact` spends its first several
+tree levels on a single live path (the pinned dimension's bits haven't
+exhausted yet), so most nodes near the root have exactly one real
+child. The first version treated "nothing to split here" identically to
+"not migrated" -- permanently abandoning any chance of splitting the
+instant it passed through that corridor, typically at level 1, well
+before the tree's real fan-out region several levels deeper. Fixed by
+recursing straight through a single-child node, carrying `migrated`
+forward unchanged instead of treating it as a missed opportunity.
+
+**Second measurement, and the second real bug.** With that fix, instead
+of collapsing to sequential, it now collapsed to the *other* known-bad
+regime: ~1.1-1.3ms/call again, but for a different reason. Added
+temporary atomic counters (removed once the data below was collected)
+around every `join_context` call to find out directly, rather than
+guess: **75-80% of attempted splits were actually migrating**. With 12
+idle cores and a workload this size, there's simply enough spare
+capacity that the adaptive signal kept saying "yes, split more" almost
+everywhere -- reproducing the exact `CountLatch`-dominated collapse
+`parallel_depth=4` hit two entries up, just reached adaptively instead
+of via a bad constant. Migration *alone*, with no floor, doesn't
+self-limit when idle capacity is abundant -- exactly why rayon's own
+internal splitter combines migration status *with* a length-based
+floor, not migration alone (confirmed in the literature search, missed
+in the first implementation). Fixed by adding `max_depth_from_root`:
+splitting now requires both migration *and* being within the first
+`max_depth_from_root` tree levels, mirroring `parallel_depth`'s own
+depth-from-root semantics exactly (not a depth-remaining-to-leaf floor,
+which was tried first and measured to barely constrain anything, since
+most of an 8-level tree satisfies "at least 2 levels remain").
+
+**Third measurement, with both bugs fixed, at `max_depth_from_root=2`
+(the already-known-good window):**
+
+```
+one-Exact sym (10M)    lazy: 670-867us        join-cutoff depth=2: 268.2us    scoped depth=2: ~239.5us (avg)
+one-Exact asym (3M)    lazy: 439-523us        join-cutoff depth=2: 185.7us    scoped depth=2: ~175.2us (avg)
+two-Exact sym (10M)    lazy: 24.4-24.8us       join-cutoff depth=0: ~18.7us (avg)   scoped depth=2: ~17.8us (avg)
+```
+
+Correct (0 mismatches on every probe), and clearly better than either
+unfixed version -- but still 2.5-3x worse than the simple, unconditional
+depth-cutoff at its own best setting, on the shape that matters most.
+Swept `max_depth_from_root` from 1 to 4 to check this wasn't just a bad
+window choice: 1 gives 1.38ms (too shallow, barely anything splits -- 15
+attempts over 15 queries), 2-3 cluster around 670-870us, 4 collapses
+back toward the uncontrolled regime (13,245 attempts, 1.21ms) -- `lazy`
+has its own sweet spot, and it's still worse than eager's.
+
+**Why, worked out rather than left as a number.** Within a window
+*already known* to be worth splitting unconditionally (the first 2
+tree levels, established by the earlier depth sweep), the migration
+gate doesn't add anything -- it can only ever decline a split the eager
+version would have taken for free. Every instance where `migrated`
+happens to read `false` at a node that *was* worth splitting is a real
+opportunity the adaptive version gives up and the eager one never
+risks. LBS's actual value proposition -- avoiding tuning effort when
+the right amount of parallelism is unknown or varies unpredictably --
+doesn't apply here, because the right window *isn't* unknown: the
+depth sweep already found it, cheaply, once. Adaptivity is solving a
+problem (what's the right threshold?) this project had already solved
+by a different, simpler method (sweep and measure) before trying LBS at
+all -- so here, it can only add noise on top of an already-right
+answer, not improve on it. LBS would plausibly earn its keep in a
+setting where that threshold genuinely varies at runtime in ways a
+fixed sweep can't anticipate; this traversal's `one-Exact`/`two-Exact`
+split isn't that kind of problem -- it's a small, enumerable set of
+query shapes, each with its own stable best constant, better served by
+picking a constant per shape (still unresolved, but a dispatch problem,
+not a scheduling one) than by a scheduler re-deciding moment to moment.
+
+`restricted_descent_parallel_lazy` is kept in `src/path_fst.rs` as a
+documented negative result, same convention as every other rejected
+prototype in this file -- measured honestly against the much simpler
+thing this project had already found, and losing to it.
+
+### Re-checked against the paper directly: it isn't actually Lazy Binary Splitting
+
+Asked directly whether the implementation above is a faithful LBS
+implementation, not just inspired by the name. It isn't, and the
+previous entry's wording overstated that. Worth correcting precisely:
+
+Tzannes et al.'s actual LBS processes a flat iteration range
+*sequentially by default* and only splits in direct, synchronous
+response to a thief that is *right now* waiting for work -- a live
+demand signal the owner thread polls cheaply as it loops. No split
+happens until that concrete event occurs; the owner never pre-decides a
+split point in advance.
+
+What's built here is structurally different: `rayon::join_context`
+still *eagerly* pre-divides a node's children in half and recurses into
+both halves immediately, exactly like TBB's eager binary splitting
+(which the LBS paper was written to replace) -- the only adaptive part
+is `FnContext::migrated()`, a *retrospective* signal reporting whether
+the *previous*, already-completed call happened to get stolen, not a
+live "is anyone waiting right now" check. This is the mechanism rayon's
+own `plumbing::bridge_producer_consumer` uses internally (confirmed by
+reading rayon's source, not assumed), and it's a reasonable, real
+technique in its own right -- but it's eager splitting with an adaptive
+stopping heuristic, not lazy splitting. `rayon`'s stable public API has
+no primitive that exposes a live "a thief is waiting on me now" signal
+the way genuine LBS needs; reaching that would mean either depending on
+`rayon-core` internals not meant for external use, or writing a custom
+cooperative scheduler from scratch -- a real undertaking, well beyond
+what this investigation's "try implementing lazy binary splitting" was
+scoped to cover. What got built and measured is accurately described as
+*rayon's own adaptive-eager splitting heuristic, adapted from a flat
+range to a tree* -- a legitimate, related technique, not the paper's
+algorithm. The measured result (loses to the simple depth cutoff by
+2.5-3x) stands either way; the correction is about what to call it, not
+about the number.
+
+**Optimization pass, and what `perf` showed.** Re-reading
+`visit_lazy_rec` against the file's own other `rayon::join`-based
+variants (`parallel_collect`, `parallel_collect_cutoff`) turned up one
+real, avoidable cost: before calling `rayon::join_context`, the code
+cloned both halves of `children` into fresh, owned `Vec`s
+(`left.to_vec()`/`right.to_vec()`) before moving them into the two
+closures. That pattern is necessary for `Scope::spawn` (used by
+`restricted_descent_parallel_scoped`/`_chunked`), because a spawned
+task is asynchronous relative to its caller and can't safely borrow a
+stack-local `Vec` that might be dropped first. `join_context` has no
+such requirement -- it's synchronous, like plain `join`, so `children`
+is guaranteed to outlive the call, and the closures can borrow `left`/
+`right` slices directly, exactly like every other `join`-based variant
+in this file already does. Fixed by removing the clones.
+
+Checked with `perf record` before and after, not just by reasoning that
+it should help:
+
+```
+                                    before (.to_vec())   after (borrowed slices)
+visit_rec (sequential fallback)         51.38%               51.58%
+collect_rec_bfs + hashing (build)      ~16.2%                ~16.6%
+visit_lazy_rec                          2.01%                1.98%
+crossbeam/rayon coordination           ~3.3%                 ~2.9%
+malloc/free/memset/memmove/unlink      ~6.4%                 ~6.4%
+```
+
+No measurable change, in either the allocation-related symbols
+specifically or the wall-clock (670-880us before and after, same
+range). The fix is still correct and worth keeping -- it removes real,
+unnecessary work and brings this variant in line with the rest of the
+file's own established pattern -- but `perf` says plainly it was never
+where this traversal's time goes: only a handful of `join_context`
+splits happen per query at `max_depth_from_root=2`'s shallow budget, so
+removing their clones touches too little of the total work to move the
+number. The dominant cost, unchanged by this fix and confirmed directly
+rather than inferred, is structural: 51% of all samples land in the
+plain sequential fallback, because most of an 8-level tree falls
+outside a 2-level parallel budget by construction. That's the same
+conclusion the previous entry reached by comparing wall-clock numbers --
+`perf` now confirms it's not secretly an allocation or rayon-coordination
+problem hiding underneath, it really is the shallow-budget architecture
+itself. No `CountLatch` entry appears in either profile, confirming the
+depth floor is doing its job: this version doesn't over-split the way
+the unguarded migration-only version did.
+
+### A per-thread slot queue, proposed directly: wrong the first time, then a real bug, then correct
+
+A fourth, structurally different mechanism, specified directly: not one
+shared, unbounded pool of work items, but exactly `N` fixed slots, one
+per worker thread, each holding `(node, open_mask)` -- which node a
+thread currently owns, and a bitmask of that node's accepted
+transitions nobody has claimed yet. A thread that runs out of work at
+its own slot looks at every *other* slot for an open bit, claims one
+(closing it in the *victim's* slot), and continues DFS by publishing
+the claimed child into its *own* slot -- the worked example given: a
+thread finds another thread at a node with two children open, claims
+one (clearing that bit where it found it), and starts exploring from
+there by writing it into its own slot with its own first pick already
+closed.
+
+**First implementation, built from a misreading.** It used one shared,
+growing `Mutex<Vec<Arc<WorkItem>>>` instead of `N` fixed slots --
+structurally the same mistake as the original (also-rejected) shared
+queue, just with a different claim mechanism underneath. Measured as a
+severe regression everywhere (1.65-2.0ms on `one-Exact`, worse than
+fully sequential; 94-140us on `two-Exact`, 5-8x worse than the best
+mechanism found so far), with `perf` pinning it on real, measured lock
+contention (`Mutex::lock_contended` at ~4.9%) and `Arc` allocation
+(~10% in malloc-family symbols) -- because, with no depth or size
+floor, every multi-child node anywhere in the tree paid full queue
+machinery, not just a shallow window.
+
+**Corrected to the actual design, and a real deadlock.** Rebuilt with
+`N = rayon::current_num_threads()` fixed `Slot`s and a lock-free
+`compare_exchange` loop on an `AtomicU64` mask for claims (no `Arc`, no
+growing `Vec` -- a node's children are never collected at all; the raw
+accepted-transitions bitmask *is* the published state, and a specific
+child's address is decoded only once actually claimed). This version
+hung indefinitely on every input, including the trivial `small` domain
+with exactly one worker thread (`RAYON_NUM_THREADS=1`) -- a real
+deadlock, not a race, reproducible with zero concurrency at all, which
+made it easy to isolate. The bug: `dfs_slot_rec` recursed into a
+claimed child by unconditionally republishing `slots[my_slot]` for
+that child -- but if the node it had just claimed *from* still had
+other open siblings sitting in that same slot, republishing silently
+discarded them. Nothing pointed at them anymore, nobody (not even the
+thread that orphaned them) could ever claim them again, and the global
+`pending` units they were added under could never be decremented,
+hanging the whole query forever. Fixed by checking whether a thread's
+own slot is actually free before publishing into it -- otherwise
+finishing that node's entire subtree by plain recursion instead (still
+correct, just unshared at that level), re-checking at every level
+below so sharing resumes the instant the slot genuinely frees up.
+
+**Still wrong once real concurrency was involved: a second, subtler
+race.** With the deadlock fixed, single-threaded runs passed, but
+multi-threaded runs produced real, reproducible `index out of bounds`
+panics inside `storage.rs` -- memory corruption from a bad address, not
+a hang. The cause: `slot_try_claim` split "claim a bit" (a lock-free CAS
+on the mask) from "read which node that bit belongs to" (a *separate*,
+later-acquired lock on the position). The reasoning that this was safe
+-- "position only changes after the mask reaches zero, so a successful
+CAS always has a valid position behind it" -- had a real hole: mask
+reaching zero only means no *more* bits are claimable, not that every
+thread which already claimed an *earlier* bit has finished reading the
+position that went with it. A thief could win the CAS, stall for any
+reason before reading position, and in that window the slot's owner --
+having legitimately observed the mask at zero -- could republish the
+slot for a completely different node. The stalled thief then reads the
+*new* position paired with a `qi` that was only ever meaningful for the
+*old* one, decodes a bogus delta, and computes a garbage address. Fixed
+by merging `position` and `open_mask` into one `Mutex<SlotData>` and
+performing the whole "check mask, pick a bit, clear it, read position"
+sequence as a single locked critical section -- giving up the
+lock-free claim path, but removing the gap a stale read could land in
+at all, which no amount of reordering the two independent atomics could
+have done. Re-verified with repeated multi-threaded runs (5 consecutive
+clean runs on every domain/shape combination, not just one) after the
+fix, since the bug the first fix introduced only ever showed up under
+genuine concurrency.
+
+**Measured, finally correct:**
+
+```
+one-Exact sym (10M)    queue: 281-530us (avg ~424us)    join-cutoff depth=2: 268.2us
+one-Exact asym (3M)    queue: 281-419us (avg ~343us)    join-cutoff depth=2: 185.7us
+two-Exact sym (10M)    queue: 45-69us (avg ~63us)        best mechanism: ~18.7us
+two-Exact asym (3M)    queue: 45-58us (avg ~52us)        best mechanism: ~17.8us
+```
+
+Correct, and clearly better than the first (misunderstood) attempt's
+catastrophic numbers -- but still 1.6-3.4x behind the best hand-tuned
+depth-cutoff mechanism, on every shape. `perf` on the corrected version
+shows exactly why, and confirms the fixes actually worked: `Mutex::
+lock_contended` dropped from ~4.9% (one global lock) to ~2.1% (`N`
+independent per-slot locks, each contended by far fewer threads), and
+malloc-family allocation dropped from ~10% to ~5.3% (no more `Arc`, no
+more per-node `Vec` -- the stated design goal). `dfs_slot_rec` itself is
+56.9% of samples -- real traversal work, including the "my slot is
+busy, fall back to plain recursion" path inline. The remaining gap to
+the hand-tuned cutoff isn't contention or allocation anymore (both
+measurably fixed); it's the same lesson every other un-gated mechanism
+in this investigation has produced: this one still does real
+lock-and-check work at *every* level with multiple children, not just
+a shallow window near the root, because nothing here knows in advance
+which depth is worth sharing at -- the "only publish when free"
+self-limiting rule prevents catastrophic over-sharing, but it's a
+*correctness* safeguard, not a performance tuning mechanism, and it
+doesn't substitute for one.
+
+This whole entry is a direct demonstration of why this project insists
+on measuring instead of reasoning from the design alone: a mechanism
+that looked correct on paper (and compiled, and passed its first
+single-node review) hid two independent bugs, one of which only
+manifests with real concurrency and would never have been caught
+without actually running it under load repeatedly. `restricted_descent_parallel_queue`
+is kept in `src/path_fst.rs`, `parallel`-gated, correct and measured,
+not wired in anywhere -- a legitimately different mechanism from every
+other `parallel*` variant, worse than the best of them on this
+traversal, but for a well-understood, now-verified reason rather than
+an assumed one.
+
+### From one slot per thread to one cell per thread *per tree depth*: an iterative matrix, two steal heuristics compared, and two debugging detours that turned out not to be new bugs
+
+`restricted_descent_parallel_queue`'s one weakness was structural, not a
+bug: a thread's own slot can only ever describe *one* node at a time, so
+the moment a node has more than one open child and the thread's own slot
+is still occupied by an ancestor, the whole rest of that node's subtree
+falls back to plain, unshared recursion -- correct, but it means sharing
+is only ever available at the single depth a thread happens to be
+occupying at any instant.
+
+The fix: stop using one cell per thread and start using one cell per
+thread *per tree depth* -- a `threads x height` matrix where
+`matrix[t][c]` is thread `t`'s own cell for the `c`-th level of its
+*current* descent path (not real tree level `c` -- after a steal, a
+thread's own column 0 can hold a node from any real level, which is why
+each cell stores its own `real_level` rather than inferring it from the
+column index). Every ancestor level along a thread's path is now its
+own independently stealable cell, so the "my slot is occupied, fall back
+to recursion" escape hatch the single-slot design needed simply has
+nothing left to guard against -- an ancestor and its descendant never
+compete for the same cell anymore. The recursion flattens out too: a
+thread's "stack" is just its own row, walked with an explicit `depth:
+Option<usize>` instead of the call stack, backing up one column at a
+time on exhaustion and overwriting the vacated column with whatever it
+claims from the column below -- exactly the mechanism proposed directly:
+root -> 16 -> 32 -> 48, 48 exhausted, back up to 32's remaining open
+child 56, write 56 over 48's now-unreachable (and harmless, since it had
+nothing left open) slot.
+
+Three refinements came out of reviewing the pseudocode before writing
+any code, all adopted directly:
+
+- **Bootstrap moved out of the per-thread loop entirely.** The root is
+  a single node -- there's nothing to parallelize about visiting it --
+  so a dedicated `matrix_initialize` step runs once, before any thread
+  starts: publish the root into `matrix[0][0]`, then immediately claim
+  and dispatch one of its own transitions into `matrix[0][1]`. This
+  means no thread's *own* active position is ever real tree level 0;
+  level 0 only ever exists afterward as an ordinary stealable backlog
+  cell, found through the exact same scan every later steal uses,
+  whether the root's fan-out is narrower or wider than the thread count.
+  No per-thread `if my_id == 0` special case anywhere in the steady-state
+  loop.
+- **`open_mask` collapses the level mask permanently, at creation,
+  once.** Each cell also caches the node's raw `word`, read from storage
+  exactly once when the cell is published. `level_masks[level]` is
+  consulted in exactly one place in the whole mechanism --
+  `dispatch_claimed_bit`, at the instant a *new* child cell is created
+  -- never touched again by `matrix_try_claim`, `matrix_peek_level`, or
+  the worker loop for that cell's remaining lifetime, and the node's
+  word never gets re-read from storage by a later claim against the
+  same cell.
+- **`debug_assert!` on the "publish never fails" invariant**, not a
+  runtime-handled branch -- every publish call site already argues, by
+  construction, that its target is free; a violation means that
+  argument was wrong somewhere; treating it as a silent possibility
+  would hide exactly the kind of bug this file's own history keeps
+  finding.
+
+**Two steal-order heuristics, compared as asked, nothing deferred
+beyond what was agreed:** `prefer_shallow` picks the shallowest open
+column across every other thread's row; its opposite picks the
+deepest. Both use the same plain `O(threads x height)` linear
+peek-then-claim scan with no per-row "anything open" summary bit --
+that optimization was explicitly deferred pending a measurement showing
+the scan itself matters, not built from reasoning alone. The
+depth-threshold steal-gating idea (steal only past a certain depth) was
+deferred too, as agreed, in favor of measuring these two first.
+
+**A bug found immediately, in the bootstrap, not the steal mechanism:**
+the very first correctness check (a tiny 8-triple, 4-entity synthetic
+tree) came back short -- some siblings under the root's second accepted
+child were silently missing. `matrix_initialize` credited `pending`
+with `1` for "the root," not with `root_mask.count_ones()` -- one unit
+per *bit* of the published mask, the convention every other publish
+site in this mechanism (and the slot design before it) already follows.
+Whenever the root had more than one accepted child, `pending` could
+reach zero while real root-level siblings were still sitting unclaimed
+in `matrix[0][0]`, ending the whole query early. Fixed by crediting
+`root_mask.count_ones()` instead of `1`; the same tiny synthetic tree,
+plus repeated runs against it, came back clean afterward.
+
+**Two further "bugs" chased hard, and both resolved as tooling
+mistakes, not mechanism defects -- worth recording exactly because they
+looked, at each step, exactly like the two real concurrency bugs the
+slot design had:**
+
+1. A full sweep across every domain/shape/steal-mode combination came
+   back with `small` timing out under `shallow`, and `small` producing
+   *wrong, non-reproducible* results under `deep` -- different missing
+   elements on every run, the unmistakable signature of a genuine race.
+   Hours of targeted reproduction attempts followed: a hand-rolled
+   synthetic domain at the exact triple count, the exact `uniform` seed
+   and exact probe sequence the failing run used, fresh processes,
+   oversubscribed `RAYON_NUM_THREADS` up to 96 on a 12-core machine,
+   artificial background CPU load -- nothing reproduced it. The
+   resolution turned out to be mundane: the fix above had been applied
+   to `src/path_fst.rs` and verified against a *freshly rebuilt*
+   `matrix_debug` scratch binary, but the large sweep reused an
+   already-built `target/debug/examples/path_fst_bgp_perf` from
+   *before* that fix -- cargo does not rebuild an example just because
+   a library source file changed underneath it without another
+   explicit build invocation naming that example. Every failure in that
+   sweep was pre-fix object code; a clean rebuild of the actual binary
+   under test passed every combination, every time, including repeated
+   stress runs under heavy artificial contention.
+2. A second, independent sweep (this time against a freshly rebuilt
+   binary) still timed out -- but only on the `sym` domain (10M
+   triples), on *both* query shapes and *both* steal heuristics
+   identically, while the much smaller `small` domain and the larger
+   -- but less numerous -- `asym` domain (3M triples) both passed
+   cleanly. A domain-scale signature across every shape and heuristic,
+   not a shape- or heuristic-specific one, pointed away from a logic
+   bug: this investigation's own convention has always measured
+   `parallel*` variants through the optimized `profiling` build
+   (`target/profiling`), never plain `cargo build`'s unoptimized
+   `target/debug` -- which is what the sweep had used throughout. Built
+   under `--profile profiling` instead, the identical `sym`-domain runs
+   that had timed out at 90 seconds in debug mode completed in under
+   four seconds, 5/5 correctness probes passing, for every
+   shape/heuristic combination.
+
+Neither detour found a new mechanism defect; both are recorded anyway,
+because at the moment each one surfaced it looked exactly as alarming
+as the deadlock and the TOCTOU race the slot design actually had, and
+distinguishing "a real bug under load" from "a stale binary" or "debug
+build overhead at 10M triples" from the symptom alone is exactly the
+kind of judgment call this investigation keeps having to make honestly
+rather than assume either way.
+
+**Measured, correct, on the `profiling` build (20-iteration timed
+loop per cell, `iters` separate from the 5 fixed correctness probes):**
+
+```
+                  matrix(shallow)   matrix(deep)   parallelqueue
+one-Exact small       115.7us         505.2us          63.9us
+one-Exact sym         1061.2us        3610.8us         510.9us
+one-Exact asym         769.2us        2276.6us         354.1us
+two-Exact small         37.7us          49.3us          32.2us
+two-Exact sym            62.3us          80.9us          77.8us
+two-Exact asym           61.6us          92.0us          63.0us
+```
+
+`prefer_shallow` beats its own opposite outright, everywhere tested --
+by 4-4.4x on one-Exact, by roughly 1.3-1.5x on two-Exact -- confirming
+the reasoning behind it directly instead of leaving it a guess: a
+shallower stolen column carries more remaining subtree in expectation,
+on this tree. Against `parallelqueue`, the matrix design is still
+1.8-2.2x slower on one-Exact, but competitive on two-Exact -- within
+noise on `asym`, and actually faster on `sym`. The extra per-level
+cells buy correctness simplicity (no occupied-slot fallback path at
+all) at the cost of a steal scan that is `height` times more expensive
+per attempt than the single-slot design's -- a cost one-Exact's deeper
+trees pay more of than two-Exact's shallower, cheaper ones do.
+`restricted_descent_parallel_matrix` is kept `parallel`-gated in
+`src/path_fst.rs` alongside every other variant, not wired in as the
+default, with both steal-order heuristics exposed (`prefer_shallow:
+bool`) rather than hardcoding the winner -- the depth-threshold
+steal-gating idea deferred above remains the natural next lever if this
+mechanism gets revisited, now that a measured baseline exists to tune
+against.
+
+### Sweeping only the leaves, bottom-up: a clean prototype, and a decisively negative result for a reason worth stating precisely
+
+A different SIMD-shaped idea, proposed directly: instead of descending
+from the root and pruning as every other traversal in this file does,
+sweep *only* the leaf level's existence words with one branch-free
+elementwise AND (same `#![forbid(unsafe_code)]`-respecting,
+auto-vectorization-friendly convention as
+`restricted_descent_bfs_masked_visit`), then, for every leaf with a
+surviving bit, walk back *up* toward the root to find out which
+triple(s) it belongs to, instead of ever reaching it by descending down
+to it.
+
+Two real design questions had to be settled before writing anything:
+where the sweep happens (scoped to one already-narrowed subtree, or
+genuinely global across the whole structure), and how to walk "up" at
+all, since this structure only ever stores forward deltas -- a node's
+real parent isn't recoverable from anything already in memory. Decided
+directly: global sweep, with real parent back-pointers added
+(`build_parent_index`, a fresh reverse-edge map built by walking every
+non-leaf level's *unrestricted* existence words once). A genuine new
+correctness question came with that choice, inherent to this being a
+DAG rather than a plain trie: `build`'s dedup means one leaf can be the
+real child of more than one parent, so one matched leaf can have more
+than one real root-to-leaf path, and critically *not every one of them
+need satisfy this query's `Exact` restrictions* -- the leaf-level mask
+only ever checked the free dimensions' bits. `paths_to_root` enumerates
+every such path (memoized per address for one call, since a shared
+ancestor reached from many leaves would otherwise redo the same upward
+walk repeatedly), and every reconstructed path gets checked against the
+*full* restriction set, independently, after reconstruction -- not
+assumed correct just because the leaf matched.
+
+**Correct on every domain and shape tested** (`tiny` synthetic,
+`small`/100K, `asym`/3M, `sym`/10M triples, both one-Exact and
+two-Exact) -- output matched `restricted_descent` exactly, every time,
+no exceptions, no path-count explosion observed on any of these
+domains despite the DAG-sharing concern above being a real one in
+principle.
+
+**Measured as a clean, decisive negative result anyway, and the first
+guess at *why* was wrong -- worth recording precisely instead of just
+the headline number.** First hypothesis: the leaf level has too many
+*distinct* nodes to sweep cheaply, the same "DAG dedup means a level's
+distinct node count vastly exceeds what one query reaches" problem that
+already sank the whole-level `restricted_descent_sweep_visit`. Checked
+directly instead of assumed: `leaf_level_node_count()` returns 30 for
+`small`, 6 for `asym`, 29 for `sym` -- the leaf sweep itself is
+essentially free; that was never the bottleneck. `build_parent_index`'s
+one-time structural cost also amortizes fine (9.6ms / 775ms / 3.6s for
+`small`/`asym`/`sym` respectively, each paid once, not per query).
+
+The real cost is entirely in `paths_to_root`, and it's the mirror image
+of the first guess: those 6-30 distinct leaves are each the real child
+of an enormous number of distinct parents (`build_parent_index` holds
+54K / 1.5M / 5.5M total reverse edges for `small`/`asym`/`sym`), so
+enumerating "every root-to-leaf path through this one leaf" explores a
+combinatorially large candidate set, the overwhelming majority of which
+get thrown away by the full-restriction check *after* being fully
+reconstructed. Measured per single query, parent-index cost already
+excluded (the amortized, best-case number):
+
+```
+                  one-Exact          two-Exact
+small               14.4ms             14.3ms
+asym                 3.25s              3.25s
+sym                  3.56s              3.60s
+```
+
+Four to five orders of magnitude worse than every other mechanism in
+this file, which run in microseconds to low milliseconds on the same
+domains -- and notably *not* worse at `sym` than `asym` in proportion
+to their triple counts (10M vs 3M), consistent with the real cost
+being driven by how shared the last few levels are, not by raw triple
+count, the same structural property that made the whole-level sweep's
+own negative result what it was, just manifesting on the opposite end
+of the tree.
+
+Kept as `restricted_descent_leaf_sweep`/`restricted_descent_leaf_sweep_with_index`
+(the latter taking an already-built `build_parent_index` so a caller
+can amortize it, which is how the honest numbers above were actually
+measured) in `src/path_fst.rs`, correct and `leafsweep`-wired into
+`path_fst_bgp_perf.rs` for reproducibility, with its correctness-probe
+and timed-loop counts hard-capped at 3 regardless of `iters` --
+`sweep`'s existing 20-probe cap would already take over a minute at
+this cost, and `iters`'s normal 50,000 default would take hours.
+
+### Joins and paths as automatons -- Phase 1: the walk/automaton split, validated on the lowest-risk case first
+
+Follow-up to a design discussion (not reproduced here in full -- the
+reasoning that led here): `restricted_descent`'s `word & level_masks[level]`
+is already a walk fused with an automaton, just one so degenerate (one
+live state per level, known at compile time, no branching in state-space)
+that the automaton half collapsed into a flat precomputed array.
+`NativeJoin`'s `Stage` array is the same split in different clothes --
+its "state" is `(depth, which candidate each earlier atom chose)`,
+represented implicitly as a backtracking stack rather than an explicit
+`State` type, because its automaton happens to be acyclic and
+finite-depth. The real gap is `PathAutomaton` (`automaton.rs`): a
+genuine NFA, but every edge expansion calls `scan_pattern` fresh,
+independently, per (node, transition) pair -- no synchronized descent
+at all, unlike `NativeJoin`. `TOPOLOGY_REVIEW.md` already named this:
+"these paths prune within each scan but do not share a traversal
+across a whole frontier."
+
+Literature grounding for the split itself: BurntSushi's `fst` crate's
+`Automaton` trait (`start`/`is_match`/`can_match`/`accept`), used there
+to intersect a query automaton (Levenshtein, regex, literal) with a
+stored FST in one pass, plus its generic `And`/`Or`/`Not` combinators
+(wrapping `(A::State, B::State)` and delegating) for composing them
+without a new method per combination. The one place this project's
+version has to depart from that shape: this tree's alphabet is an
+up-to-64-slot multi-bit group per level, not one byte, so [`LevelAutomaton`]
+(`src/level_automaton.rs`) consumes a `qi` per level instead of a byte,
+everything else kept parallel on purpose (`can_match` is the identical
+dead-state hook, checked before any storage read).
+
+**Phase 1, the agreed lowest-risk ordering: validate the trait against
+plain `restricted_descent` before building anything state-dependent
+(a join atom, a path hop) on top of it.**
+[`PathFstDeltaPow2Bfs::visit_automaton_rec`] is structurally identical
+to `visit_rec`, just reading `automaton.mask(state, level)` instead of
+indexing a flat array, and carrying `automaton.advance(...)`'s result
+forward as `state`. [`PrecomputedMaskAutomaton`] wraps `precompute_level_masks`'s
+exact output as the degenerate one-state case -- `restricted_descent_via_automaton`
+built on it reproduces `restricted_descent` byte-for-byte, confirmed
+across `small`/`sym`/`asym`, both shapes.
+
+**The second half of Phase 1 -- actually proving composability, not just
+the walk split -- found a real bug immediately, which is exactly why it
+was built before trusting the design further.**
+[`DimRestrictionAutomaton`] represents one dimension's own restriction
+(`Exact`/`Free`/`Range`/`Multi`) as its own small automaton; three of
+them intersected via [`And`] (one per S/P/O) should equal
+`tree::restriction_mask`'s hand-written three-dimension fold exactly,
+since `shifts` partitions each dimension into disjoint bit ranges
+within one level's `qi`. First version returned *empty results on
+every single query* (`restricted_descent_via_composed_automaton`
+disagreed with `restricted_descent` on all 50/50 correctness probes,
+every domain, every shape -- not a subtle mismatch): each dimension's
+own `Free` case was computed as `expand_run(1, 0, width, shift)`, which
+sets bits only where the *other two dimensions are exactly zero*, not
+where they're unconstrained -- intersecting three such masks forces
+everything toward zero. Fixed by delegating to `tree::restriction_mask`
+directly with the other two dimensions pinned to `Free`, instead of
+re-deriving the cross-dimension interaction by hand.
+
+A second, separate bug surfaced once `Range`/`Multi` were cross-checked
+against `Heap::restricted_descent` (which already supports them) rather
+than only against `PathFstDeltaPow2Bfs::restricted_descent` (which
+panics on them, so the comparison above couldn't have caught this one):
+122 of 147 `Range`/`Multi` probes disagreed, including *every single*
+`Range`-on-the-pinned-dimension case returning zero results. Root
+cause: `advance` only updated the per-dimension `lo` state inside an
+`if let Exact(_)` guard, copying `precompute_level_masks`'s own
+lo-bookkeeping too literally -- that bookkeeping is only valid in
+`Heap`'s narrow fast path (`exact_bound_dims`, both non-free dimensions
+pinned to a single value, so there's exactly one real `lo` per level to
+precompute ahead of time). `Range`/`Multi` can be reached via different
+real sub-indices at the same level depending on which earlier bit was
+actually taken; `Heap`'s own general path (`query_rec_restricted`)
+handles this by recomputing the mask per node from the real descent
+`lo`, never from a flat precomputed array -- this automaton's `state`
+*is* that real `lo`, so `advance` has to track the real `qi` taken
+unconditionally, for every restriction kind, not just `Exact`. Fixed;
+0/147 mismatches afterward, cross-checked against `Heap` as the oracle
+specifically because `PathFstDeltaPow2Bfs` itself has never supported
+`Range`/`Multi` to check against.
+
+**Both bugs are now a genuinely new capability, not just a validated
+abstraction**: `restricted_descent_via_composed_automaton` supports
+`Range`/`Multi` restrictions on `PathFstDeltaPow2Bfs`, which no other
+traversal in this file does -- a direct, free consequence of
+`DimRestrictionAutomaton` already handling all four `DimRestriction`
+variants instead of panicking on two of them.
+
+**Measured on the `profiling` build, 50-iteration timed loops, same
+trees as every other comparison in this file:**
+
+```
+                  seq       automatonwalk   composedautomaton
+one-Exact small    35.7us      32.2us          152.3us  (4.3x)
+one-Exact sym     1247.1us    1263.7us         3374.2us (2.7x)
+one-Exact asym     779.3us     787.6us         2125.8us (2.7x)
+two-Exact small     2.4us       1.6us            3.8us  (1.6x)
+two-Exact sym      17.4us      15.2us           30.5us  (1.8x)
+two-Exact asym     11.3us       9.9us            20.3us  (1.8x)
+```
+
+`automatonwalk` is within noise of `seq` everywhere -- the generic
+trait genuinely monomorphizes to no added cost, confirmed rather than
+assumed, which is the actual point of validating the split this way
+before building anything real on top of it. `composedautomaton`'s
+1.6-4.3x overhead is real and expected, not a surprise: it recomputes
+`restriction_mask` fresh at every node (three full three-dimension
+folds per node, one per `And` branch) instead of once per query,
+because `lo` genuinely has to track the real descent path for
+`Range`/`Multi` correctness in general, unlike the degenerate
+`Exact`/`Free`-only case this crate's existing traversals special-case.
+Not tuned yet -- Phase 1's goal was proving the split and the
+composability idea hold, not optimizing the composed case, which has
+an obvious next lever (detect a pure `Exact`/`Free` composition and
+hoist its mask computation to once-per-query, the same as today's
+`precompute_level_masks` already does) left for whenever the join/path
+phases actually need it.
+
+Both are kept `src/level_automaton.rs` + `PathFstDeltaPow2Bfs::
+restricted_descent_via_automaton`/`restricted_descent_via_composed_automaton`,
+wired into `path_fst_bgp_perf.rs` as `automatonwalk`/`composedautomaton`
+for reproducibility.
+
+### Closing (most of) the composed-automaton gap: `Range`/`Multi` precomputed via boundary tracking, not raw `lo`
+
+Follow-up question, asked directly: the composed automaton's 1.6-4.3x
+overhead was blamed on recomputing `restriction_mask` fresh at every
+node for `Range`/`Multi` -- but can those be precomputed per query too,
+the way `Exact`/`Free` already are? Yes, and the mechanism is a
+standard one, not specific to this crate: `contiguous_range`'s clip of
+a query range against a node's window always produces a *contiguous*
+run of accepted sub-indices. That means at any point during a descent,
+at most the *leftmost* accepted sub-index can still be touching the
+range's lower endpoint, and at most the *rightmost* can still be
+touching the upper endpoint -- everything strictly between them is
+already fully inside the range, with no way to fall back out, i.e.
+unconstrained from there on. So the state needed isn't the raw
+accumulated `lo` (which can take many different values depending on
+which sub-index was actually taken at each level) -- it's two
+independent flags, "still tracking the lower boundary" and "still
+tracking the upper boundary", each only ever `Tracking` or `Satisfied`.
+And since the range's own endpoints come from the query, not the data,
+their own bit-prefix at every level is known *before* touching the
+tree at all -- so the whole per-level `(state, level) -> mask` table
+can be built once per query, same timing class as
+`precompute_level_masks`, instead of calling `contiguous_range`/
+`restriction_mask` fresh at every node. `Exact(v)` falls out of the
+same mechanism as `Range(v, v)` with both trackers coinciding and
+neither ever reaching `Satisfied` (any sub-index satisfying one bound
+necessarily violates the other, since they're the same value) --
+exactly one sub-index survives at every level, the same single-path
+behavior `Exact` already had, now a special case instead of a separate
+code path. `RangeTable` (`src/level_automaton.rs`) implements this;
+`Multi` is one `RangeTable` per range in the union, tracking
+independently, per path, which ranges are still alive (`None` once a
+range's own mask stops including the real bit taken -- permanently
+dead for that path).
+
+**The first version of this regressed `Exact` itself, caught on the
+very first correctness check (the same tiny synthetic tree used
+earlier in this investigation) before it ever reached the `Heap`
+oracle cross-check for `Range`/`Multi` specifically.** Root cause: the
+boundary masks were built via `expand_run(1, start, run_len, shift)`
+starting from a bare `1` -- exactly the same cross-dimension mistake
+already found and fixed once in this same file (see the entry above):
+that only sets bits where the *other two dimensions are also zero*,
+not where they're unconstrained. It had been masked (literally) by the
+`Free`/`Free`/`Free` sanity check passing, since pure-`Free` dimensions
+bypass this path entirely via a `u64::MAX` shortcut -- the bug only
+showed up the moment any dimension actually used `Range`/`Exact`/
+`Multi`, i.e. immediately. Fixed the same way as the first time:
+delegate to `restriction_mask` for each boundary mask too, with the
+other two dimensions pinned to `Free` -- still built once per *level*
+at construction time, not once per node, so the fix doesn't give up
+the precomputation property it was for. Re-verified: 0/583 mismatches
+across the full `Heap`-oracle sweep (`Range`/`Multi` on every
+position, two simultaneous `Range` dimensions, `Exact` on the
+non-emitted dimension, plus the direct `restricted_descent` sanity
+checks), `cargo test`/`clippy` clean.
+
+**Measured on the `profiling` build, same methodology as before:**
+
+```
+                  seq        composedautomaton (before -> after)
+one-Exact small     35.9us     152.3us (4.3x)  ->   76.4us (2.1x)
+one-Exact sym     1265.7us    3374.2us (2.7x)  -> 2207.5us (1.7x)
+one-Exact asym     760.0us    2125.8us (2.7x)  -> 1376.0us (1.8x)
+two-Exact small      2.4us       3.8us (1.6x)  ->    3.5us (1.5x)
+two-Exact sym       17.7us      30.5us (1.8x)  ->   24.7us (1.4x)
+two-Exact asym      11.1us      20.3us (1.8x)  ->   16.0us (1.4x)
+```
+
+Roughly halves the overhead, everywhere, but doesn't close it
+entirely -- and the remainder is now architectural rather than a bug:
+the composed automaton still does three independent per-dimension
+lookups and up to three `advance` calls per accepted bit (one per
+`And` branch), against one flat array lookup for the degenerate case.
+That's the real, now-understood price of "one automaton per position,
+intersected" over "one combined mask computed by a single hand-written
+fold" -- composability bought back most, not all, of its cost once the
+precomputation was done correctly, and what's left is inherent to the
+decomposition itself, not a missed optimization.
+
+Next: Phase 2 ports `NativeJoin`'s logic to the FST through this same
+trait (one `LevelAutomaton` per atom, mask reading shared bindings
+instead of a static array); Phase 3 rewires `PathAutomaton`'s hop
+expansion to call this walk instead of `scan_pattern`.
+
+### Phase 2: conjunctive joins natively on the FST, not a literal port, and a real bug in the adaptation
+
+Direct motivation: asked whether a BGP like `?s :p :o1 ; ?p :o2 .` (shared
+subject, a *variable predicate* in the second atom) could be answered
+with what existed -- yes, already, via `NativeJoin`/`graph::join_run`
+with `TriplePattern<Term>` instead of the default `TriplePattern<u32>`
+(confirmed live, not just cited: built a `Heap` tree with deliberate
+decoy subjects matching only one of the two atoms, and a subject
+matching the second atom twice with different predicates, and the
+result came back exactly right). The real gap, confirmed at the same
+time: that only runs on `Heap`, never on `PathFstDeltaPow2Bfs` --
+exactly the "Phase 2" placeholder from the walk/automaton design entry
+above.
+
+**Decided against the design that entry proposed** ("one `LevelAutomaton`
+per atom") **once the actual algorithm `NativeJoin` runs was reread
+carefully.** `NativeJoin`'s `stages` are grouped *by level first, then
+by atom* -- every atom picks its own candidate at level 0 before any
+atom moves to level 1. That interleaving is what makes it
+Leapfrog-Triejoin-shaped (Veldhuizen, ICDT 2014: advance one variable
+at a time, sharing what's already known, never materializing a full
+per-atom result before starting the next atom) instead of a nested-loop
+join. A `LevelAutomaton`-per-atom design -- fully resolve atom 0's own
+top-to-bottom walk via the existing generic walk, *then* start atom 1's
+-- would have reused more of Phase 1's machinery, but throws away
+exactly that interleaved pruning, which this tree's schedule supports
+exactly as well as `Heap`'s does (same per-level `dim_bits`/`shifts`
+shape for every atom, since every atom queries the same physical tree).
+Chose fidelity to the proven algorithm over fitting the existing trait
+-- "don't port literally" cuts both ways: it also means not forcing a
+different, worse-shaped abstraction onto it for the sake of reuse.
+
+**What's reused versus rewritten, concretely** (`src/fst_join.rs`):
+reused wholesale because it's genuinely backend-agnostic query-planning
+logic that never touches `PrefixCursor` or any Heap-specific type --
+the `Stage`/`Check`/`Write` compiled-plan shape, the atom-reordering
+heuristic (favor constants, then connectivity to already-selected
+atoms), and `slot_ones` (made `pub(crate)` in `native_join.rs` instead
+of duplicated). Rewritten because it's the actual backend-specific
+part: `open`/`run`'s node access. `Heap`'s `PrefixCursor` carries a
+precomputed "unskipped occupancy" word; `FstJoin` instead reads
+`word`/`real_index`/`delta` directly, the same primitives every other
+`path_fst.rs` traversal uses. One genuine improvement `NativeJoin` has
+no equivalent of: since a stage's own `level` is known at compile time,
+a leaf-level stage (`level == height - 1`) skips the delta read and
+child-address computation entirely, because no stage for *that* atom
+ever reads that child position again -- not because `Heap` couldn't
+support the same skip, but because `PrefixCursor`'s abstraction doesn't
+expose the leaf/non-leaf distinction as directly as this tree's own
+split already does everywhere else in this file.
+
+**A real bug, caught by the simplest possible case -- a single atom, no
+join at all.** First version mutated a frame's `addr`/`lo` fields
+in place to become the just-chosen child's position. That's wrong the
+moment backtracking returns to the *same* frame to try a different
+sibling bit: the parent's own address is already gone, overwritten by
+the previous candidate's child address, so the next candidate's delta
+gets read from the wrong node entirely. Symptom: a single-pattern query
+with three matching rows for the same variable (`?s :p :o100`, three
+subjects satisfying it) returned only the first one, every time -- not
+a join-specific bug, since nothing about joining was involved yet, just
+the adapted backtracking loop's own node-navigation getting the
+parent/child distinction wrong. Fixed by giving `Frame` a separate
+`child_addr`/`child_lo` pair: `addr`/`lo`/`word` are this frame's own
+resolved position, set once by `open` and never mutated afterward;
+`child_addr`/`child_lo` hold "where the most recently chosen candidate
+leads", read by the *next* real level's own `open` call. Re-verified
+after the fix: the single-atom case, the original hand-verified
+variable-predicate BGP (including the exact decoy/multi-match shape
+that caught the original bug class), and a randomized cross-check
+against `NativeJoin`/`Heap` on the same data -- shared-subject
+variable-predicate joins, shared-object star joins, 3-atom triangle
+joins, a ground (variable-free) query, and a repeated-variable-within-
+one-atom query (`?x :p ?x`) -- all matching exactly, including a sweep
+specifically re-run until it hit a genuine non-empty case for the
+shared-subject shape (not just empty-matches-empty).
+
+**Measured on the `profiling` build, 1M triples, 200 shared-object star
+join queries (`?s0 p1 ?o . ?s1 p2 ?o .`), both executors run back to
+back on data built from the same triples:**
+
+```
+NativeJoin (Heap):  40777.8 us/query, 1030000 total rows
+FstJoin (PathFst):  35041.1 us/query, 1030000 total rows
+ratio (fst/native): 0.86x
+```
+
+Row counts match exactly (1,030,000 = 1,030,000 across all 200
+queries) and `FstJoin` runs ~14% faster, plausibly from the leaf-level
+delta-skip described above -- not purely an FST-vs-Heap effect, since
+`PathFstDeltaPow2Bfs`'s own storage is also considerably smaller here
+(6.1MB vs 26.0MB for the same triples). Kept as `FstJoin`/
+`FstJoinWorkspace`/`FstJoinStats` in `src/fst_join.rs`
+(`#[cfg(feature = "heap")]`, alongside `path_fst`), with the same
+`visit`/`visit_with_stats` streaming contract as `NativeJoin` -- no
+`graph.rs`-style `join_run` convenience wrapper yet, since Phase 2's
+job was proving the executor itself is correct and competitive, not
+building out the full API surface.
+
+### The automaton-shaped join, actually built and measured against `FstJoin` -- a real trade-off, not a confirmed assumption
+
+`fst_join::FstJoin`'s own design entry argued, from reasoning alone,
+that a `LevelAutomaton`-per-atom design (fully resolve one atom's own
+top-to-bottom walk, *then* start the next atom's) would lose
+`NativeJoin`'s interleaved-by-level pruning and shouldn't be built that
+way. Asked directly to build it anyway and measure, side by side,
+without touching `FstJoin` -- the right call: the reasoning turns out
+to be correct for some query shapes and wrong for others, which
+reasoning alone would not have surfaced.
+
+`automaton_join::AutomatonJoin` is that design, for real: one atom at a
+time, each a complete walk through [`level_automaton::LevelAutomaton`]
+(composing three `DimRestrictionAutomaton`s via `And`, exactly like
+`restricted_descent_via_composed_automaton`), reaching every one of
+*that* atom's own matches -- plain recursion, nested-loop join -- before
+the next atom's walk starts at all. A variable already bound by an
+earlier atom becomes `DimRestriction::Exact(bindings[v])`, rebuilt
+fresh (a real `RangeTable` construction) every time that atom is
+entered, since the bound value can differ across different outer
+candidates -- the real cost this design pays that `FstJoin`'s
+precompiled `Stage` array does not. Deliberately narrower than
+`FstJoin`: a variable repeated *within* one atom (`?x :p ?x`) needs a
+same-level bit-equality constraint between two dimensions that `And`'s
+per-dimension independence can't express (`FstJoin` handles this via
+`NativeJoin`'s own `owners` mechanism, not reused here) --
+`AutomatonJoin::new` returns `InvalidConfig` for that shape rather than
+silently getting it wrong; every shape in the comparison below avoids
+it. One genuine simplification fell out of the recursive shape, not
+from optimizing anything away: since a later atom's walk is only ever
+entered as a direct call from inside an earlier atom's own leaf (never
+resumed later against a flat frame array the way `NativeJoin`/`FstJoin`'s
+backtracking is), nothing here needs `FstJoin`'s `clear_binding` --
+the next sibling's own write simply overwrites the same slot before
+anything reads it again, because every reader of a variable is
+guaranteed (by construction, from the atom ordering) to run after that
+variable's one writer.
+
+Correctness: cross-checked against *both* `NativeJoin`/`Heap` and
+`FstJoin` together (three-way agreement required) across the same
+shapes `FstJoin`'s own validation used -- shared-subject
+variable-predicate joins (200 random draws, re-run until a genuine
+non-empty case was hit, not just empty-matches-empty), shared-object
+star joins, 3-atom triangles, and a ground query -- all matching
+exactly, plus a direct check that the same-atom-repeated-variable shape
+is rejected rather than silently wrong.
+
+**Measured on the `profiling` build, 1M triples, 200 queries per
+shape, all three executors run back to back on data built from the
+same triples:**
+
+```
+star (shared object, 2 atoms), 1030000 total rows:
+  NativeJoin (Heap):      40443.9 us/query
+  FstJoin (interleaved):  34932.2 us/query
+  AutomatonJoin (nested): 58178.3 us/query   -- 1.67x FstJoin, 1.44x NativeJoin
+
+triangle (3 atoms), 23 total rows:
+  NativeJoin (Heap):      43446.7 us/query
+  FstJoin (interleaved):  30700.6 us/query
+  AutomatonJoin (nested): 51782.2 us/query   -- 1.69x FstJoin, 1.19x NativeJoin
+
+shared-subject variable-predicate (2 atoms), guaranteed non-empty
+(1 row/call, a real subject with >=2 outgoing edges picked directly
+from the generated data so the comparison isn't measuring three
+different "definitely empty" fast paths):
+  NativeJoin (Heap):      236.22 us/query
+  FstJoin (interleaved):  154.39 us/query
+  AutomatonJoin (nested):  14.26 us/query    -- 0.09x FstJoin, 0.06x NativeJoin
+```
+
+**Star and triangle confirm the original reasoning: the nested design
+loses 1.2-1.7x to interleaving**, consistent with Leapfrog-Triejoin's
+own case for sharing partial knowledge across every atom at every
+level rather than resolving one atom fully before touching the next --
+both shapes join on a variable where *every* atom's own exploration is
+comparably wide open, so interleaving's early cross-atom pruning has
+real work to do.
+
+**Shared-subject variable-predicate inverts it hard: the nested design
+wins by roughly an order of magnitude.** The reason isn't an
+implementation accident, it's structural: the shared variable (`?s`)
+is *also* heavily constrained by the first atom alone (`Exact`
+predicate, `Exact` object, only `?s` free) -- cheap and narrow on its
+own, the same shape every `two-Exact` measurement in this file has
+already shown resolves in microseconds. `?s`'s own bits are spread
+across several tree levels, though, so `FstJoin`/`NativeJoin`'s
+interleaving doesn't get to treat it as "resolved, then propagate a
+single constant" -- it has to track partial knowledge of `?s`
+level-by-level *for the second atom too*, applying a `Check` as each
+new piece of `?s` arrives, before the first atom has even finished
+narrowing it to one value. `AutomatonJoin` instead fully resolves the
+first atom first (cheap, since it's narrow), gets `?s` as one concrete
+value, and only then starts the second atom with `Exact(?s)` already
+fully known from its very first level -- no partial-bit tracking
+overhead at all. Classic selectivity-based join ordering (resolve the
+selective predicate first, propagate the result as a constant) beating
+worst-case-optimal interleaving on a query where one atom is cheap
+enough that the "share knowledge progressively" overhead costs more
+than it saves.
+
+**Conclusion, stated honestly rather than picking a winner**: neither
+design dominates. `FstJoin` wins when every atom's own search space is
+comparably wide (star/triangle shapes, matching the WCO literature's
+own motivating case). `AutomatonJoin` wins when some atom can cheaply
+and narrowly resolve a shared variable on its own, avoiding
+interleaving's partial-knowledge bookkeeping entirely. Both are kept,
+side by side, neither replacing the other: `fst_join::FstJoin` and
+`automaton_join::AutomatonJoin`, both `#[cfg(feature = "heap")]`. A
+real query planner choosing between them would need a selectivity
+estimate per atom, not a fixed rule -- not built here, since this round
+was about proving the trade-off is real and measurable, not picking a
+default.
+
+### Why the automaton-shaped join actually lost on star/triangle, found with `perf`, and fixed -- it flips the comparison entirely
+
+The entry above reasoned that `AutomatonJoin`'s 1.2-1.7x loss to
+`FstJoin` on star/triangle was the cost of rebuilding each atom's
+bound-variable automaton fresh on every entry. Asked to check that
+with `perf` instead of leaving it as a plausible guess -- `perf record`
+(2000 star-join queries, 1M triples) says that guess was wrong.
+`RangeTable::build` (3.72%) + `tree::restriction_mask` (8.69%), the
+actual "rebuild" cost, totaled only ~12%. The real cost (~78%) was the
+`LevelAutomaton`/`And` abstraction itself: `And::advance` (31.68%),
+`DimRestrictionAutomaton::advance` (14.93%), `DimRestrictionAutomaton::mask`
+(8.13%), plus the extra indirection it added to `walk_leaf_rec` (23.25%)
+-- three independent per-dimension automata, each dispatched through an
+enum match, composed through nested tuples, all paid *per accepted bit
+at every level*.
+
+That machinery (`RangeTable`'s `Tracking`/`Satisfied` boundary states)
+exists to support genuine `Range`/`Multi` restrictions with real
+per-level state. A join atom never needs that: at the instant any atom
+is walked, every one of its three dimensions is `Const`, `Free`, or
+`Exact` (a bound variable's current value) -- never a real multi-state
+automaton. That is exactly the degenerate case `precompute_level_masks`
+already handles with one flat `[u64; MAX_HEIGHT]` array and zero
+per-node dispatch, the same mechanism `restricted_descent` itself
+uses. Using the general `And`-composed automaton for a job that never
+needed its generality was reaching for the wrong tool, not a deliberate
+trade-off -- the Phase 1 entries above built that machinery to prove
+`Range`/`Multi` *could* be composed cheaply; nothing said every later
+consumer should default to it.
+
+Rewrote `automaton_join.rs` to compute that flat array once per atom
+entry (`compute_atom_masks`, a near-verbatim copy of
+`precompute_level_masks`) and walk it directly -- no `LevelAutomaton`,
+no `And`, no `DimRestrictionAutomaton`, anywhere in this module anymore.
+Everything else (the nested recursion, the atom ordering, the
+first-occurrence/bound-variable classification, the lack of an undo
+step) is unchanged. Re-verified against `NativeJoin`/`Heap` and
+`FstJoin` together on every shape, including the hand-verified case and
+the repeated-variable-in-atom rejection: still exact.
+
+Re-profiled after the fix (same star-join benchmark): `walk_leaf_rec`
+49.32%, `read_word` 27.77%, `read_delta` 16.32%, `restriction_mask` +
+`compute_atom_masks` down to ~4.2% combined -- a storage-bound profile,
+the recursion and the actual tree reads, not abstraction overhead.
+
+**Full comparison, `profiling` build, 1M triples, 200 queries per
+shape, all three executors run back to back on data built from the
+same triples (lower is better; the ratio columns are both
+`AutomatonJoin ÷ other`, so a value below 1 always means AutomatonJoin
+is faster):**
+
+| Shape | Rows/query | NativeJoin (Heap) | FstJoin (FST, interleaved) | AutomatonJoin (FST, nested) | AutomatonJoin ÷ FstJoin | AutomatonJoin ÷ NativeJoin |
+|---|---|---|---|---|---|---|
+| Star (shared object, 2 atoms) | 5150.0 | 40,624.9 us | 34,960.0 us | **20,534.1 us** | 0.587 | 0.505 |
+| Triangle (3 atoms) | 0.1 | 43,264.5 us | 30,756.8 us | **15,853.2 us** | 0.515 | 0.366 |
+| Shared-subject, variable predicate (2 atoms) | 1.0 | 213.0 us | 140.2 us | **3.0 us** | 0.021 | 0.014 |
+
+The fix didn't just close the star/triangle gap, it inverted it:
+`AutomatonJoin` now wins on *every* shape tested, not only the one it
+already won before -- roughly 1.7-1.9x faster than `FstJoin` on
+star/triangle (previously 1.2-1.7x *slower*), and ~50x faster on the
+shared-subject shape (previously ~11x faster). The qualitative
+explanation from the entry above for *why* interleaving should help
+star/triangle wasn't wrong as a reason to expect `FstJoin` to be
+competitive there -- it was wrong as a reason `AutomatonJoin` had to be
+slow: interleaving's cross-atom pruning is a real advantage in
+principle, it just wasn't the thing `AutomatonJoin`'s first version was
+actually losing to. Once the wrong tool was swapped for the right one,
+`AutomatonJoin`'s own advantage -- no `Stage`/`Check`/`Write`
+compilation, no flat backtracking array, a plain recursive walk reading
+storage about as directly as `restricted_descent` itself does -- won
+outright, on this benchmark, on every shape measured so far.
+
+**Not yet a closed case.** All three shapes here share one property:
+the query is small (2-3 atoms) and every shared variable is resolved
+by some atom narrowly. Star/triangle's own atoms are individually wide
+(`Free` on two of three dimensions), which is exactly the case the WCO
+literature uses to motivate interleaving -- `AutomatonJoin` won there
+anyway once its per-node cost was fixed, but a query where interleaving's
+*cross-atom* pruning (not just its per-atom cost) is doing real work --
+many atoms, a long chain of shared variables, deep intermediate results
+that `AutomatonJoin`'s nested walk would materialize one atom's full
+breadth before ever starting the next -- hasn't been measured. `FstJoin`
+is kept, unmodified, specifically so that comparison stays possible
+once such a shape is identified, not discarded on the strength of
+three benchmarks that all turned out to favor the other design.
+
+### Wired as default: `PathFstDeltaPow2Bfs` + the automaton-driven APIs, documented and promoted, with one more perf fix to make the recommendation honest
+
+Asked directly to document and wire the FST layout as the default,
+with the automaton-driven query and join methods as the preferred API
+-- "always use automaton, unless for debugging or comparison." Before
+writing that recommendation anywhere, checked whether it was actually
+true yet, the same way every other claim in this file has been
+checked: `restricted_descent_via_composed_automaton` (the general
+query entry point, supporting `Range`/`Multi`) still carried the
+1.6-4.3x overhead measured in its own earlier entry above, for the
+plain `Exact`/`Free` case `restricted_descent` already handles for
+free. Recommending it as *the* default while it cost more than the
+thing it was replacing, for the common case, would have been telling
+people to opt into a wash at best.
+
+Applied the exact fix `automaton_join.rs` had just proven: detect
+whether any restriction is genuinely `Range`/`Multi`; if not, skip the
+`And`-composed `DimRestrictionAutomaton`s entirely and take the same
+flat `[u64; MAX_HEIGHT]` `PrecomputedMaskAutomaton` path
+`restricted_descent_via_automaton` already uses. Only a real `Range`/
+`Multi` restriction pays for the heavier composition now. Re-verified
+against the `Heap` oracle on the same `Range`/`Multi`/mixed-dimension
+sweep used when this method was first built (494 cases, 0 mismatches)
+plus a direct `Exact`/`Free` sanity check against `restricted_descent`
+itself.
+
+**Measured on the `profiling` build, same methodology as every
+`composedautomaton` number in this file's earlier entries:**
+
+```
+                  seq (restricted_descent)   composedautomaton (before -> after)
+one-Exact small          36.2us                   various (see above)  ->   32.4us
+one-Exact sym          1245.3us                                        -> 1270.1us
+one-Exact asym          774.8us                                        ->  757.7us
+two-Exact small           2.6us                                        ->    1.6us
+two-Exact sym            17.5us                                        ->   15.1us
+two-Exact asym           11.3us                                        ->    9.5us
+```
+
+At parity with (sometimes faster than) `restricted_descent` on every
+domain/shape, for the case that matters for "default" -- the fast path
+*is* `restricted_descent_via_automaton`'s own code now, not a
+reimplementation of it, so there's no way for the two to drift apart
+silently.
+
+**What actually changed, concretely:**
+
+- `PathFstDeltaPow2Bfs::restricted_descent_via_composed_automaton` is
+  now genuinely the one recommended entry point for restricted-
+  descent-style queries on this struct -- fast for `Exact`/`Free`,
+  correct (if slower) for `Range`/`Multi`, instead of a strictly-
+  slower alternative to `restricted_descent_via_automaton` that
+  happened to also support more restriction kinds.
+- `automaton_join::AutomatonJoin` is documented as the preferred join
+  executor (it already measured faster on every shape -- see the
+  entries above; this round just updated the doc comments and
+  `README.md` to actually say so instead of leaving it framed as "a
+  comparison experiment" after it stopped being only that).
+- `path_fst::PathFstDeltaPow2Bfs`'s own module doc, `fst_join::FstJoin`'s,
+  `native_join::NativeJoin`'s, the crate root (`lib.rs`)'s "Which
+  structure to use" section, and `README.md`'s new "The FST layout"
+  section all now say the same thing in the same direction: prefer
+  `PathFstDeltaPow2Bfs` + `restricted_descent_via_composed_automaton`/
+  `AutomatonJoin` for static, query-and-join-heavy workloads; every
+  other `restricted_descent*` variant, `FstJoin`, and `NativeJoin`
+  (when a `PathFstDeltaPow2Bfs` is viable at all) are debugging/
+  comparison tools, not defaults.
+- **Not silently glossing over the real gap**: `PathFstDeltaPow2Bfs`
+  has no `insert`/`remove` (static build only), no `serialize`/
+  `deserialize`, no `contains_batch`/`count_matching`, and isn't a
+  `join::PatternBackend` (no graph traversal/paths, no regular-path
+  automata) -- `Heap`/`File`/`Compressed` remain the only choice for
+  any of that. The recommendation is scoped to what was actually
+  measured, not asserted as a blanket replacement.
+
 ## Native prefix joins
 
 `native_join::NativeJoin` borrows the tree and compiles its global subdivision

@@ -1,5 +1,16 @@
 //! Conjunctive joins directly over the joint S/P/O Morton topology.
 //!
+//! The only join executor over [`crate::Heap`]/[`crate::File`]/
+//! [`crate::Compressed`] -- there's no alternative to prefer here the
+//! way [`crate::automaton_join::AutomatonJoin`] is preferred over
+//! [`crate::fst_join::FstJoin`] on [`crate::path_fst::PathFstDeltaPow2Bfs`].
+//! If a query can be answered on either structure, building the
+//! `PathFstDeltaPow2Bfs` and using `AutomatonJoin` measures faster on
+//! every shape tried so far (`DESIGN.md`'s "wired as default" entry) --
+//! but that struct has no mutation, serialization, or batched-existence
+//! API, so this remains the join executor for anything still living on
+//! the mutable tree family.
+//!
 //! Compilation reads only the global schedule and domains. Each physical level
 //! has fixed masks for constants, repeated coordinates and prefix compatibility.
 //! Execution traverses surviving child combinations across all atoms before
@@ -325,7 +336,7 @@ impl<'a, S: BlockStorage> NativeJoin<'a, S> {
 }
 
 /// Occupancy positions whose child index contains a given radix bit.
-fn slot_ones(bit: u8) -> u64 {
+pub(crate) fn slot_ones(bit: u8) -> u64 {
     const ONES: [u64; 6] = [0xaaaaaaaaaaaaaaaa, 0xcccccccccccccccc, 0xf0f0f0f0f0f0f0f0, 0xff00ff00ff00ff00, 0xffff0000ffff0000, 0xffffffff00000000];
     ONES[bit as usize]
 }

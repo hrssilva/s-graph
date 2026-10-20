@@ -1,0 +1,26 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 6K of event 'cycles:u'
+# Event count (approx.): 23203934601
+#
+# Overhead  Symbol                                                                                                                                                                                                              IPC   [IPC Coverage]
+# ........  ..................................................................................................................................................................................................................  ....................
+#
+    38.37%  [.] <std::hash::random::DefaultHasher as core::hash::Hasher>::write                                                                                                                                                 -      -            
+    14.97%  [.] <s_graph::lifted_join::Builder>::apply                                                                                                                                                                          -      -            
+    12.70%  [.] <s_graph::lifted_join::Builder>::mk                                                                                                                                                                             -      -            
+    12.40%  [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&s_graph::lifted_join::Node>                                                                                                            -      -            
+     7.77%  [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&(s_graph::lifted_join::Op, u32, u32)>                                                                                                  -      -            
+     2.94%  [.] <hashbrown::map::HashMap<(s_graph::lifted_join::Op, u32, u32), u32, std::hash::random::RandomState>>::insert                                                                                                    -      -            
+     2.22%  [.] <hashbrown::raw::RawTable<(s_graph::lifted_join::Node, u32)>>::reserve_rehash::<hashbrown::map::make_hasher<s_graph::lifted_join::Node, u32, std::hash::random::RandomState>::{closure#0}>                      -      -            
+     2.13%  [.] <hashbrown::raw::RawTable<((s_graph::lifted_join::Op, u32, u32), u32)>>::reserve_rehash::<hashbrown::map::make_hasher<(s_graph::lifted_join::Op, u32, u32), u32, std::hash::random::RandomState>::{closure#0}>  -      -            
+     2.08%  [.] <hashbrown::map::HashMap<s_graph::lifted_join::Node, u32, std::hash::random::RandomState>>::insert                                                                                                              -      -            
+     1.43%  [.] s_graph::lifted_join::lift_node                                                                                                                                                                                 -      -            
+
+
+#
+# (Tip: To show inline functions in call traces add --inline to perf report)
+#

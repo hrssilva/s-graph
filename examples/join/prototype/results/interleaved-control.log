@@ -1,0 +1,3 @@
+assignment order: interleaved
+join uniform-star: FST=6144522 heap=25997093
+uniform-star lifted-lazy: build_nodes=179419 cached_products=178605 apply_calls=428253 apply_hits=17108
