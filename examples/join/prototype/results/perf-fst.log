@@ -1,0 +1,6 @@
+Events disabled
+Events enabled
+Events disabled
+fst visit: 300 repetitions
+[ perf record: Woken up 179 times to write data ]
+[ perf record: Captured and wrote 45.456 MB /tmp/sgraph-demand-perf-646uuaxr/perf.data ]

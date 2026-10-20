@@ -1,5 +1,8 @@
 # Automaton composition over the graph FST
 
+An implemented follow-up, [On-demand automaton product](ON_DEMAND_JOIN.md), keeps
+relations in the source FST and expands their constrained product during traversal.
+
 The automaton direction deserves an implementation experiment alongside the
 [planner proposal](PROPOSED_JOIN.md). Planning changes which search runs;
 composition can change the representation of that search and share repeated

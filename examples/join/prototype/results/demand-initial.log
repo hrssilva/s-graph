@@ -1,0 +1,10 @@
+query hash: fast
+assignment order: shared-first
+join uniform-star: FST=6144522 heap=25997093
+join uniform-triangle: FST=6144522 heap=25997093
+join uniform-anchored: FST=6144522 heap=25997093
+join skew: FST=5427898 heap=9384187
+join parity-triangle-32: FST=430 heap=12577
+join parity-triangle-64: FST=430 heap=12577
+join parity-triangle-128: FST=430 heap=12577
+join dense-star: FST=192 heap=346

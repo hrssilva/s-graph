@@ -1,0 +1,108 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 10K of event 'cycles:u'
+# Event count (approx.): 42870764377
+#
+# Overhead  Command          Shared Object        Symbol                                                                                                                               
+# ........  ...............  ...................  .....................................................................................................................................
+#
+    54.58%  composition_pro  composition_profile  [.] <s_graph::fst_join::FstJoin>::run::<false, (), composition_profile::main::{closure#4}>
+            |          
+            |--21.03%--run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          
+            |--10.64%--count_ones (inlined)
+            |          run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          
+            |--9.12%--eq<s_graph::fst_join::Write> (inlined)
+            |          next<s_graph::fst_join::Write> (inlined)
+            |          |          
+            |          |--4.58%--clear_binding (inlined)
+            |          |          run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          |          
+            |           --4.54%--run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          
+            |--6.43%--advance_lo (inlined)
+            |          run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          
+            |--2.27%--index_mut<u32> (inlined)
+            |          index_mut<u32, usize> (inlined)
+            |          index_mut<u32, usize, alloc::alloc::Global> (inlined)
+            |          |          
+            |          |--1.37%--clear_binding (inlined)
+            |          |          run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          |          
+            |           --0.90%--run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          
+            |--2.14%--clear_binding (inlined)
+            |          run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          
+            |--1.33%--index<[u8; 3]> (inlined)
+            |          index<[u8; 3], usize> (inlined)
+            |          index<[u8; 3], usize, alloc::alloc::Global> (inlined)
+            |          level_schedule (inlined)
+            |          run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+            |          
+             --0.96%--index<s_graph::fst_join::Stage> (inlined)
+                       index<s_graph::fst_join::Stage, usize> (inlined)
+                       index<s_graph::fst_join::Stage, usize, alloc::alloc::Global> (inlined)
+                       |          
+                        --0.55%--run<false, (), composition_profile::main::{closure_env#4}> (inlined)
+
+    18.41%  composition_pro  composition_profile  [.] <s_graph::fst_join::FstJoin>::open::<false>
+            |          
+            |--15.59%--open<false> (inlined)
+            |          
+            |--1.35%--as_slice<s_graph::fst_join::Frame, alloc::alloc::Global> (inlined)
+            |          deref<s_graph::fst_join::Frame, alloc::alloc::Global> (inlined)
+            |          index<s_graph::fst_join::Frame, usize, alloc::alloc::Global> (inlined)
+            |          open<false> (inlined)
+            |          
+             --1.02%--index_mut<s_graph::fst_join::Frame> (inlined)
+                       index_mut<s_graph::fst_join::Frame, usize> (inlined)
+                       index_mut<s_graph::fst_join::Frame, usize, alloc::alloc::Global> (inlined)
+                       open<false> (inlined)
+
+    15.91%  composition_pro  composition_profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+            |          
+            |--11.23%--read_word (inlined)
+            |          
+            |--1.91%--copied<[u8; 8], core::array::TryFromSliceError> (inlined)
+            |          try_from<u8, 8> (inlined)
+            |          try_into<&[u8], [u8; 8]> (inlined)
+            |          read_u64 (inlined)
+            |          read_word (inlined)
+            |          
+            |--1.55%--checked_sub (inlined)
+            |          index<u8> (inlined)
+            |          index<u8, core::ops::range::Range<usize>> (inlined)
+            |          index<u8, core::ops::range::Range<usize>, alloc::alloc::Global> (inlined)
+            |          read_u64 (inlined)
+            |          read_word (inlined)
+            |          
+             --1.21%--index<alloc::vec::Vec<u8, alloc::alloc::Global>> (inlined)
+                       index<alloc::vec::Vec<u8, alloc::alloc::Global>, usize> (inlined)
+                       index<alloc::vec::Vec<u8, alloc::alloc::Global>, usize, alloc::alloc::Global> (inlined)
+                       read_u64 (inlined)
+                       read_word (inlined)
+
+    11.01%  composition_pro  composition_profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+            |          
+            |--8.51%--read_delta (inlined)
+            |          |          
+            |           --1.19%--_dl_rtld_auditstate
+            |          
+             --2.13%--checked_sub (inlined)
+                       index<u8> (inlined)
+                       index<u8, core::ops::range::Range<usize>> (inlined)
+                       read_var_at (inlined)
+                       read_var (inlined)
+                       read_delta (inlined)
+
+
+
+#
+# (Tip: Profiling branch (mis)predictions with: perf record -b / perf report)
+#

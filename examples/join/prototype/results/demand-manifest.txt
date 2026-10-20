@@ -1,0 +1,25 @@
+Snapshot used for demand-comparison.csv and 81-test verification:
+/tmp/sgraph-composition-vqkwjbdt
+
+rustc 1.98.1 (48a229cea 2026-09-01)
+profile=profiling; default CPU target; PROTO_SUITE=joins; PROTO_REPS=7
+PROTO_ENGINE=fst,demand,demand-table,recursive,automaton,lifted-lazy,lifted-merged
+
+SHA256:
+e9556ae380d2afb319112c6da1e477a63a6c11b927ee82c417d147364f129ae1  Cargo.toml
+7a425f28b08889b841ab0f118e144b32f28ae5caceb029e4cd40c3284e5b0d2f  src/lib.rs
+054db4764967031e37a8a7b88d6b8e269a3e11c731bf20edabfc29fb8f81bf45  src/path_fst.rs
+69d629acfb2c489788cbe309e83d9a0697986d1f8875fd660cde5ea1481a75fd  src/fst_join.rs
+b82293a51030925f1efc453ff83f2abcb6c980a7952b772026e2d4d5d0feafcb  src/recursive_join.rs
+724be65bd4cfccb21a5ffeec90f3fa225136a1461e7d3fe26e93902227ff268b  src/automaton_join.rs
+06bfea5777f2daed8adf2b4550e40e667edd89b779d960ff28de3bf813f43dab  src/lifted_join.rs
+84dba382aafa39c5676162435db44ab7b9934adcbd9f63e7d98b9d3021f746cf  src/demand_join.rs
+b182c04eda2dd881f6d971be4e9b92bd7ce8dae2f262f04a46ff8e174624cd4b  composition_bench.rs
+ac57eb75392eb95d68b127c0bf49619fad4db408a39c49ea92869d7ee850aeac  composition_profile.rs
+
+Perf profiles use the equivalent preceding snapshot /tmp/sgraph-composition-t4augo3e:
+300 prepared uniform-star visits per engine; graph build gated out by perf FIFO enable/disable.
+perf-demand: original runtime engine label demand-direct; guard masks evaluated directly.
+perf-demand-table: original runtime engine label demand; guard-mask table lookup.
+Only default selection, benchmark labels, and an additional test changed afterward.
+demand-ablation.csv applies current labels to the preceding comparison.

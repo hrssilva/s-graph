@@ -1,5 +1,10 @@
 # Compiled automata and lifted joins: measured prototypes
 
+**Follow-up:** [On-demand automaton product](ON_DEMAND_JOIN.md) removes eager
+relation conversion by retaining a factored product during traversal. It includes
+updated comparisons with the executors below; this report describes the original
+eager prototypes.
+
 The [composition proposal](AUTOMATON_COMPOSITION.md) is implemented experimentally
 in [`prototype/`](prototype/). Compiling complex filters is useful with a
 preparation-cost threshold. Lifted joins demonstrate structural reuse and fast

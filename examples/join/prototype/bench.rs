@@ -1,5 +1,6 @@
 use s_graph::automaton_join::AutomatonJoin;
 use s_graph::compiled_filter::{CompiledFilter, LegacyFilter};
+use s_graph::demand_join::{DemandJoin, DemandStats, DemandWorkspace};
 use s_graph::fst_join::{FstJoin, FstJoinStats, FstJoinWorkspace};
 use s_graph::graph::{JoinQuery, Term, TriplePattern};
 use s_graph::lifted_join::LiftedJoin;
@@ -17,7 +18,7 @@ fn selected(name: &str) -> bool {
     std::env::var("PROTO_CASE").map_or(true, |s| name.contains(&s))
 }
 fn engine(name: &str) -> bool {
-    std::env::var("PROTO_ENGINE").map_or(true, |s| s == name)
+    std::env::var("PROTO_ENGINE").map_or(true, |s| s.split(',').any(|x| x == name))
 }
 fn env<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name)
@@ -476,6 +477,47 @@ fn join_case(
             0,
             st.candidates,
             fw.allocated_bytes(),
+        );
+    }
+    for label in ["demand", "demand-table"] {
+        if !engine(label) {
+            continue;
+        }
+        let tables = label == "demand-table";
+        let p = DemandJoin::with_tables(&query, &tree, tables).unwrap();
+        let mut ws = DemandWorkspace::default();
+        let mut st = DemandStats::default();
+        let mut actual = Vec::new();
+        let _: ControlFlow<()> = p.visit_with_stats(&mut ws, &mut st, |r| {
+            actual.push(r.to_vec());
+            ControlFlow::Continue(())
+        });
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "demand on {name}");
+        let build = measure(|| {
+            black_box(DemandJoin::with_tables(&query, &tree, tables).unwrap());
+        });
+        let visit = measure(|| {
+            let _ = p.visit(&mut ws, sink);
+        });
+        let e2e = measure(|| {
+            let p = DemandJoin::with_tables(&query, &tree, tables).unwrap();
+            let _ = p.visit(&mut DemandWorkspace::default(), sink);
+        });
+        output(
+            "join",
+            name,
+            label,
+            expected.len(),
+            build,
+            visit,
+            e2e,
+            p.allocated_bytes(),
+            p.states(),
+            st.source_reads,
+            0,
+            st.transitions,
+            ws.allocated_bytes(),
         );
     }
     if engine("recursive") {

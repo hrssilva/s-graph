@@ -742,6 +742,7 @@ mod tests {
             &mut oracle,
         );
         oracle.sort_unstable();
+        crate::demand_join::tests::check(&tree, &query, &oracle);
         for (merged, shared_first) in [(false, false), (true, false), (false, true), (true, true)] {
             let plan = LiftedJoin::with_order(&query, &tree, merged, shared_first).unwrap();
             let mut b = Vec::new();

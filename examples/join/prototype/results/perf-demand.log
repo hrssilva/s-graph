@@ -1,0 +1,6 @@
+Events disabled
+Events enabled
+Events disabled
+demand-direct visit: 300 repetitions
+[ perf record: Woken up 146 times to write data ]
+[ perf record: Captured and wrote 36.838 MB /tmp/sgraph-demand-perf-k4c1pady/perf.data ]

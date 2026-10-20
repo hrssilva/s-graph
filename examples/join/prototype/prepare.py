@@ -15,10 +15,10 @@ manifest = re.sub(r"(?ms)^\[\[(?:bench|example)\]\]\n.*?(?=^\[|\Z)", "", (root /
 manifest += '\n[[example]]\nname = "composition_bench"\npath = "composition_bench.rs"\n'
 manifest += '\n[[example]]\nname = "composition_profile"\npath = "composition_profile.rs"\n'
 (snapshot / "Cargo.toml").write_text(manifest)
-for name in ["compiled_filter", "lifted_join"]:
+for name in ["compiled_filter", "lifted_join", "demand_join"]:
     shutil.copy2(here / f"{name}.rs", snapshot / "src" / f"{name}.rs")
 with (snapshot / "src/lib.rs").open("a") as f:
-    f.write('\n#[cfg(feature="heap")]\npub mod compiled_filter;\n#[cfg(feature="heap")]\npub mod lifted_join;\n')
+    f.write('\n#[cfg(feature="heap")]\npub mod compiled_filter;\n#[cfg(feature="heap")]\npub mod lifted_join;\n#[cfg(feature="heap")]\npub mod demand_join;\n')
 # Only add equality/hash derivations for compile-time query-state interning.
 p = snapshot / "src/level_automaton.rs"
 s = p.read_text().replace('#[derive(Clone, Copy, PartialEq, Eq)]', '#[derive(Clone, Copy, PartialEq, Eq, Hash)]')
