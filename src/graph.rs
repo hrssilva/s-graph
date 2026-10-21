@@ -170,13 +170,32 @@ impl<S: BlockStorage> JoinBackend for RadixTreeDfsInterleavedVarSkipUnrolledGene
 }
 
 #[cfg(feature = "heap")]
-impl JoinBackend for crate::Fst {
+impl<S: BlockStorage> JoinBackend for crate::path_fst::PackedFst<S> {
     fn collect_join<P: Copy + Into<Term>>(&self, query: &JoinQuery<P>) -> crate::Result<JoinRows> {
         let plan = crate::Join::new(query, self)?;
         let mut workspace = crate::JoinWorkspace::default();
         let mut data = Vec::new();
         let mut rows = 0;
         let _: std::ops::ControlFlow<()> = plan.visit(&mut workspace, |row| {
+            data.extend_from_slice(row);
+            rows += 1;
+            std::ops::ControlFlow::Continue(())
+        });
+        Ok(JoinRows {
+            data,
+            row_width: query.num_vars,
+            rows,
+        })
+    }
+}
+
+#[cfg(feature = "heap")]
+impl<S: BlockStorage> JoinBackend for crate::EditableFst<S> {
+    fn collect_join<P: Copy + Into<Term>>(&self, query: &JoinQuery<P>) -> crate::Result<JoinRows> {
+        let plan = self.join(query)?;
+        let mut data = Vec::new();
+        let mut rows = 0;
+        let _: std::ops::ControlFlow<()> = plan.visit(&mut Default::default(), |row| {
             data.extend_from_slice(row);
             rows += 1;
             std::ops::ControlFlow::Continue(())

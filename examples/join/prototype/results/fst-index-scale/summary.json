@@ -1,0 +1,285 @@
+[
+  {
+    "triples": 1000000,
+    "shape": "mixed",
+    "address_space_cap_bytes": 1543503872,
+    "available_at_launch_bytes": 3115986944,
+    "status": "complete",
+    "indexed": {
+      "phase": "indexed",
+      "triples": 1000000,
+      "shape": "mixed",
+      "physical_states": 248607,
+      "height": 7,
+      "states_per_level": [
+        1,
+        32,
+        1922,
+        119724,
+        124886,
+        2021,
+        21
+      ],
+      "packed_ram_bytes": 7024682,
+      "before_ram_bytes": 7025018,
+      "indexed_ram_bytes": 11002898,
+      "index_bytes": 3977880,
+      "prepare_s": 0.030019833,
+      "rss_bytes": 34246656,
+      "peak_rss_bytes": 85491712,
+      "virtual_bytes": 35209216
+    },
+    "complete": {
+      "phase": "complete",
+      "triples": 1000000,
+      "shape": "mixed",
+      "elapsed_s": 1.415574451,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 49844224,
+      "peak_rss_bytes": 85491712,
+      "virtual_bytes": 50806784
+    },
+    "last_phase": {
+      "phase": "complete",
+      "triples": 1000000,
+      "shape": "mixed",
+      "elapsed_s": 1.415574451,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 49844224,
+      "peak_rss_bytes": 85491712,
+      "virtual_bytes": 50806784
+    },
+    "systemd_result": "success"
+  },
+  {
+    "triples": 1000000,
+    "shape": "functional",
+    "address_space_cap_bytes": 1560281088,
+    "available_at_launch_bytes": 3146678272,
+    "status": "complete",
+    "indexed": {
+      "phase": "indexed",
+      "triples": 1000000,
+      "shape": "functional",
+      "physical_states": 21,
+      "height": 7,
+      "states_per_level": [
+        1,
+        4,
+        4,
+        4,
+        4,
+        2,
+        2
+      ],
+      "packed_ram_bytes": 1010,
+      "before_ram_bytes": 1346,
+      "indexed_ram_bytes": 1850,
+      "index_bytes": 504,
+      "prepare_s": 3.817e-06,
+      "rss_bytes": 2617344,
+      "peak_rss_bytes": 26456064,
+      "virtual_bytes": 3559424
+    },
+    "complete": {
+      "phase": "complete",
+      "triples": 1000000,
+      "shape": "functional",
+      "elapsed_s": 0.108712608,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 2617344,
+      "peak_rss_bytes": 26456064,
+      "virtual_bytes": 3559424
+    },
+    "last_phase": {
+      "phase": "complete",
+      "triples": 1000000,
+      "shape": "functional",
+      "elapsed_s": 0.108712608,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 2617344,
+      "peak_rss_bytes": 26456064,
+      "virtual_bytes": 3559424
+    },
+    "systemd_result": "success"
+  },
+  {
+    "triples": 10000000,
+    "shape": "mixed",
+    "address_space_cap_bytes": 1543503872,
+    "available_at_launch_bytes": 3099545600,
+    "status": "complete",
+    "indexed": {
+      "phase": "indexed",
+      "triples": 10000000,
+      "shape": "mixed",
+      "physical_states": 3443790,
+      "height": 8,
+      "states_per_level": [
+        1,
+        18,
+        800,
+        46818,
+        2874366,
+        513600,
+        8075,
+        112
+      ],
+      "packed_ram_bytes": 81804116,
+      "before_ram_bytes": 81804500,
+      "indexed_ram_bytes": 136905332,
+      "index_bytes": 55100832,
+      "prepare_s": 0.266154504,
+      "rss_bytes": 386973696,
+      "peak_rss_bytes": 927059968,
+      "virtual_bytes": 388743168
+    },
+    "complete": {
+      "phase": "complete",
+      "triples": 10000000,
+      "shape": "mixed",
+      "elapsed_s": 15.078479165,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 386973696,
+      "peak_rss_bytes": 927059968,
+      "virtual_bytes": 388743168
+    },
+    "last_phase": {
+      "phase": "complete",
+      "triples": 10000000,
+      "shape": "mixed",
+      "elapsed_s": 15.078479165,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 386973696,
+      "peak_rss_bytes": 927059968,
+      "virtual_bytes": 388743168
+    },
+    "systemd_result": "success"
+  },
+  {
+    "triples": 10000000,
+    "shape": "functional",
+    "address_space_cap_bytes": 1543503872,
+    "available_at_launch_bytes": 3118927872,
+    "status": "complete",
+    "indexed": {
+      "phase": "indexed",
+      "triples": 10000000,
+      "shape": "functional",
+      "physical_states": 25,
+      "height": 8,
+      "states_per_level": [
+        1,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        2
+      ],
+      "packed_ram_bytes": 1192,
+      "before_ram_bytes": 1576,
+      "indexed_ram_bytes": 2168,
+      "index_bytes": 592,
+      "prepare_s": 4.569e-06,
+      "rss_bytes": 2596864,
+      "peak_rss_bytes": 242352128,
+      "virtual_bytes": 3559424
+    },
+    "complete": {
+      "phase": "complete",
+      "triples": 10000000,
+      "shape": "functional",
+      "elapsed_s": 1.138055698,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 2596864,
+      "peak_rss_bytes": 242352128,
+      "virtual_bytes": 3559424
+    },
+    "last_phase": {
+      "phase": "complete",
+      "triples": 10000000,
+      "shape": "functional",
+      "elapsed_s": 1.138055698,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 2596864,
+      "peak_rss_bytes": 242352128,
+      "virtual_bytes": 3559424
+    },
+    "systemd_result": "success"
+  },
+  {
+    "triples": 100000000,
+    "shape": "mixed",
+    "address_space_cap_bytes": 2634022912,
+    "available_at_launch_bytes": 3304448000,
+    "status": "allocation_refused_during_build",
+    "indexed": null,
+    "complete": null,
+    "last_phase": {
+      "phase": "building",
+      "triples": 100000000,
+      "shape": "mixed",
+      "generated_s": 0.840852695,
+      "rss_bytes": 1202565120,
+      "peak_rss_bytes": 1202565120,
+      "virtual_bytes": 1203552256
+    },
+    "systemd_result": "core-dump"
+  },
+  {
+    "triples": 100000000,
+    "shape": "functional",
+    "address_space_cap_bytes": 2550136832,
+    "available_at_launch_bytes": 3201114112,
+    "status": "complete",
+    "indexed": {
+      "phase": "indexed",
+      "triples": 100000000,
+      "shape": "functional",
+      "physical_states": 29,
+      "height": 9,
+      "states_per_level": [
+        1,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        2,
+        2
+      ],
+      "packed_ram_bytes": 1446,
+      "before_ram_bytes": 1878,
+      "indexed_ram_bytes": 2558,
+      "index_bytes": 680,
+      "prepare_s": 3.497e-06,
+      "rss_bytes": 2424832,
+      "peak_rss_bytes": 2402160640,
+      "virtual_bytes": 3559424
+    },
+    "complete": {
+      "phase": "complete",
+      "triples": 100000000,
+      "shape": "functional",
+      "elapsed_s": 11.69443628,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 2424832,
+      "peak_rss_bytes": 2402160640,
+      "virtual_bytes": 3559424
+    },
+    "last_phase": {
+      "phase": "complete",
+      "triples": 100000000,
+      "shape": "functional",
+      "elapsed_s": 11.69443628,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 2424832,
+      "peak_rss_bytes": 2402160640,
+      "virtual_bytes": 3559424
+    },
+    "systemd_result": "success"
+  }
+]

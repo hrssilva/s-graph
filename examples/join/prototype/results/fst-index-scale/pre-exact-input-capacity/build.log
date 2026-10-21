@@ -1,0 +1,7 @@
+Running as unit: sgraph-index-build-2337551.service; invocation ID: 022316d3dc26493d877c53bb832ef173
+   Compiling s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph)
+    Finished `profiling` profile [optimized + debuginfo] target(s) in 2.47s
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 2.593s
+             CPU time consumed: 2.571s

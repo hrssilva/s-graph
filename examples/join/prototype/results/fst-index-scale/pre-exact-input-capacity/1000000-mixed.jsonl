@@ -1,0 +1,6 @@
+{"phase": "limits_verified", "pid": 2337626, "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-1000000-mixed-2337551.service", "enforced": "RLIMIT_AS", "address_space_limits": [1593835520, 1593835520], "cgroup_controls": {"memory.max": null, "memory.high": null, "memory.swap.max": null}}
+{"phase":"generating","triples":1000000,"shape":"mixed","input_bytes":12000000,"rss_bytes":2572288,"peak_rss_bytes":2572288,"virtual_bytes":3551232 }
+{"phase":"building","triples":1000000,"shape":"mixed","generated_s":0.00861236,"rss_bytes":14684160,"peak_rss_bytes":14684160,"virtual_bytes":16138240 }
+{"phase":"built","triples":1000000,"shape":"mixed","physical_states":248607,"packed_ram_bytes":7024682,"built_s":0.836151216,"rss_bytes":32256000,"peak_rss_bytes":85422080,"virtual_bytes":33116160 }
+{"phase":"indexed","triples":1000000,"shape":"mixed","physical_states":248607,"height":7,"states_per_level":[1, 32, 1922, 119724, 124886, 2021, 21],"packed_ram_bytes":7024682,"before_ram_bytes":7025018,"indexed_ram_bytes":11002898,"index_bytes":3977880,"prepare_s":0.01855826,"rss_bytes":34246656,"peak_rss_bytes":85422080,"virtual_bytes":35209216 }
+{"phase":"complete","triples":1000000,"shape":"mixed","elapsed_s":0.9210388,"count_and_inverse_edit_checks":true,"rss_bytes":49844224,"peak_rss_bytes":85422080,"virtual_bytes":50806784 }

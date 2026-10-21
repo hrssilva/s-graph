@@ -1,13 +1,14 @@
 //! Compact integer graph storage with composable automata.
 //!
-//! With the default `heap` feature, start with `Fst`: an immutable, suffix-sharing index over `(u32, u32, u32)`
+//! With the default `heap` feature, start with `Fst`: a packed, suffix-sharing index over `(u32, u32, u32)`
 //! triples. Build `automata::Bgp` or a composed recognizer and apply it through
 //! `Fst::search`. `Join` also executes adaptive joins directly on the index;
 //! `query_ops` composes BGPs, OPTIONAL, MINUS, unions and existence filters.
 //! `path_ops` builds regular path languages, while `automata_core` supplies
 //! reusable recognizers, boolean composition, transducers and reducers.
 //!
-//! FST snapshots use a versioned, validated binary format. Mutable storage is
+//! `into_mutable` enables local minimality-preserving updates. File and compressed
+//! FST modes share the same automata and validated snapshot format. Mutable radix trees are
 //! available separately as [`tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric`]
 //! with heap, file and compressed backends. See the repository README for
 //! runnable examples and DESIGN.md for algorithms and measured tradeoffs.
@@ -64,11 +65,23 @@ pub(crate) fn vec_bytes<T>(v: &Vec<T>) -> usize {
 #[cfg(feature = "heap")]
 pub mod analytics;
 #[cfg(feature = "heap")]
-pub mod automata_core;
-#[cfg(feature = "heap")]
 pub mod automata;
 #[cfg(feature = "heap")]
+pub mod automata_core;
+#[cfg(feature = "heap")]
 pub mod fst;
+#[cfg(feature = "heap")]
+pub mod mutable_fst;
+#[cfg(feature = "heap")]
+pub mod tree_source;
+#[cfg(feature = "heap")]
+pub use mutable_fst::MutableFst as EditableFst;
+#[cfg(feature = "heap")]
+pub type MutableFst = EditableFst<storage::HeapStorage>;
+#[cfg(feature = "file")]
+pub type MutableFileFst = EditableFst<storage_file::FileStorage>;
+#[cfg(feature = "compressed")]
+pub type MutableCompressedFst = EditableFst<storage_compressed::CompressedStorage>;
 #[cfg(feature = "heap")]
 mod frontier_join;
 #[cfg(all(test, feature = "heap"))]
@@ -79,10 +92,16 @@ pub mod path_ops;
 pub mod query_ops;
 #[cfg(feature = "heap")]
 pub mod scheduled_join;
+#[cfg(all(feature = "heap", feature = "compressed"))]
+pub use fst::CompressedFst;
+#[cfg(all(feature = "heap", feature = "file"))]
+pub use fst::FileFst;
 #[cfg(feature = "heap")]
 pub use fst::Fst;
 #[cfg(feature = "heap")]
 pub use join::{Join, JoinWorkspace};
+#[cfg(feature = "heap")]
+pub use path_fst::PackedFst;
 
 #[cfg(all(test, feature = "heap"))]
 mod join_oracle_tests;

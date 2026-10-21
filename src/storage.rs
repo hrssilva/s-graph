@@ -33,6 +33,9 @@ impl Pos {
 /// `FileStorage`'s writes are always called from a `&mut self` context
 /// anyway, so this costs it nothing).
 pub trait BlockStorage: Sized {
+    /// Scope a graph automaton traversal. The default has no runtime state;
+    /// paged backends can retain a bounded path of chunks until it returns.
+    fn begin_read_session(&self) -> impl Drop + '_ { NoopReadSession }
     fn read_u64(&self, block: usize, offset: usize) -> u64;
     fn read_var(&self, block: usize, offset: usize, width: u8) -> u64;
 
@@ -148,6 +151,10 @@ pub trait BlockStorage: Sized {
     /// instead of a live build.
     fn compact_from_records(&mut self, records: &[(Pos, usize)], block_capacity: usize);
 }
+
+#[doc(hidden)]
+pub struct NoopReadSession;
+impl Drop for NoopReadSession { fn drop(&mut self) {} }
 
 // -------------------- HeapStorage --------------------
 

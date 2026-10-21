@@ -72,9 +72,85 @@ validation also needs temporary memory proportional to physical states/edges.
 FST snapshots use their own format, separate from mutable-tree snapshots.
 Persist graphs; rebuild query plans against the loaded graph.
 
-FSTs are immutable. Rebuild for updates, or explicitly choose `Heap`, `File` or
-`Compressed` for local insertion/removal. Those backends retain their existing
-APIs and native join executor; their storage is not converted into an FST.
+## Updates and storage modes
+
+Packed FSTs support heap, real-file and LZ4-compressed block storage. Their
+editable forms support local insertion/removal with the same automata:
+
+| Storage | Packed graph | Editable graph | Feature |
+|---|---|---|---|
+| RAM | `Fst` | `MutableFst` | `heap` (default) |
+| Temporary backing file | `FileFst` | `MutableFileFst` | `file` |
+| LZ4 blocks in RAM | `CompressedFst` | `MutableCompressedFst` | `compressed` |
+
+Enable `file` or `compressed` in Cargo features; both include the shared `heap`
+API. This does not copy file-backed data into a heap graph. `PackedFst<S>` and
+`EditableFst<S>` are the generic types behind these aliases.
+
+```rust
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+use s_graph::automata::{Bgp, Search, Term::{Const as C, Var as V}};
+use std::ops::ControlFlow;
+
+// Declare room for future IDs; updates keep these domains fixed.
+let mut graph = Fst::try_build(vec![(0, 0, 1)], [16, 4, 16], DEFAULT_BLOCK_CAPACITY)?
+    .into_mutable(); // moves the packed graph; no graph copy
+assert!(graph.insert(1, 0, 2)?);
+assert!(!graph.insert(1, 0, 2)?); // already present
+assert_eq!(graph.insert_batch(&mut [(2, 0, 3), (3, 0, 4)])?, 2);
+assert!(graph.remove(0, 0, 1)?);
+assert!(!graph.remove(15, 0, 15)?); // absent
+
+let machine = Bgp::new(1).triple([C(1), C(0), V(0)]);
+{
+    let search = graph.search(&machine)?;
+    let _: ControlFlow<()> = search.visit(&mut Default::default(), |row| {
+        assert_eq!(row.get(0), Some(2));
+        ControlFlow::Continue(())
+    });
+} // searches borrow the graph; finish them before editing
+assert!(graph.insert(1, 0, 3)?);
+// Reuse the machine; compile a fresh search after edits.
+
+let bytes = graph.serialize()?; // compact SGF1 snapshot, no edit history
+let packed = graph.freeze()?; // minimize physical states, return packed FST
+assert!(packed.contains(1, 0, 3));
+let restored = Fst::deserialize(&bytes)?;
+assert!(restored.contains(1, 0, 3));
+# Ok::<(), s_graph::TreeError>(())
+```
+
+`MutableFst::try_build` builds an editable graph directly. The file/compressed
+aliases have the same builders, `search`, scans, counts, updates and snapshot
+loaders. SGF1 snapshots load into **any** of the three modes, for example
+`FileFst::deserialize_from_path("graph.sgf")?`. A live file graph uses a temporary
+backing file; use `serialize_to_path` for persistence. `disk_bytes` reports its
+backing-file size.
+
+Edits copy the affected path and merge suffixes against both packed and edited
+states, preserving minimality of the reachable machine. A lazy packed-state
+index costs 16 bytes per physical base state plus metadata; the first effective
+edit prepares it. Call `prepare_updates()` before a burst to pay that cost
+explicitly. Duplicate/absent updates skip preparation. The edit arena lives in RAM in all modes; its obsolete nodes are
+reclaimed immediately. Packed base bytes stay intact until `compact()` or
+`freeze()`. Call `compact()` between write bursts to reclaim dead base bytes
+and move edits into the chosen block storage. There is no automatic compaction
+or background I/O. `memory_usage()` reports base storage, suffix indexes,
+live edits and reusable arena/table capacity separately; see the
+[memory experiment](examples/join/FST_MEMORY.md). Compaction works over physical DAG states, without listing
+all triples, and uses temporary memory proportional to physical states/edges.
+Editable `serialize` returns `Result<Vec<u8>>` because it performs this packing;
+`serialize_into` and `serialize_to_path` also compact into a temporary packed graph.
+
+Insertions outside declared domains fail; `insert_batch` validates the whole
+batch before changing the graph. Duplicate updates are no-ops. Removal outside
+the domains returns `false`. Batch methods return the number of changed triples.
+
+The existing mutable `Heap`, `File` and `Compressed` radix trees also expose
+`search(&machine)` and `source()`, alongside their existing updates, scans,
+paths and SGZ1 serialization. They retain `NativeJoin` for `join_run`; explicit
+`search` uses the shared adaptive automaton engine. `source()` also feeds the
+compressed-edge analytics API on either representation.
 
 ## Build a graph-pattern automaton
 

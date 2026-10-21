@@ -1,0 +1,36 @@
+{
+  "recorded_utc": "2026-10-21T17:52:12.636239+00:00",
+  "binary_sha256": "ccff4d72fd4524cf7bd154fb6442444ee29791989155af7482702c280886aebf",
+  "source_sha256": {
+    "examples/fst_index_scale.rs": "e949021a4bd923974b396a5e3660864767a2ce0ccbabc82a8288b69f2e5a005a",
+    "examples/join/prototype/fst_index_scale.py": "4467ebeef861f4b946024f36bad6205daa93d5dc3361fc340dba7ff4b48d6cc6",
+    "src/path_fst.rs": "aa358fb0ece808290239bada47c0e77a2a47f98a041bfefac78ebe595eb70c53",
+    "src/mutable_fst.rs": "0324507519b020e7f5a5910ff7c97a7eedc4e36ae7c2a4208041af05cfa07548"
+  },
+  "enforced_memory_mechanism": "systemd LimitAS, verified as RLIMIT_AS in the exec-replaced benchmark process; cgroup memory controller unavailable",
+  "files_sha256": {
+    "build.jsonl": "d0d0025a9f95c0a2103dc7a20fec22c056d517279edb527bd8477d60fd33bb57",
+    "build.log": "287de6feb5d01b583ef1df908326b62434bcec82ccc90d9eeb563fb3f26bcdb8",
+    "build-unit.json": "3e4c509ce6979cdd4e584da2c274199894299e3003bf146637031609cd7b23bd",
+    "1000000-functional.jsonl": "a6a91a689212d979fc3a4841ea091d197e9b40cf84c4441d361cc8e50374b07c",
+    "1000000-functional.log": "db1e3749180a341bddf32a604ca84265cb87d384753cc5c4574fd435bcad2f29",
+    "1000000-functional-unit.json": "934b4a22b30cd550eee0db87395211d9fedca6e754f4fae5147d73ce26b99d9e",
+    "runs.json": "cc5ba6f18d12af3a586d1c3b45382b8869a6866f2ddb03098d8596deac4d1a72",
+    "1000000-mixed.jsonl": "1046ce3a8f682e7f90aa41991c568db4b4d6217b3f35a4a3359a3be5d15f05c8",
+    "1000000-mixed.log": "c9dc15242e50e1137ec50808701fea5a743c138d1bd0adcbb4c6a9d9ffbd5941",
+    "1000000-mixed-unit.json": "420ed09579600b6d15c341c8b767008c450ae2ad41d153a40130d196ed43619c",
+    "10000000-functional.jsonl": "091d3a1b182f25917c8526413e32a48e410b86444d1416169d2692428f626f17",
+    "10000000-functional.log": "fca8c6f89c8ceccb798922fbd13eb4b582fb74a8f2b2115c1e0d8da2a18ea6b9",
+    "10000000-functional-unit.json": "5857624b92658fd12f23149a316e19cc1e0c686ac7757e055fdc65cc81638bf1",
+    "10000000-mixed.jsonl": "66dffad15a00d27b486d19cf3dbd28a689821dcebbe13cca2f0138df7f118277",
+    "10000000-mixed.log": "ae779da65cf98b225e68e8da83ca42365b49859d1054cf1318bc6ad5417dbb10",
+    "10000000-mixed-unit.json": "2b864462fead4f8713c19d9a10b6c43b79fa23decd847e875cfcf04855f03913",
+    "100000000-functional.jsonl": "022402c44a4189edb47009639e2e241c59deaecce3e7ae4b25080319e348dbfa",
+    "100000000-functional.log": "685624090f0320242ed1258bc1316ce1c7644408bcebaa5abd63911d73d588c8",
+    "100000000-functional-unit.json": "d747a441dd65cffa5d473abf5d3b36f8a63153455e55d3b3e51f260055d0f7df",
+    "100000000-mixed.jsonl": "e14ef476e2f4ac3734fa337de858e7128438c97ad4fae3a134cb83c91fc5ff87",
+    "100000000-mixed.log": "c35cd9b1645e6ad0da6dc0e2f45a02da9d8de4477e1eb5399799bb2e0422408b",
+    "100000000-mixed-unit.json": "72447a1692cdb8e364190482201d1ad46c41e1a5101e3874a6c7fb9cf1e3b301",
+    "summary.json": "ef153138ea94f2c12e4c795b71fa5941ba93ae6cd7210a3c09bb8e1ecec79d79"
+  }
+}

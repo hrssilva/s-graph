@@ -1,0 +1,150 @@
+{
+  "recorded_utc": "2026-10-21T16:39:57.673092+00:00",
+  "git_head": "b9b87dca789d718dd94e408be8d57e311f9672b7",
+  "cpu": "AMD Ryzen 5 PRO 4650U with Radeon Graphics",
+  "platform": "Linux-7.2.2-1-default-x86_64-with-glibc2.44",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "production_and_harness_sha256": {
+    "Cargo.lock": "7ef7e2c0c411a406e0c4467d39fbd6419622bf965ccb7a08bebe1befd755c821",
+    "Cargo.toml": "816239b56b310f930034475415f6065ebda583c51cbc5f8cd71e858b64c4d714",
+    "examples/fst_updates_perf.rs": "d9075be9dd652fb056dbccad7d0feb707ae4bfbf27e524f40b51e08721000e2c",
+    "src/analytics.rs": "09707b9b7ac48d33daf6172c4f14eae7379cfe33bba2d5955420f3dd1bec7dae",
+    "src/automata.rs": "8b94bcfbfe4db2a01d305cbb29f6b765553c60f48813e1e507ac7478a39cc3c7",
+    "src/automata_core.rs": "c6cd983f30c4b379ca71bde85b3f63861817a33b1789413e4cca385c6f082b04",
+    "src/automaton.rs": "ae51cb04058035d1903657f7e59e5cc2b6cd589a4fb68518c8f0d9d65385794e",
+    "src/automaton_join.rs": "fd318421081eec9f6c0fa1e67b91e9ec9a3e00bf7cddb79d39dec4232fba27a1",
+    "src/block_index.rs": "899cc9c7461056b7980c15b18a6d9dc096626f844a8984c03385bdbb94c6c916",
+    "src/error.rs": "039492928bd85add18b56658b0d8f725ebccdac28fdf91e9652caf8c4cca6b15",
+    "src/frontier_join.rs": "8a79f10a140d84e437151670c6c4fa937a3d5fc2efa14f5781dee78ab32b7500",
+    "src/fst.rs": "176c9759e7044266ae59aa22c312fbbec8cab3bf69eff95e05a2bc4b25beb7f4",
+    "src/fst_join.rs": "95be7f4b5025e99a4cb5ba8f0c6af37fce0d9d66d682a97b110e80909f77a052",
+    "src/fst_snapshot.rs": "1c52aad3f7fddb2bf9a6ab0887b829d5b27a271211ef86afc9f217418cb0a3a7",
+    "src/graph.rs": "906bb8b6670139d4f34903eab1f6546552a03238874c0a95d12b38ff65cd6f29",
+    "src/join.rs": "aad9aab63c5149d45e5880f1e114f2a5c0d4021918ff032ec21b2311414ff923",
+    "src/join_oracle_tests.rs": "a1897c91137fc02da1c9e9d1e370cc0279aeb22dd29b1803fc2a0506000e6e70",
+    "src/large_bgp_cases.rs": "7ec227b325b2ff784104baa9eba443e15458dd232e73ed3e4f5a6f8cb4ed0574",
+    "src/level_automaton.rs": "6034b00555beb8537200a31d387e23e3ed2963024e9e1fd37e66706a158e09e7",
+    "src/lib.rs": "47719f926d1991f88b13ad1ee7cf8a0b03f6a37491fa4c43e05e1f016ccf3995",
+    "src/mutable_fst.rs": "07957e62de50c605225ca3e37c76cc4bb3678b627e34bb8c46fbcdfd14f03b4c",
+    "src/native_join.rs": "36a257f2d53030d757e7743e745926268f7332867b001fe562ad04a8031952fe",
+    "src/path.rs": "be18a46b46dcdae96f70b635e40b8c6d3cb7381924fb0eb5a71dc96a58f107f2",
+    "src/path_fst.rs": "dfd5f11c80106204544effddac95c821f4bfe01720c3fbc08dc65af4a4e9dc96",
+    "src/path_ops.rs": "9c1c41487cc4ada953ea686c4d47769de3f9aa75c12abbc65dbc05fb0008b2e4",
+    "src/path_ops_tests.rs": "d5de6b883ec5f4de15c97a1c48f08b1d4d4f159b732ad70bf5ad9b6c5319c8d3",
+    "src/query_ops.rs": "186c880c388ab10766b95d8ad492cac88f64add501371dfe4e749b5c8f07b409",
+    "src/query_ops_tests.rs": "48571a605c35916a17c2cbb29553906502c86dc1c6162c16ac6bb846eac10b07",
+    "src/recursive_join.rs": "d03fbb26dad6392c62a6f9e9aaec558d2f9547e85763761ccc9ac928ee9e2965",
+    "src/scheduled_join.rs": "91e6fff7e9851a501ec0eca2b5f44a9ce30e8666cfa2d92627a8cd923fbd757f",
+    "src/serialize.rs": "e5a155ac7dd6bee12c232c63b30c9857f355380711d221220fd8e61381249f07",
+    "src/storage.rs": "98140c325583230e1d64e6818de586d739420c587f0607d7feff64ba5f9eff89",
+    "src/storage_compressed.rs": "f8ea477b4a7180751cfd73afa46dc36bb4060fb42fa36c89ce365a71d3e9be30",
+    "src/storage_file.rs": "2883d1d0a7179346bc7b4a97de64bace372110c5824cd4930fd434bec69d4f66",
+    "src/test_support.rs": "d05b014be347918669343d1a338b3b777396e156a4cb04419b7e99d0db0fe06a",
+    "src/traversal.rs": "76a928b240ed3630d234fdaee9a0a12648834135a642226999a7f39caf8ac98d",
+    "src/tree.rs": "0f6fc4ad7161da0c7d7987251d9bdd38279ab89fd7fc67418044c8283827a5f3",
+    "src/tree_source.rs": "e0059e3a953ac5cc4401585e9cfc3455e580835a13791a448f70218693a2ad1f",
+    "tests/fst_updates.rs": "0aef19025f491728a5bb990864c871456a21fb830d03eb614ca97b52590191f2"
+  },
+  "final_binary_sha256": "405f612722dd592185a45e35dbef53a6141841c3bd176f9fba5e7eef9ed34e8d",
+  "build_command": "CARGO_TARGET_DIR=target/automata-prototype cargo build --offline --all-features --profile profiling --example fst_updates_perf",
+  "protocol": {
+    "commands": [
+      [
+        "fst_updates_perf",
+        "4096",
+        "256",
+        "7"
+      ],
+      [
+        "fst_updates_perf",
+        "65536",
+        "1024",
+        "7"
+      ]
+    ],
+    "shapes": [
+      "functional",
+      "mixed"
+    ],
+    "storage_modes": [
+      "heap",
+      "file",
+      "compressed"
+    ],
+    "block_capacity": 4096,
+    "initial_edges_per_vertex": 2,
+    "update_predicate": 3,
+    "search_predicate": 0,
+    "query_results": 65536,
+    "samples": 7,
+    "sample_statistic": "median; individual sample vectors are not retained",
+    "preparation_and_compaction": "single samples; excluded from update timing",
+    "update_timing": "in-place sorted batch operations divided by number of changed triples",
+    "query_timing": "prepared visit only, after one validation visit",
+    "cpu_pinned": false,
+    "order_randomized": false,
+    "no_competing_builds_or_tests_during_timings": true,
+    "temporary_file_directory": "target/automata-tmp"
+  },
+  "experiments": [
+    {
+      "directory": "examples/join/prototype/results/fst-updates-before-cache",
+      "records": 24,
+      "files_sha256": {
+        "4096.jsonl": "ad0cef4c9e9d542305bc5a3e19f189574d44a1d79e946a980907834e19b93210",
+        "4096.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "65536.jsonl": "87ec66bfc8f52a9511ebaf54a648fa02a9bca16c3d966dc717afb8ed6afa9452",
+        "65536.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary.json": "c7eca6937dbce980d8ca9d1842aba90fa3301263152868604baa22ae6ba6e7c0"
+      }
+    },
+    {
+      "directory": "examples/join/prototype/results/fst-updates",
+      "records": 24,
+      "files_sha256": {
+        "4096.jsonl": "42aef18633c851e4c03315a67f51af4597ee6d30b51795803220abab0278bb25",
+        "4096.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "65536.jsonl": "e272fcf101f7b2454e529da383348f8f45457142691138dba5e0b1f1d858481b",
+        "65536.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary.json": "6a04307c69bf8e3932f1de14fe473ac52e2e276f2784d216a0f0855659c60c48"
+      }
+    },
+    {
+      "directory": "examples/join/prototype/results/fst-updates-final",
+      "records": 24,
+      "files_sha256": {
+        "4096.jsonl": "525810302f4ebe7a0d48ad8bd9a219f251b81bfae888a4c6ec1ca2c274d61c90",
+        "4096.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "65536.jsonl": "77df39aa1440a274fa0e4ad8fbaf731cd40060f51d04dce29926902a721e0e3b",
+        "65536.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary.json": "563d9f9a963aeb5f32b29bfa880782e1f6a836e8adddfe0d9fe209b5c0b2a2be"
+      }
+    }
+  ],
+  "provenance_notes": [
+    "Use fst-updates-final for final implementation measurements",
+    "Pre-cache and initial scoped-cache controls have retained result files but their separate binaries/source copies were not retained",
+    "Final production runtime code matches the final benchmark build; later changes affect report text and integration-test coverage only",
+    "All variants retain a RAM edit arena and a lazy packed-state fingerprint register; file updates are not near-zero-RAM online maintenance"
+  ],
+  "validation": {
+    "all_features": "126 tests and 7 README doctests passed",
+    "final_style_followup": "5 integration tests and 3 mutable-FST unit tests passed after iterator cleanup",
+    "latest_integration_followup": "5 integration tests passed with added far-child/full-width/non-default-order legacy-source checks",
+    "file_only": "4 applicable update/source integration tests passed with --no-default-features --features file",
+    "compressed_only": "4 applicable update/source integration tests passed with --no-default-features --features compressed",
+    "no_features": "cargo check passed",
+    "rustdoc": "all-features --no-deps passed",
+    "clippy": "all-features lib succeeds with 8 pre-existing warnings; no new implementation warnings"
+  },
+  "correctness_controls": [
+    "Full scan and all-schedule bindings against a BTreeSet after deterministic random updates on all three backends",
+    "Current reachable state counts equal an independent full rebuild before compaction",
+    "Inverse edits recover original packed root identity and reclaim edited states",
+    "Forced fingerprint collision compares exact structure",
+    "Shared-suffix deletion preserves unrelated prefixes",
+    "2^48-word physical DAG edited, frozen and reloaded without word expansion",
+    "OPTIONAL, regular paths, PageRank and cross-backend snapshot decoding checked",
+    "Far-child span navigation, full-width IDs, non-default dimension order and degenerate singleton trees checked"
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "name": "1000000-functional",
+  "available_bytes": 3146678272,
+  "address_space_cap_bytes": 1560281088,
+  "enforced_limit": "RLIMIT_AS",
+  "requested_memory_max_bytes": 1560281088,
+  "elapsed_s": 0.2364366080146283,
+  "command": [
+    "systemd-run",
+    "--user",
+    "--wait",
+    "--pipe",
+    "--unit=sgraph-index-1000000-functional-2337979",
+    "--property=MemoryAccounting=yes",
+    "--property=MemoryMax=1560281088",
+    "--property=MemoryHigh=1248224870",
+    "--property=LimitAS=1560281088",
+    "--property=MemorySwapMax=0",
+    "--property=OOMPolicy=kill",
+    "--property=LimitCORE=0",
+    "--property=RuntimeMaxSec=600",
+    "--property=TasksMax=32",
+    "--property=Nice=10",
+    "--property=CPUQuota=100%",
+    "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+    "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+    "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+    "/usr/bin/python3",
+    "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+    "--inside-unit",
+    "--cap",
+    "1560281088",
+    "--",
+    "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+    "1000000",
+    "functional"
+  ],
+  "exit_code": 0,
+  "systemd": {
+    "Result": "success",
+    "OOMPolicy": "",
+    "ExecMainCode": "0",
+    "ExecMainStatus": "0",
+    "ControlGroup": "",
+    "MemoryPeak": "[not set]",
+    "MemorySwapPeak": "[not set]",
+    "MemoryHigh": "infinity",
+    "MemoryMax": "infinity",
+    "MemorySwapMax": "infinity",
+    "LimitAS": "infinity",
+    "LimitASSoft": "infinity"
+  },
+  "rows": [
+    {
+      "phase": "limits_verified",
+      "pid": 2338048,
+      "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-1000000-functional-2337979.service",
+      "enforced": "RLIMIT_AS",
+      "address_space_limits": [
+        1560281088,
+        1560281088
+      ],
+      "cgroup_controls": {
+        "memory.max": null,
+        "memory.high": null,
+        "memory.swap.max": null
+      }
+    },
+    {
+      "phase": "generating",
+      "triples": 1000000,
+      "shape": "functional",
+      "input_bytes": 12000000,
+      "rss_bytes": 2572288,
+      "peak_rss_bytes": 2572288,
+      "virtual_bytes": 3551232
+    },
+    {
+      "phase": "building",
+      "triples": 1000000,
+      "shape": "functional",
+      "generated_s": 0.008167052,
+      "rss_bytes": 14581760,
+      "peak_rss_bytes": 14581760,
+      "virtual_bytes": 15552512
+    },
+    {
+      "phase": "built",
+      "triples": 1000000,
+      "shape": "functional",
+      "physical_states": 21,
+      "packed_ram_bytes": 1010,
+      "built_s": 0.108563517,
+      "rss_bytes": 2617344,
+      "peak_rss_bytes": 26456064,
+      "virtual_bytes": 3559424
+    },
+    {
+      "phase": "indexed",
+      "triples": 1000000,
+      "shape": "functional",
+      "physical_states": 21,
+      "height": 7,
+      "states_per_level": [
+        1,
+        4,
+        4,
+        4,
+        4,
+        2,
+        2
+      ],
+      "packed_ram_bytes": 1010,
+      "before_ram_bytes": 1346,
+      "indexed_ram_bytes": 1850,
+      "index_bytes": 504,
+      "prepare_s": 3.817e-06,
+      "rss_bytes": 2617344,
+      "peak_rss_bytes": 26456064,
+      "virtual_bytes": 3559424
+    },
+    {
+      "phase": "complete",
+      "triples": 1000000,
+      "shape": "functional",
+      "elapsed_s": 0.108712608,
+      "count_and_inverse_edit_checks": true,
+      "rss_bytes": 2617344,
+      "peak_rss_bytes": 26456064,
+      "virtual_bytes": 3559424
+    }
+  ]
+}

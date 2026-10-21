@@ -1351,6 +1351,24 @@ impl ContainsBatchWorkspace {
 }
 
 impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
+    #[cfg(feature = "heap")]
+    pub(crate) fn automata_read_session(&self) -> impl Drop + '_ { self.storage.begin_read_session() }
+    #[cfg(feature = "heap")]
+    pub(crate) fn automata_word(&self, pos: Pos) -> u64 {
+        if self.height == 0 { u64::from(self.single_point_exists) }
+        else { self.block_read_u64(pos.block, pos.offset) }
+    }
+    #[cfg(feature = "heap")]
+    pub(crate) fn automata_layout(&self, level: usize) -> ([u8; 3], [u8; 3], [u8; 3]) {
+        if self.height == 0 { ([0; 3], [0; 3], [0; 3]) }
+        else { (self.level_dim_bits[level], self.level_shifts_cache[level], self.level_child_cell_bits_cache[level]) }
+    }
+    #[cfg(feature = "heap")]
+    pub(crate) fn automata_child(&self, pos: Pos, level: usize, word: u64, slot: u32) -> Pos {
+        let child = self.advance(pos, self.own_record_bytes(level, word));
+        let preceding = word & ((1u64 << slot) - 1);
+        self.advance_past_children(pos, word, child, preceding, level + 1)
+    }
     pub(crate) fn prefix_domains(&self) -> [u64; 3] { self.dimension_sizes }
 
     pub(crate) fn prefix_schedule(&self) -> impl ExactSizeIterator<Item = ([u8; 3], [u8; 3], [u8; 3])> + '_ {

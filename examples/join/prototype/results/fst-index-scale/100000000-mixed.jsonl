@@ -1,0 +1,3 @@
+{"phase": "limits_verified", "pid": 2338210, "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-100000000-mixed-2337979.service", "enforced": "RLIMIT_AS", "address_space_limits": [1627389952, 1627389952], "cgroup_controls": {"memory.max": null, "memory.high": null, "memory.swap.max": null}}
+{"phase":"generating","triples":100000000,"shape":"mixed","input_bytes":1200000000,"rss_bytes":2519040,"peak_rss_bytes":2519040,"virtual_bytes":3551232 }
+{"phase":"building","triples":100000000,"shape":"mixed","generated_s":0.825790585,"rss_bytes":1202548736,"peak_rss_bytes":1202548736,"virtual_bytes":1203552256 }

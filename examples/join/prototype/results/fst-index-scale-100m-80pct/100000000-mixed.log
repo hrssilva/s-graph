@@ -1,0 +1,7 @@
+Running as unit: sgraph-index-100000000-mixed-2338485.service
+memory allocation of 85983248 bytes failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+          Finished with result: core-dump
+Main processes terminated with: code=dumped, status=6/ABRT
+               Service runtime: 4.197s
+             CPU time consumed: 4.036s

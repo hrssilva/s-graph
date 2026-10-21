@@ -1,11 +1,16 @@
-//! Default immutable graph index and allocation-free pattern scans.
-use crate::path_fst::PathFstDeltaPow2Bfs;
+//! Packed FST storage modes and allocation-free pattern scans.
+use crate::path_fst::{PackedFst, PathFstDeltaPow2Bfs};
 use crate::tree::DimRestriction;
 use crate::{Result, Triple};
 
-/// Immutable, suffix-sharing graph index. Rebuild to apply updates; use
-/// [`crate::Heap`] when local insertion and removal are required.
+/// Packed, suffix-sharing heap graph. Use `into_mutable` for local updates.
 pub type Fst = PathFstDeltaPow2Bfs;
+/// Packed FST backed by a real temporary file.
+#[cfg(feature = "file")]
+pub type FileFst = PackedFst<crate::storage_file::FileStorage>;
+/// Packed FST backed by LZ4-compressed blocks.
+#[cfg(feature = "compressed")]
+pub type CompressedFst = PackedFst<crate::storage_compressed::CompressedStorage>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ScanLayout {
@@ -31,13 +36,18 @@ impl ScanLayout {
 }
 
 /// Allocation-free pattern iterator over the default FST.
-pub type Scan<'a> = crate::path_ops::PatternIter<'a, crate::automata_core::FstSource<'a>>;
+pub type Scan<'a, S = crate::storage::HeapStorage> =
+    crate::path_ops::PatternIter<'a, crate::automata_core::FstSource<'a, S>>;
 
-impl Fst {
+impl<S: crate::BlockStorage> PackedFst<S> {
+    pub fn source(&self) -> crate::automata_core::FstSource<'_, S> {
+        crate::automata_core::FstSource(self)
+    }
+
     /// Compile an explicitly constructed automaton against this immutable graph.
     /// The expression can be reused against other graphs; execution memory is
     /// separate and reusable through the returned `automata::Search` plan.
-    pub fn search<'a, A: crate::automata::Compile<crate::automata_core::FstSource<'a>>>(
+    pub fn search<'a, A: crate::automata::Compile<crate::automata_core::FstSource<'a, S>>>(
         &'a self,
         machine: A,
     ) -> Result<A::Compiled> {
@@ -75,7 +85,7 @@ impl Fst {
     pub fn join<P: Copy + Into<crate::graph::Term>>(
         &self,
         query: &crate::graph::JoinQuery<P>,
-    ) -> Result<crate::Join<'_>> {
+    ) -> Result<crate::Join<'_, S>> {
         crate::Join::new(query, self)
     }
 
@@ -84,7 +94,7 @@ impl Fst {
     pub fn bgp(
         &self,
         query: &crate::graph::JoinQuery<crate::graph::Term>,
-    ) -> Result<crate::query_ops::Bgp<crate::automata_core::FstSource<'_>>> {
+    ) -> Result<crate::query_ops::Bgp<crate::automata_core::FstSource<'_, S>>> {
         crate::query_ops::Bgp::new(
             query,
             crate::automata_core::FstSource(self),
@@ -94,7 +104,7 @@ impl Fst {
 
     /// Exact bounds or `None` wildcards; iteration allocates no heap memory.
     #[inline]
-    pub fn scan(&self, bounds: [Option<u32>; 3]) -> Scan<'_> {
+    pub fn scan(&self, bounds: [Option<u32>; 3]) -> Scan<'_, S> {
         Scan::new(
             crate::automata_core::FstSource(self),
             &self.scan_layout,
@@ -109,8 +119,8 @@ impl Fst {
         if scan.done {
             return 0;
         }
-        fn count(
-            graph: &Fst,
+        fn count<S: crate::BlockStorage>(
+            graph: &PackedFst<S>,
             addr: u64,
             level: usize,
             masks: &[u64],
@@ -169,15 +179,18 @@ impl Fst {
     }
 }
 
-impl crate::join::PatternBackend for Fst {
-    type Scan<'a> = Scan<'a>;
+impl<S: crate::BlockStorage> crate::join::PatternBackend for PackedFst<S> {
+    type Scan<'a>
+        = Scan<'a, S>
+    where
+        S: 'a;
     #[inline]
     fn scan_pattern(&self, bounds: [Option<u32>; 3]) -> Self::Scan<'_> {
         self.scan(bounds)
     }
 }
 
-impl crate::path::AdjacencyBackend for Fst {
+impl<S: crate::BlockStorage> crate::path::AdjacencyBackend for PackedFst<S> {
     fn out_neighbors(&self, node: u32, predicate: Option<u32>) -> Vec<u32> {
         let mut out = Vec::new();
         self.out_neighbors_into(node, predicate, &mut out);

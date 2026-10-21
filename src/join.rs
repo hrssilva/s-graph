@@ -6,16 +6,18 @@ pub use crate::native_join::{NativeJoin, NativeJoinStats, NativeJoinWorkspace};
 
 /// Default adaptive automaton join over the immutable FST.
 #[cfg(feature = "heap")]
-pub struct Join<'a>(crate::scheduled_join::HybridJoin<'a>);
+pub struct Join<'a, S: crate::BlockStorage = crate::storage::HeapStorage>(
+    crate::scheduled_join::HybridJoin<'a, S>,
+);
 
 #[cfg(feature = "heap")]
 pub type JoinWorkspace = crate::scheduled_join::ScheduleWorkspace;
 
 #[cfg(feature = "heap")]
-impl<'a> Join<'a> {
+impl<'a, S: crate::BlockStorage> Join<'a, S> {
     pub fn new<P: Copy + Into<crate::graph::Term>>(
         query: &crate::graph::JoinQuery<P>,
-        graph: &'a crate::Fst,
+        graph: &'a crate::path_fst::PackedFst<S>,
     ) -> crate::Result<Self> {
         Ok(Self(crate::scheduled_join::HybridJoin::new(
             query,
@@ -26,8 +28,8 @@ impl<'a> Join<'a> {
 }
 
 #[cfg(feature = "heap")]
-impl<'a> std::ops::Deref for Join<'a> {
-    type Target = crate::scheduled_join::HybridJoin<'a>;
+impl<'a, S: crate::BlockStorage> std::ops::Deref for Join<'a, S> {
+    type Target = crate::scheduled_join::HybridJoin<'a, S>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

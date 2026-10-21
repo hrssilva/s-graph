@@ -1,6 +1,6 @@
 //! Typed automata with static composition. The bitmap interface is an optional
 //! execution specialization, not a restriction on the general event alphabet.
-use crate::path_fst::PathFstDeltaPow2Bfs;
+use crate::path_fst::PackedFst;
 
 /// Supported values of one Boolean projection of a packed transition set.
 /// Intersections combine independent constraints on the same variable bit.
@@ -253,6 +253,12 @@ impl BitmapAutomaton<[u32]> for BindingGuard {
 /// Keep words, roots and transitions stable for the lifetime of a prepared plan:
 /// adaptive planning may certify that a query has no answers.
 pub trait BitmapSource {
+    /// Optional bounded storage-cache scope. Nested searches restore the prior
+    /// cache policy on return, including early cancellation.
+    fn begin_read(&self) -> impl Drop + '_ {
+        crate::storage::NoopReadSession
+    }
+
     type Cursor: Copy + Default;
     fn root(&self) -> Option<Self::Cursor>;
     fn height(&self) -> usize;
@@ -269,6 +275,10 @@ pub trait TripleSource: BitmapSource {
     fn layout(&self, level: usize) -> ([u8; 3], [u8; 3], [u8; 3]);
 }
 impl<S: BitmapSource + ?Sized> BitmapSource for &S {
+    fn begin_read(&self) -> impl Drop + '_ {
+        (**self).begin_read()
+    }
+
     type Cursor = S::Cursor;
     #[inline]
     fn root(&self) -> Option<Self::Cursor> {
@@ -295,9 +305,20 @@ impl<S: TripleSource + ?Sized> TripleSource for &S {
         (**self).layout(level)
     }
 }
-#[derive(Clone, Copy)]
-pub struct FstSource<'a>(pub &'a PathFstDeltaPow2Bfs);
-impl BitmapSource for FstSource<'_> {
+pub struct FstSource<'a, S: crate::BlockStorage = crate::storage::HeapStorage>(
+    pub &'a PackedFst<S>,
+);
+impl<S: crate::BlockStorage> Copy for FstSource<'_, S> {}
+impl<S: crate::BlockStorage> Clone for FstSource<'_, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<S: crate::BlockStorage> BitmapSource for FstSource<'_, S> {
+    fn begin_read(&self) -> impl Drop + '_ {
+        self.0.read_session()
+    }
+
     type Cursor = u64;
     #[inline]
     fn root(&self) -> Option<u64> {
@@ -318,7 +339,7 @@ impl BitmapSource for FstSource<'_> {
             .read_delta(c, (w & ((1u64 << q) - 1)).count_ones() as usize)
     }
 }
-impl TripleSource for FstSource<'_> {
+impl<S: crate::BlockStorage> TripleSource for FstSource<'_, S> {
     fn domains(&self) -> [u64; 3] {
         self.0.dim_sizes()
     }
@@ -643,6 +664,7 @@ pub fn visit_language_with_workspace<S: BitmapSource, C: ?Sized, A: BitmapAutoma
         }
         ControlFlow::Continue(())
     }
+    let _read = source.begin_read();
     path.clear();
     let Some(root) = source.root() else {
         return ControlFlow::Continue(());

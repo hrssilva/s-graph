@@ -5,10 +5,9 @@
 //! interleaved radix structure `tree` uses -- same per-dimension bit
 //! schedule (`total_bits_needed`/`dynamic_schedule`/`compute_qi`/
 //! `advance_lo`, reused directly from `tree`, not reimplemented), so a
-//! comparison against the production tree is apples-to-apples. Static
-//! build only: no `insert`/`remove` yet (deliberately deferred -- see
-//! `s-dict`'s own "mutable unrolled-block" history for why that's a
-//! separate, harder problem, not a small addition).
+//! comparison against the production tree is apples-to-apples. The promoted
+//! packed BFS layout supports all block backends and path-copying updates via
+//! `into_mutable`; historical comparison layouts remain static.
 //!
 //! **Blocked, not a single flat buffer**: records live in a real
 //! [`HeapStorage`] ([`BlockStorage`]), the exact same block-chopped
@@ -1709,9 +1708,9 @@ fn build_rec_pow2(
 /// dedup pass -- `child_indices` refers to positions within
 /// `levels_nodes[level + 1]`, not yet real storage addresses (those
 /// aren't assigned until the build's second phase).
-struct BfsNodeMeta {
-    existence_word: u64,
-    child_indices: Vec<u32>,
+pub(crate) struct BfsNodeMeta {
+    pub(crate) existence_word: u64,
+    pub(crate) child_indices: Vec<u32>,
 }
 
 /// Pairs with [`PathFstDeltaPow2`]'s own BFS/frontier and fixed-window
@@ -1764,11 +1763,15 @@ struct BfsNodeMeta {
 /// with binding-aware OPTIONAL, MINUS and existence operators. This type also
 /// implements [`crate::join::PatternBackend`] and [`crate::path::AdjacencyBackend`].
 ///
-/// Updates require rebuilding; choose the mutable [`crate::Heap`] for local
-/// insertion/removal. Explicit traversal variants below remain available for
+/// Use `into_mutable` for local insertion/removal while preserving shared
+/// suffixes. Explicit traversal variants below remain available for
 /// comparison; DESIGN.md records their algorithms and measurements.
-pub struct PathFstDeltaPow2Bfs {
-    storage: HeapStorage,
+/// Backwards-compatible name for the packed heap FST.
+pub type PathFstDeltaPow2Bfs = PackedFst<HeapStorage>;
+
+/// Packed suffix-sharing graph, generic over heap, file or compressed blocks.
+pub struct PackedFst<S: BlockStorage> {
+    storage: S,
     root_virtual_addr: u64,
     height: usize,
     level_dim_bits: Vec<[u8; NUM_DIMS]>,
@@ -1787,7 +1790,7 @@ pub struct PathFstDeltaPow2Bfs {
     level_addrs: std::sync::OnceLock<Vec<Vec<u64>>>,
 }
 
-impl PathFstDeltaPow2Bfs {
+impl<S: BlockStorage> PackedFst<S> {
     pub fn build(triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], block_capacity: usize) -> Self {
         Self::try_build(triples, dimension_sizes, block_capacity).expect("invalid FST build")
     }
@@ -1812,9 +1815,6 @@ impl PathFstDeltaPow2Bfs {
                 }
             }
         }
-        let capacity_bits = block_capacity.trailing_zeros();
-        let capacity_mask = (block_capacity - 1) as u64;
-
         let dim_order = [0usize, 1, 2];
         let total_bits = total_bits_needed(dimension_sizes);
         let mut level_dim_bits = dynamic_schedule(total_bits);
@@ -1857,45 +1857,54 @@ impl PathFstDeltaPow2Bfs {
             &mut visited_count,
         );
 
-        // Phase 2: assign every node's real address, level 0 (the root)
-        // through level `height - 1` (the leaves), top-down -- the
-        // opposite order `build_rec_pow2` appends in, so nodes sharing a
-        // tree level land in contiguous storage. Deltas are zeroed here;
-        // a child's address doesn't exist yet.
-        let mut storage = HeapStorage::empty();
+        Self::pack_nodes(levels_nodes, dimension_sizes, block_capacity, visited_count)
+    }
+
+    pub(crate) fn pack_nodes(levels_nodes: Vec<Vec<BfsNodeMeta>>, dimension_sizes: [u64; 3], block_capacity: usize, visited_count: u64) -> crate::Result<Self> {
+        use crate::TreeError;
+        let capacity_bits = block_capacity.trailing_zeros();
+        let capacity_mask = (block_capacity - 1) as u64;
+        let mut level_dim_bits = dynamic_schedule(total_bits_needed(dimension_sizes));
+        if level_dim_bits.is_empty() { level_dim_bits.push([0; 3]); }
+        let height = level_dim_bits.len();
+        let level_shifts_cache: Vec<_> = level_dim_bits.iter().map(|&bits| level_shifts(bits, [0, 1, 2])).collect();
+        let mut remaining = total_bits_needed(dimension_sizes);
+        let level_child_cell_bits_cache: Vec<_> = level_dim_bits.iter().map(|bits| {
+            for d in 0..3 { remaining[d] -= bits[d]; }
+            remaining
+        }).collect();
+        // Assign addresses without writing placeholder records. Once all child
+        // addresses are known, append each complete record once. In particular,
+        // compressed storage must not recompress a chunk per delta backfill.
         let mut addr_of: Vec<Vec<u64>> = Vec::with_capacity(height);
-        let mut pos_of: Vec<Vec<Pos>> = Vec::with_capacity(height);
-        let virtual_addr_of = |pos: Pos| -> u64 { (pos.block as u64) << capacity_bits | pos.offset as u64 };
+        let (mut block, mut offset) = (0u64, 0usize);
         let mut node_count = 0u64;
-        for level in 0..height {
-            let mut level_addrs = Vec::with_capacity(levels_nodes[level].len());
-            let mut level_pos = Vec::with_capacity(levels_nodes[level].len());
-            for node in &levels_nodes[level] {
-                let rec_len = WORD_BYTES + DELTA_BYTES as usize * node.child_indices.len();
-                let mut rec = vec![0u8; rec_len];
-                rec[..WORD_BYTES].copy_from_slice(&node.existence_word.to_le_bytes());
-                let pos = storage.append_record(&rec, block_capacity);
-                level_addrs.push(virtual_addr_of(pos));
-                level_pos.push(pos);
+        for nodes in &levels_nodes {
+            let mut addresses = Vec::with_capacity(nodes.len());
+            for node in nodes {
+                let len = WORD_BYTES + DELTA_BYTES as usize * node.child_indices.len();
+                if offset != 0 && offset + len > block_capacity { block += 1; offset = 0; }
+                addresses.push((block << capacity_bits) | offset as u64);
+                offset += len;
                 node_count += 1;
             }
-            addr_of.push(level_addrs);
-            pos_of.push(level_pos);
+            addr_of.push(addresses);
         }
-
-        // Phase 3: backfill real deltas now that every level's addresses
-        // are known. Always positive: a child's level is always written
-        // strictly after its parent's.
-        for level in 0..height.saturating_sub(1) {
-            for (i, node) in levels_nodes[level].iter().enumerate() {
+        let mut storage = S::empty();
+        let mut record = [0u8; WORD_BYTES + 64 * DELTA_BYTES as usize];
+        for (level, nodes) in levels_nodes.iter().enumerate() {
+            for (i, node) in nodes.iter().enumerate() {
                 let addr = addr_of[level][i];
-                let pos = pos_of[level][i];
-                for (slot, &child_idx) in node.child_indices.iter().enumerate() {
-                    let child_addr = addr_of[level + 1][child_idx as usize];
-                    debug_assert!(child_addr > addr, "BFS layout expects children at strictly higher addresses than their parent");
-                    let delta = u32::try_from(child_addr - addr).map_err(|_| TreeError::InvalidConfig("FST child delta exceeds 32 bits; use smaller blocks or partition the graph".into()))?;
-                    storage.patch_appended(pos, WORD_BYTES + slot * DELTA_BYTES as usize, DELTA_BYTES, delta as u64);
+                record[..WORD_BYTES].copy_from_slice(&node.existence_word.to_le_bytes());
+                for (slot, &child) in node.child_indices.iter().enumerate() {
+                    let target = addr_of[level + 1][child as usize];
+                    let delta = u32::try_from(target - addr).map_err(|_| TreeError::InvalidConfig("FST child delta exceeds 32 bits; use smaller blocks or partition the graph".into()))?;
+                    let start = WORD_BYTES + slot * DELTA_BYTES as usize;
+                    record[start..start + 4].copy_from_slice(&delta.to_le_bytes());
                 }
+                let len = WORD_BYTES + DELTA_BYTES as usize * node.child_indices.len();
+                let pos = storage.append_record(&record[..len], block_capacity);
+                debug_assert_eq!(((pos.block as u64) << capacity_bits) | pos.offset as u64, addr);
             }
         }
         storage.finish_append(block_capacity);
@@ -1903,7 +1912,7 @@ impl PathFstDeltaPow2Bfs {
         let root_virtual_addr = addr_of[0][0];
 
         let scan_layout = (0..height).map(|l| crate::fst::ScanLayout::new(level_dim_bits[l], level_shifts_cache[l], level_child_cell_bits_cache[l])).collect();
-        Ok(PathFstDeltaPow2Bfs {
+        Ok(Self {
             storage,
             root_virtual_addr,
             height,
@@ -1920,6 +1929,38 @@ impl PathFstDeltaPow2Bfs {
             visited_count,
             level_addrs: std::sync::OnceLock::new(),
         })
+    }
+
+    pub(crate) fn read_session(&self) -> impl Drop + '_ { self.storage.begin_read_session() }
+
+    /// Allocation-free suffix lookup without a retained state directory.
+    /// Earlier levels must be parsed to locate the requested level's records.
+    pub(crate) fn find_physical_state(&self, target_level: usize, mut matches: impl FnMut(u64, u64) -> bool) -> Option<u64> {
+        let (mut block, mut offset) = (0, 0);
+        for (level, &count) in self.level_node_counts[..=target_level].iter().enumerate() {
+            for _ in 0..count {
+                if offset == self.storage.block_len(block) { block += 1; offset = 0; }
+                let cursor = ((block as u64) << self.capacity_bits) | offset as u64;
+                let word = self.storage.read_u64(block, offset);
+                if level == target_level && matches(cursor, word) { return Some(cursor); }
+                offset += WORD_BYTES + if level + 1 < self.height { DELTA_BYTES as usize * word.count_ones() as usize } else { 0 };
+            }
+        }
+        None
+    }
+
+    /// Sequential physical records, including states retained only by storage.
+    pub(crate) fn for_each_physical_state(&self, mut emit: impl FnMut(usize, u64, u64)) {
+        let (mut block, mut offset) = (0, 0);
+        for (level, &count) in self.level_node_counts.iter().enumerate() {
+            for _ in 0..count {
+                if offset == self.storage.block_len(block) { block += 1; offset = 0; }
+                let cursor = ((block as u64) << self.capacity_bits) | offset as u64;
+                let word = self.storage.read_u64(block, offset);
+                emit(level, cursor, word);
+                offset += WORD_BYTES + if level + 1 < self.height { DELTA_BYTES as usize * word.count_ones() as usize } else { 0 };
+            }
+        }
     }
 
     pub fn contains(&self, s: u32, p: u32, o: u32) -> bool {
@@ -2871,7 +2912,7 @@ impl PathFstDeltaPow2Bfs {
 /// threads, so this prototype sidesteps that question entirely rather
 /// than guess at an answer.
 #[cfg(feature = "parallel")]
-impl PathFstDeltaPow2Bfs {
+impl<S: BlockStorage + Sync> PackedFst<S> {
     pub fn restricted_descent_parallel(&self, restrictions: [DimRestriction<'_>; NUM_DIMS], emit_dim: usize) -> Vec<u32> {
         for (d, r) in restrictions.iter().enumerate() {
             match *r {
@@ -4284,3 +4325,9 @@ fn collect_rec_bfs(
 
 #[path = "fst_snapshot.rs"]
 mod snapshot;
+
+#[cfg(feature = "file")]
+impl PackedFst<crate::storage_file::FileStorage> {
+    /// Space occupied by the live temporary backing file (not a snapshot).
+    pub fn disk_bytes(&self) -> u64 { self.storage.file_len }
+}

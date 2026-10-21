@@ -1,0 +1,20 @@
+{
+  "recorded_utc": "2026-10-21T17:54:07.321808+00:00",
+  "binary_sha256": "ccff4d72fd4524cf7bd154fb6442444ee29791989155af7482702c280886aebf",
+  "source_sha256": {
+    "examples/fst_index_scale.rs": "e949021a4bd923974b396a5e3660864767a2ce0ccbabc82a8288b69f2e5a005a",
+    "examples/join/prototype/fst_index_scale.py": "4467ebeef861f4b946024f36bad6205daa93d5dc3361fc340dba7ff4b48d6cc6",
+    "src/path_fst.rs": "aa358fb0ece808290239bada47c0e77a2a47f98a041bfefac78ebe595eb70c53",
+    "src/mutable_fst.rs": "0324507519b020e7f5a5910ff7c97a7eedc4e36ae7c2a4208041af05cfa07548"
+  },
+  "enforced_memory_mechanism": "systemd LimitAS, verified as RLIMIT_AS in the exec-replaced benchmark process; cgroup memory controller unavailable",
+  "files_sha256": {
+    "100000000-functional.jsonl": "9e16430da3f4be12b10f273ea463a334d4015bac5077e9941f7b429a78dae705",
+    "100000000-functional.log": "e3fb19a3f28cf3a42011c7f9cd0e0c1f3a7d8af1c5c3958267d31c134efc04f5",
+    "100000000-functional-unit.json": "5e16265ff5097bf467d1e9a6813f68d29a76a7a80e0c4f2f93e0433123227cec",
+    "runs.json": "31223af3df0f3ebb450125f012c1faa3cf2ced6231e616945ffd8f3ffc7e365b",
+    "100000000-mixed.jsonl": "0dfc875122e47584061f08d5bd81da00dd279efad5a652f947f463a2fb0cb9fe",
+    "100000000-mixed.log": "c230116e8dbd91416a90a833b393aef1ae5e1cee1f72ec421ce01e22392d6690",
+    "100000000-mixed-unit.json": "267a2eb9c63c07735d50cceb5d908ecd555a4f1728875a03b4ac306ec1154edf"
+  }
+}

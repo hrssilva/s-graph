@@ -1,0 +1,39 @@
+{
+  "recorded_utc": "2026-10-21T17:03:21.842826+00:00",
+  "platform": "Linux-7.2.2-1-default-x86_64-with-glibc2.44",
+  "commands": [
+    [
+      "fst_metadata_perf",
+      "4096",
+      "32",
+      "3",
+      "all"
+    ],
+    [
+      "fst_metadata_perf",
+      "65536",
+      "16",
+      "3",
+      "heap"
+    ]
+  ],
+  "binary_sha256": "ce362072954b9c659a4767597106936f72e1d697bf1300a3dfb18e1632f3f5cd",
+  "source_sha256": {
+    "src/mutable_fst.rs": "0324507519b020e7f5a5910ff7c97a7eedc4e36ae7c2a4208041af05cfa07548",
+    "src/path_fst.rs": "aa358fb0ece808290239bada47c0e77a2a47f98a041bfefac78ebe595eb70c53",
+    "examples/fst_metadata_perf.rs": "d03832f61be66fb54b0bbf2d52d290d9491268ecbd2475d987a7c2fb56349a27",
+    "Cargo.toml": "318f6d2279f258734e51203eeb58e595e24f6297f63232c38937827d8cf543b7",
+    "Cargo.lock": "7ef7e2c0c411a406e0c4467d39fbd6419622bf965ccb7a08bebe1befd755c821"
+  },
+  "result_sha256": {
+    "4096-32-3-all.jsonl": "e932aa5f6c5a0132e29be09d031a37186a539200ff4279d19df979aec5b6cfde",
+    "4096-32-3-all.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "65536-16-3-heap.jsonl": "4433620d8d78a048460b7a74fcdb1d091c17296d846ba70b79f0043300e1750b",
+    "65536-16-3-heap.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "summary.json": "9792edae88a98efbc6d226cb7f0209a4ad9f934bc5b0f623213a8a91d82f122c"
+  },
+  "protocol": "Two passes reversing strategy order, three samples per phase/pass, exact full-set validation; first insertion includes initialization; no competing tests/builds during timing; unpinned",
+  "scope": "ScanAll removes both suffix lookup indexes, retains reference counts and edit-slot/free-list bookkeeping",
+  "validation": "4 mutable-FST unit tests and 5 update/source integration tests passed; benchmark checks all strategies on all backends at 4096 vertices, heap also at 65536",
+  "source_note": "The final source adds a unit test and documentation after the benchmark build; production runtime functions match the measured binary."
+}

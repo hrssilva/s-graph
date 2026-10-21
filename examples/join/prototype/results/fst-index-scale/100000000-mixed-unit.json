@@ -1,0 +1,88 @@
+{
+  "name": "100000000-mixed",
+  "available_bytes": 3271151616,
+  "address_space_cap_bytes": 1627389952,
+  "enforced_limit": "RLIMIT_AS",
+  "requested_memory_max_bytes": 1627389952,
+  "elapsed_s": 1.4019012860953808,
+  "command": [
+    "systemd-run",
+    "--user",
+    "--wait",
+    "--pipe",
+    "--unit=sgraph-index-100000000-mixed-2337979",
+    "--property=MemoryAccounting=yes",
+    "--property=MemoryMax=1627389952",
+    "--property=MemoryHigh=1301911961",
+    "--property=LimitAS=1627389952",
+    "--property=MemorySwapMax=0",
+    "--property=OOMPolicy=kill",
+    "--property=LimitCORE=0",
+    "--property=RuntimeMaxSec=600",
+    "--property=TasksMax=32",
+    "--property=Nice=10",
+    "--property=CPUQuota=100%",
+    "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+    "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+    "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+    "/usr/bin/python3",
+    "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+    "--inside-unit",
+    "--cap",
+    "1627389952",
+    "--",
+    "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+    "100000000",
+    "mixed"
+  ],
+  "exit_code": 1,
+  "systemd": {
+    "Result": "core-dump",
+    "OOMPolicy": "kill",
+    "ExecMainCode": "3",
+    "ExecMainStatus": "6",
+    "ControlGroup": "",
+    "MemoryPeak": "[not set]",
+    "MemorySwapPeak": "[not set]",
+    "MemoryHigh": "1301911961",
+    "MemoryMax": "1627389952",
+    "MemorySwapMax": "0",
+    "LimitAS": "1627389952",
+    "LimitASSoft": "1627389952"
+  },
+  "rows": [
+    {
+      "phase": "limits_verified",
+      "pid": 2338210,
+      "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-100000000-mixed-2337979.service",
+      "enforced": "RLIMIT_AS",
+      "address_space_limits": [
+        1627389952,
+        1627389952
+      ],
+      "cgroup_controls": {
+        "memory.max": null,
+        "memory.high": null,
+        "memory.swap.max": null
+      }
+    },
+    {
+      "phase": "generating",
+      "triples": 100000000,
+      "shape": "mixed",
+      "input_bytes": 1200000000,
+      "rss_bytes": 2519040,
+      "peak_rss_bytes": 2519040,
+      "virtual_bytes": 3551232
+    },
+    {
+      "phase": "building",
+      "triples": 100000000,
+      "shape": "mixed",
+      "generated_s": 0.825790585,
+      "rss_bytes": 1202548736,
+      "peak_rss_bytes": 1202548736,
+      "virtual_bytes": 1203552256
+    }
+  ]
+}

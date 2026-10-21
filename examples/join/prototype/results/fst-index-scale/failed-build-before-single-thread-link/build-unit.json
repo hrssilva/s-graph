@@ -1,0 +1,73 @@
+{
+  "name": "build",
+  "available_bytes": 3314888704,
+  "memory_max_bytes": 1644167168,
+  "elapsed_s": 11.066275786142796,
+  "command": [
+    "systemd-run",
+    "--user",
+    "--wait",
+    "--pipe",
+    "--unit=sgraph-index-build-2336829",
+    "--property=MemoryAccounting=yes",
+    "--property=MemoryMax=1644167168",
+    "--property=MemoryHigh=1315333734",
+    "--property=LimitAS=1644167168",
+    "--property=MemorySwapMax=0",
+    "--property=OOMPolicy=kill",
+    "--property=RuntimeMaxSec=600",
+    "--property=TasksMax=32",
+    "--property=Nice=10",
+    "--property=CPUQuota=100%",
+    "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+    "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+    "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+    "/usr/bin/python3",
+    "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+    "--inside-unit",
+    "--cap",
+    "1644167168",
+    "--",
+    "/usr/bin/cargo",
+    "build",
+    "--offline",
+    "--profile",
+    "profiling",
+    "--jobs",
+    "1",
+    "--example",
+    "fst_index_scale"
+  ],
+  "exit_code": 101,
+  "systemd": {
+    "Result": "exit-code",
+    "OOMPolicy": "kill",
+    "ExecMainCode": "1",
+    "ExecMainStatus": "101",
+    "ControlGroup": "",
+    "MemoryPeak": "[not set]",
+    "MemorySwapPeak": "[not set]",
+    "MemoryHigh": "1315333734",
+    "MemoryMax": "1644167168",
+    "MemorySwapMax": "0",
+    "LimitAS": "1644167168",
+    "LimitASSoft": "1644167168"
+  },
+  "rows": [
+    {
+      "phase": "limits_verified",
+      "pid": 2336831,
+      "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-build-2336829.service",
+      "enforced": "RLIMIT_AS",
+      "address_space_limits": [
+        1644167168,
+        1644167168
+      ],
+      "cgroup_controls": {
+        "memory.max": null,
+        "memory.high": null,
+        "memory.swap.max": null
+      }
+    }
+  ]
+}

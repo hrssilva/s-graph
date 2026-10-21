@@ -13,7 +13,7 @@ fn corrupt(message: &str) -> TreeError {
     TreeError::CorruptData(message.into())
 }
 
-impl PathFstDeltaPow2Bfs {
+impl<S: BlockStorage> PackedFst<S> {
     /// Versioned FST snapshot. Mutable-tree SGZ1 snapshots have a separate format.
     pub fn serialize(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -141,7 +141,7 @@ impl PathFstDeltaPow2Bfs {
         {
             return Err(corrupt("invalid FST blocks or node count"));
         }
-        let storage = HeapStorage::read_blocks_from(input, &table)?;
+        let storage = S::read_blocks_from(input, &table)?;
         let level_shifts_cache: Vec<[u8; 3]> = level_dim_bits
             .iter()
             .map(|&bits| level_shifts(bits, [0, 1, 2]))
@@ -246,8 +246,11 @@ impl PathFstDeltaPow2Bfs {
         for level in (0..self.height).rev() {
             let mut seen = vec![false; tails.len()];
             let mut current = Vec::with_capacity(levels[level].len());
+            let mut unique = std::collections::HashSet::new();
             for &addr in &levels[level] {
                 let mut word = self.read_word(addr);
+                let original_word = word;
+                let mut child_ids = Vec::new();
                 let (bits, shifts, remaining) = self.level_schedule(level);
                 let (mut maxima, mut visits, mut matches, mut i) = ([0u64; 3], 1u64, 0u64, 0);
                 while word != 0 {
@@ -261,6 +264,7 @@ impl PathFstDeltaPow2Bfs {
                             .binary_search(&target)
                             .map_err(|_| corrupt("FST child is not a next-level record"))?;
                         seen[index] = true;
+                        child_ids.push(index);
                         visits = visits
                             .checked_add(tails[index].1)
                             .ok_or_else(|| corrupt("FST logical size overflow"))?;
@@ -279,6 +283,9 @@ impl PathFstDeltaPow2Bfs {
                         maxima[d] = maxima[d].max(value);
                     }
                     i += 1;
+                }
+                if !unique.insert((original_word, child_ids)) {
+                    return Err(corrupt("duplicate equivalent FST states"));
                 }
                 current.push((maxima, visits, matches));
             }

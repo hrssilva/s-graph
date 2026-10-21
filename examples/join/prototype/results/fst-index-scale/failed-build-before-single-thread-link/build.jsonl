@@ -1,0 +1,1 @@
+{"phase": "limits_verified", "pid": 2336831, "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-build-2336829.service", "enforced": "RLIMIT_AS", "address_space_limits": [1644167168, 1644167168], "cgroup_controls": {"memory.max": null, "memory.high": null, "memory.swap.max": null}}

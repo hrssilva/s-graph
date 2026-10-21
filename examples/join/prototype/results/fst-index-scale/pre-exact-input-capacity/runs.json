@@ -1,0 +1,784 @@
+[
+  {
+    "name": "build",
+    "available_bytes": 3264376832,
+    "memory_max_bytes": 1627389952,
+    "elapsed_s": 2.6236186909954995,
+    "command": [
+      "systemd-run",
+      "--user",
+      "--wait",
+      "--pipe",
+      "--unit=sgraph-index-build-2337551",
+      "--property=MemoryAccounting=yes",
+      "--property=MemoryMax=1627389952",
+      "--property=MemoryHigh=1301911961",
+      "--property=LimitAS=1627389952",
+      "--property=MemorySwapMax=0",
+      "--property=OOMPolicy=kill",
+      "--property=LimitCORE=0",
+      "--property=RuntimeMaxSec=600",
+      "--property=TasksMax=32",
+      "--property=Nice=10",
+      "--property=CPUQuota=100%",
+      "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+      "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+      "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+      "/usr/bin/python3",
+      "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+      "--inside-unit",
+      "--cap",
+      "1627389952",
+      "--",
+      "/usr/bin/cargo",
+      "rustc",
+      "--offline",
+      "--profile",
+      "profiling",
+      "--jobs",
+      "1",
+      "--example",
+      "fst_index_scale",
+      "--",
+      "-C",
+      "link-arg=-Wl,--threads=1"
+    ],
+    "exit_code": 0,
+    "systemd": {
+      "Result": "success",
+      "OOMPolicy": "",
+      "ExecMainCode": "0",
+      "ExecMainStatus": "0",
+      "ControlGroup": "",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryHigh": "infinity",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "LimitAS": "infinity",
+      "LimitASSoft": "infinity"
+    },
+    "rows": [
+      {
+        "phase": "limits_verified",
+        "pid": 2337553,
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-build-2337551.service",
+        "enforced": "RLIMIT_AS",
+        "address_space_limits": [
+          1627389952,
+          1627389952
+        ],
+        "cgroup_controls": {
+          "memory.max": null,
+          "memory.high": null,
+          "memory.swap.max": null
+        }
+      }
+    ],
+    "enforced_limit": "RLIMIT_AS"
+  },
+  {
+    "name": "1000000-functional",
+    "available_bytes": 3200770048,
+    "memory_max_bytes": 1593835520,
+    "elapsed_s": 0.164341873023659,
+    "command": [
+      "systemd-run",
+      "--user",
+      "--wait",
+      "--pipe",
+      "--unit=sgraph-index-1000000-functional-2337551",
+      "--property=MemoryAccounting=yes",
+      "--property=MemoryMax=1593835520",
+      "--property=MemoryHigh=1275068416",
+      "--property=LimitAS=1593835520",
+      "--property=MemorySwapMax=0",
+      "--property=OOMPolicy=kill",
+      "--property=LimitCORE=0",
+      "--property=RuntimeMaxSec=600",
+      "--property=TasksMax=32",
+      "--property=Nice=10",
+      "--property=CPUQuota=100%",
+      "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+      "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+      "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+      "/usr/bin/python3",
+      "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+      "--inside-unit",
+      "--cap",
+      "1593835520",
+      "--",
+      "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+      "1000000",
+      "functional"
+    ],
+    "exit_code": 0,
+    "systemd": {
+      "Result": "success",
+      "OOMPolicy": "",
+      "ExecMainCode": "0",
+      "ExecMainStatus": "0",
+      "ControlGroup": "",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryHigh": "infinity",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "LimitAS": "infinity",
+      "LimitASSoft": "infinity"
+    },
+    "rows": [
+      {
+        "phase": "limits_verified",
+        "pid": 2337620,
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-1000000-functional-2337551.service",
+        "enforced": "RLIMIT_AS",
+        "address_space_limits": [
+          1593835520,
+          1593835520
+        ],
+        "cgroup_controls": {
+          "memory.max": null,
+          "memory.high": null,
+          "memory.swap.max": null
+        }
+      },
+      {
+        "phase": "generating",
+        "triples": 1000000,
+        "shape": "functional",
+        "input_bytes": 12000000,
+        "rss_bytes": 2580480,
+        "peak_rss_bytes": 2580480,
+        "virtual_bytes": 3551232
+      },
+      {
+        "phase": "building",
+        "triples": 1000000,
+        "shape": "functional",
+        "generated_s": 0.01124203,
+        "rss_bytes": 14684160,
+        "peak_rss_bytes": 14684160,
+        "virtual_bytes": 16138240
+      },
+      {
+        "phase": "built",
+        "triples": 1000000,
+        "shape": "functional",
+        "physical_states": 21,
+        "packed_ram_bytes": 1010,
+        "built_s": 0.075683611,
+        "rss_bytes": 2703360,
+        "peak_rss_bytes": 26574848,
+        "virtual_bytes": 3559424
+      },
+      {
+        "phase": "indexed",
+        "triples": 1000000,
+        "shape": "functional",
+        "physical_states": 21,
+        "height": 7,
+        "states_per_level": [
+          1,
+          4,
+          4,
+          4,
+          4,
+          2,
+          2
+        ],
+        "packed_ram_bytes": 1010,
+        "before_ram_bytes": 1346,
+        "indexed_ram_bytes": 1850,
+        "index_bytes": 504,
+        "prepare_s": 3.487e-06,
+        "rss_bytes": 2703360,
+        "peak_rss_bytes": 26574848,
+        "virtual_bytes": 3559424
+      },
+      {
+        "phase": "complete",
+        "triples": 1000000,
+        "shape": "functional",
+        "elapsed_s": 0.075800341,
+        "count_and_inverse_edit_checks": true,
+        "rss_bytes": 2703360,
+        "peak_rss_bytes": 26574848,
+        "virtual_bytes": 3559424
+      }
+    ],
+    "enforced_limit": "RLIMIT_AS"
+  },
+  {
+    "name": "1000000-mixed",
+    "available_bytes": 3204493312,
+    "memory_max_bytes": 1593835520,
+    "elapsed_s": 1.0183049640618265,
+    "command": [
+      "systemd-run",
+      "--user",
+      "--wait",
+      "--pipe",
+      "--unit=sgraph-index-1000000-mixed-2337551",
+      "--property=MemoryAccounting=yes",
+      "--property=MemoryMax=1593835520",
+      "--property=MemoryHigh=1275068416",
+      "--property=LimitAS=1593835520",
+      "--property=MemorySwapMax=0",
+      "--property=OOMPolicy=kill",
+      "--property=LimitCORE=0",
+      "--property=RuntimeMaxSec=600",
+      "--property=TasksMax=32",
+      "--property=Nice=10",
+      "--property=CPUQuota=100%",
+      "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+      "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+      "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+      "/usr/bin/python3",
+      "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+      "--inside-unit",
+      "--cap",
+      "1593835520",
+      "--",
+      "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+      "1000000",
+      "mixed"
+    ],
+    "exit_code": 0,
+    "systemd": {
+      "Result": "success",
+      "OOMPolicy": "",
+      "ExecMainCode": "0",
+      "ExecMainStatus": "0",
+      "ControlGroup": "",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryHigh": "infinity",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "LimitAS": "infinity",
+      "LimitASSoft": "infinity"
+    },
+    "rows": [
+      {
+        "phase": "limits_verified",
+        "pid": 2337626,
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-1000000-mixed-2337551.service",
+        "enforced": "RLIMIT_AS",
+        "address_space_limits": [
+          1593835520,
+          1593835520
+        ],
+        "cgroup_controls": {
+          "memory.max": null,
+          "memory.high": null,
+          "memory.swap.max": null
+        }
+      },
+      {
+        "phase": "generating",
+        "triples": 1000000,
+        "shape": "mixed",
+        "input_bytes": 12000000,
+        "rss_bytes": 2572288,
+        "peak_rss_bytes": 2572288,
+        "virtual_bytes": 3551232
+      },
+      {
+        "phase": "building",
+        "triples": 1000000,
+        "shape": "mixed",
+        "generated_s": 0.00861236,
+        "rss_bytes": 14684160,
+        "peak_rss_bytes": 14684160,
+        "virtual_bytes": 16138240
+      },
+      {
+        "phase": "built",
+        "triples": 1000000,
+        "shape": "mixed",
+        "physical_states": 248607,
+        "packed_ram_bytes": 7024682,
+        "built_s": 0.836151216,
+        "rss_bytes": 32256000,
+        "peak_rss_bytes": 85422080,
+        "virtual_bytes": 33116160
+      },
+      {
+        "phase": "indexed",
+        "triples": 1000000,
+        "shape": "mixed",
+        "physical_states": 248607,
+        "height": 7,
+        "states_per_level": [
+          1,
+          32,
+          1922,
+          119724,
+          124886,
+          2021,
+          21
+        ],
+        "packed_ram_bytes": 7024682,
+        "before_ram_bytes": 7025018,
+        "indexed_ram_bytes": 11002898,
+        "index_bytes": 3977880,
+        "prepare_s": 0.01855826,
+        "rss_bytes": 34246656,
+        "peak_rss_bytes": 85422080,
+        "virtual_bytes": 35209216
+      },
+      {
+        "phase": "complete",
+        "triples": 1000000,
+        "shape": "mixed",
+        "elapsed_s": 0.9210388,
+        "count_and_inverse_edit_checks": true,
+        "rss_bytes": 49844224,
+        "peak_rss_bytes": 85422080,
+        "virtual_bytes": 50806784
+      }
+    ],
+    "enforced_limit": "RLIMIT_AS"
+  },
+  {
+    "name": "10000000-functional",
+    "available_bytes": 3224670208,
+    "memory_max_bytes": 1610612736,
+    "elapsed_s": 0.7906009219586849,
+    "command": [
+      "systemd-run",
+      "--user",
+      "--wait",
+      "--pipe",
+      "--unit=sgraph-index-10000000-functional-2337551",
+      "--property=MemoryAccounting=yes",
+      "--property=MemoryMax=1610612736",
+      "--property=MemoryHigh=1288490188",
+      "--property=LimitAS=1610612736",
+      "--property=MemorySwapMax=0",
+      "--property=OOMPolicy=kill",
+      "--property=LimitCORE=0",
+      "--property=RuntimeMaxSec=600",
+      "--property=TasksMax=32",
+      "--property=Nice=10",
+      "--property=CPUQuota=100%",
+      "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+      "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+      "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+      "/usr/bin/python3",
+      "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+      "--inside-unit",
+      "--cap",
+      "1610612736",
+      "--",
+      "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+      "10000000",
+      "functional"
+    ],
+    "exit_code": 0,
+    "systemd": {
+      "Result": "success",
+      "OOMPolicy": "",
+      "ExecMainCode": "0",
+      "ExecMainStatus": "0",
+      "ControlGroup": "",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryHigh": "infinity",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "LimitAS": "infinity",
+      "LimitASSoft": "infinity"
+    },
+    "rows": [
+      {
+        "phase": "limits_verified",
+        "pid": 2337637,
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-10000000-functional-2337551.service",
+        "enforced": "RLIMIT_AS",
+        "address_space_limits": [
+          1610612736,
+          1610612736
+        ],
+        "cgroup_controls": {
+          "memory.max": null,
+          "memory.high": null,
+          "memory.swap.max": null
+        }
+      },
+      {
+        "phase": "generating",
+        "triples": 10000000,
+        "shape": "functional",
+        "input_bytes": 120000000,
+        "rss_bytes": 2584576,
+        "peak_rss_bytes": 2584576,
+        "virtual_bytes": 3551232
+      },
+      {
+        "phase": "building",
+        "triples": 10000000,
+        "shape": "functional",
+        "generated_s": 0.055702512,
+        "rss_bytes": 122781696,
+        "peak_rss_bytes": 122781696,
+        "virtual_bytes": 204881920
+      },
+      {
+        "phase": "built",
+        "triples": 10000000,
+        "shape": "functional",
+        "physical_states": 25,
+        "packed_ram_bytes": 1192,
+        "built_s": 0.699017975,
+        "rss_bytes": 2711552,
+        "peak_rss_bytes": 242589696,
+        "virtual_bytes": 3559424
+      },
+      {
+        "phase": "indexed",
+        "triples": 10000000,
+        "shape": "functional",
+        "physical_states": 25,
+        "height": 8,
+        "states_per_level": [
+          1,
+          4,
+          4,
+          4,
+          4,
+          4,
+          2,
+          2
+        ],
+        "packed_ram_bytes": 1192,
+        "before_ram_bytes": 1576,
+        "indexed_ram_bytes": 2168,
+        "index_bytes": 592,
+        "prepare_s": 2.996e-06,
+        "rss_bytes": 2711552,
+        "peak_rss_bytes": 242589696,
+        "virtual_bytes": 3559424
+      },
+      {
+        "phase": "complete",
+        "triples": 10000000,
+        "shape": "functional",
+        "elapsed_s": 0.699134905,
+        "count_and_inverse_edit_checks": true,
+        "rss_bytes": 2711552,
+        "peak_rss_bytes": 242589696,
+        "virtual_bytes": 3559424
+      }
+    ],
+    "enforced_limit": "RLIMIT_AS"
+  },
+  {
+    "name": "10000000-mixed",
+    "available_bytes": 3210244096,
+    "memory_max_bytes": 1593835520,
+    "elapsed_s": 14.63521372503601,
+    "command": [
+      "systemd-run",
+      "--user",
+      "--wait",
+      "--pipe",
+      "--unit=sgraph-index-10000000-mixed-2337551",
+      "--property=MemoryAccounting=yes",
+      "--property=MemoryMax=1593835520",
+      "--property=MemoryHigh=1275068416",
+      "--property=LimitAS=1593835520",
+      "--property=MemorySwapMax=0",
+      "--property=OOMPolicy=kill",
+      "--property=LimitCORE=0",
+      "--property=RuntimeMaxSec=600",
+      "--property=TasksMax=32",
+      "--property=Nice=10",
+      "--property=CPUQuota=100%",
+      "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+      "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+      "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+      "/usr/bin/python3",
+      "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+      "--inside-unit",
+      "--cap",
+      "1593835520",
+      "--",
+      "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+      "10000000",
+      "mixed"
+    ],
+    "exit_code": 0,
+    "systemd": {
+      "Result": "success",
+      "OOMPolicy": "",
+      "ExecMainCode": "0",
+      "ExecMainStatus": "0",
+      "ControlGroup": "",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryHigh": "infinity",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "LimitAS": "infinity",
+      "LimitASSoft": "infinity"
+    },
+    "rows": [
+      {
+        "phase": "limits_verified",
+        "pid": 2337657,
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-10000000-mixed-2337551.service",
+        "enforced": "RLIMIT_AS",
+        "address_space_limits": [
+          1593835520,
+          1593835520
+        ],
+        "cgroup_controls": {
+          "memory.max": null,
+          "memory.high": null,
+          "memory.swap.max": null
+        }
+      },
+      {
+        "phase": "generating",
+        "triples": 10000000,
+        "shape": "mixed",
+        "input_bytes": 120000000,
+        "rss_bytes": 2572288,
+        "peak_rss_bytes": 2572288,
+        "virtual_bytes": 3551232
+      },
+      {
+        "phase": "building",
+        "triples": 10000000,
+        "shape": "mixed",
+        "generated_s": 0.094871126,
+        "rss_bytes": 124170240,
+        "peak_rss_bytes": 124170240,
+        "virtual_bytes": 204881920
+      },
+      {
+        "phase": "built",
+        "triples": 10000000,
+        "shape": "mixed",
+        "physical_states": 3443790,
+        "packed_ram_bytes": 81804116,
+        "built_s": 12.381600936,
+        "rss_bytes": 341590016,
+        "peak_rss_bytes": 929116160,
+        "virtual_bytes": 342753280
+      },
+      {
+        "phase": "indexed",
+        "triples": 10000000,
+        "shape": "mixed",
+        "physical_states": 3443790,
+        "height": 8,
+        "states_per_level": [
+          1,
+          18,
+          800,
+          46818,
+          2874366,
+          513600,
+          8075,
+          112
+        ],
+        "packed_ram_bytes": 81804116,
+        "before_ram_bytes": 81804500,
+        "indexed_ram_bytes": 136905332,
+        "index_bytes": 55100832,
+        "prepare_s": 0.264361048,
+        "rss_bytes": 387579904,
+        "peak_rss_bytes": 929116160,
+        "virtual_bytes": 388743168
+      },
+      {
+        "phase": "complete",
+        "triples": 10000000,
+        "shape": "mixed",
+        "elapsed_s": 14.506049874,
+        "count_and_inverse_edit_checks": true,
+        "rss_bytes": 387579904,
+        "peak_rss_bytes": 929116160,
+        "virtual_bytes": 388743168
+      }
+    ],
+    "enforced_limit": "RLIMIT_AS"
+  },
+  {
+    "name": "100000000-functional",
+    "available_bytes": 3288637440,
+    "memory_max_bytes": 1644167168,
+    "elapsed_s": 1.7025838270783424,
+    "command": [
+      "systemd-run",
+      "--user",
+      "--wait",
+      "--pipe",
+      "--unit=sgraph-index-100000000-functional-2337551",
+      "--property=MemoryAccounting=yes",
+      "--property=MemoryMax=1644167168",
+      "--property=MemoryHigh=1315333734",
+      "--property=LimitAS=1644167168",
+      "--property=MemorySwapMax=0",
+      "--property=OOMPolicy=kill",
+      "--property=LimitCORE=0",
+      "--property=RuntimeMaxSec=600",
+      "--property=TasksMax=32",
+      "--property=Nice=10",
+      "--property=CPUQuota=100%",
+      "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+      "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+      "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+      "/usr/bin/python3",
+      "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+      "--inside-unit",
+      "--cap",
+      "1644167168",
+      "--",
+      "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+      "100000000",
+      "functional"
+    ],
+    "exit_code": 1,
+    "systemd": {
+      "Result": "core-dump",
+      "OOMPolicy": "kill",
+      "ExecMainCode": "3",
+      "ExecMainStatus": "6",
+      "ControlGroup": "",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryHigh": "1315333734",
+      "MemoryMax": "1644167168",
+      "MemorySwapMax": "0",
+      "LimitAS": "1644167168",
+      "LimitASSoft": "1644167168"
+    },
+    "rows": [
+      {
+        "phase": "limits_verified",
+        "pid": 2337692,
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-100000000-functional-2337551.service",
+        "enforced": "RLIMIT_AS",
+        "address_space_limits": [
+          1644167168,
+          1644167168
+        ],
+        "cgroup_controls": {
+          "memory.max": null,
+          "memory.high": null,
+          "memory.swap.max": null
+        }
+      },
+      {
+        "phase": "generating",
+        "triples": 100000000,
+        "shape": "functional",
+        "input_bytes": 1200000000,
+        "rss_bytes": 2576384,
+        "peak_rss_bytes": 2576384,
+        "virtual_bytes": 3551232
+      },
+      {
+        "phase": "building",
+        "triples": 100000000,
+        "shape": "functional",
+        "generated_s": 1.173291729,
+        "rss_bytes": 1202679808,
+        "peak_rss_bytes": 1202679808,
+        "virtual_bytes": 1614168064
+      }
+    ],
+    "enforced_limit": "RLIMIT_AS"
+  },
+  {
+    "name": "100000000-mixed",
+    "available_bytes": 3284336640,
+    "memory_max_bytes": 1627389952,
+    "elapsed_s": 1.7393744450528175,
+    "command": [
+      "systemd-run",
+      "--user",
+      "--wait",
+      "--pipe",
+      "--unit=sgraph-index-100000000-mixed-2337551",
+      "--property=MemoryAccounting=yes",
+      "--property=MemoryMax=1627389952",
+      "--property=MemoryHigh=1301911961",
+      "--property=LimitAS=1627389952",
+      "--property=MemorySwapMax=0",
+      "--property=OOMPolicy=kill",
+      "--property=LimitCORE=0",
+      "--property=RuntimeMaxSec=600",
+      "--property=TasksMax=32",
+      "--property=Nice=10",
+      "--property=CPUQuota=100%",
+      "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+      "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+      "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+      "/usr/bin/python3",
+      "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+      "--inside-unit",
+      "--cap",
+      "1627389952",
+      "--",
+      "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+      "100000000",
+      "mixed"
+    ],
+    "exit_code": 1,
+    "systemd": {
+      "Result": "core-dump",
+      "OOMPolicy": "kill",
+      "ExecMainCode": "3",
+      "ExecMainStatus": "6",
+      "ControlGroup": "",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryHigh": "1301911961",
+      "MemoryMax": "1627389952",
+      "MemorySwapMax": "0",
+      "LimitAS": "1627389952",
+      "LimitASSoft": "1627389952"
+    },
+    "rows": [
+      {
+        "phase": "limits_verified",
+        "pid": 2337724,
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-100000000-mixed-2337551.service",
+        "enforced": "RLIMIT_AS",
+        "address_space_limits": [
+          1627389952,
+          1627389952
+        ],
+        "cgroup_controls": {
+          "memory.max": null,
+          "memory.high": null,
+          "memory.swap.max": null
+        }
+      },
+      {
+        "phase": "generating",
+        "triples": 100000000,
+        "shape": "mixed",
+        "input_bytes": 1200000000,
+        "rss_bytes": 2572288,
+        "peak_rss_bytes": 2572288,
+        "virtual_bytes": 3551232
+      },
+      {
+        "phase": "building",
+        "triples": 100000000,
+        "shape": "mixed",
+        "generated_s": 1.184284199,
+        "rss_bytes": 1202675712,
+        "peak_rss_bytes": 1202675712,
+        "virtual_bytes": 1614168064
+      }
+    ],
+    "enforced_limit": "RLIMIT_AS"
+  }
+]

@@ -8,10 +8,12 @@ pub use crate::automata_core::{
 pub use crate::automaton::PathAutomaton;
 pub use crate::graph::Term;
 use crate::graph::{JoinQuery, TriplePattern};
+pub use crate::mutable_fst::MutableFstSource;
 pub use crate::path_ops::{Composed, PathBindings, PathEvent, PathExpr, PathRunner};
 use crate::query_ops::{self as ops, Condition, Plan};
 pub use crate::query_ops::{Binding, Plan as Search, Row, Values};
 pub use crate::scheduled_join::{Policy as Schedule, ScheduleStats, ScheduleWorkspace};
+pub use crate::tree_source::{TreeCursor, TreeSource};
 use crate::{Result, TreeError};
 use std::ops::ControlFlow;
 

@@ -1,0 +1,10 @@
+{
+  "recorded_utc": "2026-10-21T17:50:11.404638+00:00",
+  "binary_sha256": "c62f039cf03a6c370b046d14e0ab681ed34f871e664fb5d8be6a0cc607372aa9",
+  "source_sha256": {
+    "examples/fst_index_scale.rs": "c84357074b0199eec37fe82bafb6d260dbd2ac01102e0f5781b8d59e2613e56b",
+    "examples/join/prototype/fst_index_scale.py": "5611af21b9ec0153365f6511f9e1026f90658c2a946b3351eb9a84f2b8e62139",
+    "src/path_fst.rs": "aa358fb0ece808290239bada47c0e77a2a47f98a041bfefac78ebe595eb70c53",
+    "src/mutable_fst.rs": "0324507519b020e7f5a5910ff7c97a7eedc4e36ae7c2a4208041af05cfa07548"
+  }
+}

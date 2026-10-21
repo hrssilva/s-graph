@@ -1,0 +1,86 @@
+{
+  "name": "100000000-functional",
+  "available_bytes": 3288637440,
+  "memory_max_bytes": 1644167168,
+  "elapsed_s": 1.7025838270783424,
+  "command": [
+    "systemd-run",
+    "--user",
+    "--wait",
+    "--pipe",
+    "--unit=sgraph-index-100000000-functional-2337551",
+    "--property=MemoryAccounting=yes",
+    "--property=MemoryMax=1644167168",
+    "--property=MemoryHigh=1315333734",
+    "--property=LimitAS=1644167168",
+    "--property=MemorySwapMax=0",
+    "--property=OOMPolicy=kill",
+    "--property=LimitCORE=0",
+    "--property=RuntimeMaxSec=600",
+    "--property=TasksMax=32",
+    "--property=Nice=10",
+    "--property=CPUQuota=100%",
+    "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+    "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+    "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+    "/usr/bin/python3",
+    "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+    "--inside-unit",
+    "--cap",
+    "1644167168",
+    "--",
+    "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale",
+    "100000000",
+    "functional"
+  ],
+  "exit_code": 1,
+  "systemd": {
+    "Result": "core-dump",
+    "OOMPolicy": "kill",
+    "ExecMainCode": "3",
+    "ExecMainStatus": "6",
+    "ControlGroup": "",
+    "MemoryPeak": "[not set]",
+    "MemorySwapPeak": "[not set]",
+    "MemoryHigh": "1315333734",
+    "MemoryMax": "1644167168",
+    "MemorySwapMax": "0",
+    "LimitAS": "1644167168",
+    "LimitASSoft": "1644167168"
+  },
+  "rows": [
+    {
+      "phase": "limits_verified",
+      "pid": 2337692,
+      "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-100000000-functional-2337551.service",
+      "enforced": "RLIMIT_AS",
+      "address_space_limits": [
+        1644167168,
+        1644167168
+      ],
+      "cgroup_controls": {
+        "memory.max": null,
+        "memory.high": null,
+        "memory.swap.max": null
+      }
+    },
+    {
+      "phase": "generating",
+      "triples": 100000000,
+      "shape": "functional",
+      "input_bytes": 1200000000,
+      "rss_bytes": 2576384,
+      "peak_rss_bytes": 2576384,
+      "virtual_bytes": 3551232
+    },
+    {
+      "phase": "building",
+      "triples": 100000000,
+      "shape": "functional",
+      "generated_s": 1.173291729,
+      "rss_bytes": 1202679808,
+      "peak_rss_bytes": 1202679808,
+      "virtual_bytes": 1614168064
+    }
+  ]
+}

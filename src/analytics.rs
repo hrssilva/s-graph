@@ -149,6 +149,7 @@ impl<S: TripleSource> EdgeSource for CompressedEdges<S> {
         self.vertices
     }
     fn edges(&self, ws: &mut Self::Workspace, mut emit: impl FnMut(Edge)) {
+        let _read = self.source.begin_read();
         let height = self.stages.len();
         let Some(root) = self.source.root().filter(|_| height > 0) else {
             return;

@@ -283,7 +283,23 @@ impl CompressedStorage {
     }
 }
 
+struct AutomatonReadGuard<'a> {
+    storage: &'a CompressedStorage,
+    previous_cap: usize,
+}
+impl Drop for AutomatonReadGuard<'_> {
+    fn drop(&mut self) {
+        self.storage.stack_cap.set(self.previous_cap);
+        let mut stack = self.storage.block_stack.borrow_mut();
+        stack.top = stack.top.min(self.previous_cap + 1);
+    }
+}
+
 impl BlockStorage for CompressedStorage {
+    fn begin_read_session(&self) -> impl Drop + '_ {
+        AutomatonReadGuard { storage: self, previous_cap: self.stack_cap.replace(MAX_HEIGHT) }
+    }
+
     fn read_u64(&self, block: usize, offset: usize) -> u64 {
         self.ensure_stack_entry(block, offset, 8);
         let stack = self.block_stack.borrow();

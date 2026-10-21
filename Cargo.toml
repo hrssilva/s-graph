@@ -20,15 +20,15 @@ strip = false
 
 [features]
 default = ["heap"]
-# Immutable FST, composable automata/queries/analytics, and the mutable Heap
+# Packed/editable FST, composable automata/queries/analytics, and mutable Heap
 # backend. Zero extra runtime dependencies.
 heap = []
 # Real-file backend (pread/pwrite + a page-chunked stack cache). Near-zero
 # steady-state RAM at the cost of I/O latency; see `storage_file` module docs.
-file = []
+file = ["heap"]
 # LZ4-compressed in-RAM backend. Pulls in `lz4_flex`; see `storage_compressed`
 # module docs for the chunking design and the safe-vs-unsafe-lz4 tradeoff.
-compressed = ["dep:lz4_flex"]
+compressed = ["heap", "dep:lz4_flex"]
 # `rayon`-based fan-out during bulk build. Off by default so a single-
 # threaded consumer isn't forced to pull rayon into their dependency tree;
 # on, it's a measured ~4x bulk-build speedup at large N (see s-bench:
@@ -81,4 +81,24 @@ required-features = ["heap"]
 [[example]]
 name = "skew_repro3"
 path = "examples/join/skew_repro3.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "fst_updates_perf"
+path = "examples/fst_updates_perf.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "fst_memory"
+path = "examples/fst_memory.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "fst_metadata_perf"
+path = "examples/fst_metadata_perf.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "fst_index_scale"
+path = "examples/fst_index_scale.rs"
 required-features = ["heap"]

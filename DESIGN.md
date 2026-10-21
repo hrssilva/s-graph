@@ -40,8 +40,12 @@ new API, persistence boundary, compatibility checks and remaining slower shapes.
 The old README is preserved as
 [LEGACY_BACKENDS.md](examples/join/LEGACY_BACKENDS.md).
 
-FST is immutable: no hidden conversion, graph-sized relation preparation or
-rebuild-on-every-insert API. Direct pattern scans integrate it with the existing
+Packed FSTs now support all three block backends. `into_mutable` enables local
+path-copying edits with a RAM arena; `compact`/`freeze` re-minimize physical DAG
+states and pack them into the selected backend. Shared suffixes are never
+mutated in place. This preserves the packed read kernel and avoids rebuilding
+on each update. [FST_UPDATES.md](examples/join/FST_UPDATES.md) records invariants,
+complexity, storage/persistence costs and validation. Direct pattern scans integrate it with the existing
 path/regular-path interfaces and BFS. `Fst::bgp` supplies partial binding leaves
 for OPTIONAL, MINUS, correlated existence, filters and bag union. General
 recognizers, masks, reversible actions, transducers and reducers retain typed

@@ -12,7 +12,7 @@ struct Write {
     value_shift: u8,
 }
 use crate::graph::{JoinQuery, Term};
-use crate::path_fst::PathFstDeltaPow2Bfs;
+use crate::path_fst::PackedFst;
 use crate::{Result, TreeError};
 use std::ops::ControlFlow;
 const ROOT: usize = usize::MAX;
@@ -154,11 +154,11 @@ pub struct ScheduledJoin<S: TripleSource> {
     scalar: bool,
     pub planning: PlanningStats,
 }
-pub type HybridJoin<'a> = ScheduledJoin<FstSource<'a>>;
-impl<'a> HybridJoin<'a> {
+pub type HybridJoin<'a, S = crate::storage::HeapStorage> = ScheduledJoin<FstSource<'a, S>>;
+impl<'a, S: crate::BlockStorage> HybridJoin<'a, S> {
     pub fn new<P: Copy + Into<Term>>(
         query: &JoinQuery<P>,
-        tree: &'a PathFstDeltaPow2Bfs,
+        tree: &'a PackedFst<S>,
         policy: Policy,
     ) -> Result<Self> {
         Self::with_source(query, FstSource(tree), policy)
@@ -545,6 +545,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
         limit: u64,
         emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
     ) -> ControlFlow<Stop<T>> {
+        let _read = self.source.begin_read();
         if self.empty {
             return ControlFlow::Continue(());
         }
@@ -1018,6 +1019,7 @@ fn compile<S: TripleSource>(
 pub(crate) mod tests {
     use super::*;
     use crate::fst_join::{FstJoin, FstJoinStats, FstJoinWorkspace};
+    use crate::path_fst::PathFstDeltaPow2Bfs;
     pub(crate) fn check(tree: &PathFstDeltaPow2Bfs, q: &JoinQuery<Term>, oracle: &[Vec<u32>]) {
         for policy in [
             Policy::Nested,

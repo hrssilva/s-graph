@@ -1,0 +1,77 @@
+{
+  "name": "build",
+  "available_bytes": 3264376832,
+  "memory_max_bytes": 1627389952,
+  "elapsed_s": 2.6236186909954995,
+  "command": [
+    "systemd-run",
+    "--user",
+    "--wait",
+    "--pipe",
+    "--unit=sgraph-index-build-2337551",
+    "--property=MemoryAccounting=yes",
+    "--property=MemoryMax=1627389952",
+    "--property=MemoryHigh=1301911961",
+    "--property=LimitAS=1627389952",
+    "--property=MemorySwapMax=0",
+    "--property=OOMPolicy=kill",
+    "--property=LimitCORE=0",
+    "--property=RuntimeMaxSec=600",
+    "--property=TasksMax=32",
+    "--property=Nice=10",
+    "--property=CPUQuota=100%",
+    "--working-directory=/home/hrssilva/Documents/project-s/s-graph",
+    "--setenv=TMPDIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp",
+    "--setenv=CARGO_TARGET_DIR=/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype",
+    "/usr/bin/python3",
+    "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/fst_index_scale.py",
+    "--inside-unit",
+    "--cap",
+    "1627389952",
+    "--",
+    "/usr/bin/cargo",
+    "rustc",
+    "--offline",
+    "--profile",
+    "profiling",
+    "--jobs",
+    "1",
+    "--example",
+    "fst_index_scale",
+    "--",
+    "-C",
+    "link-arg=-Wl,--threads=1"
+  ],
+  "exit_code": 0,
+  "systemd": {
+    "Result": "success",
+    "OOMPolicy": "",
+    "ExecMainCode": "0",
+    "ExecMainStatus": "0",
+    "ControlGroup": "",
+    "MemoryPeak": "[not set]",
+    "MemorySwapPeak": "[not set]",
+    "MemoryHigh": "infinity",
+    "MemoryMax": "infinity",
+    "MemorySwapMax": "infinity",
+    "LimitAS": "infinity",
+    "LimitASSoft": "infinity"
+  },
+  "rows": [
+    {
+      "phase": "limits_verified",
+      "pid": 2337553,
+      "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-build-2337551.service",
+      "enforced": "RLIMIT_AS",
+      "address_space_limits": [
+        1627389952,
+        1627389952
+      ],
+      "cgroup_controls": {
+        "memory.max": null,
+        "memory.high": null,
+        "memory.swap.max": null
+      }
+    }
+  ]
+}

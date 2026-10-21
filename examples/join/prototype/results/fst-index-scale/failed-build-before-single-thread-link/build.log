@@ -1,0 +1,36 @@
+Running as unit: sgraph-index-build-2336829.service; invocation ID: 82bd3ec8b1ca4b31bf169f60adc13ad2
+   Compiling s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph)
+error: linking with `cc` failed: exit status: 1
+  |
+  = note:  "cc" "-m64" "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/rustcp627Oe/symbols.o" "<9 object files omitted>" "-Wl,--as-needed" "-Wl,-Bstatic" "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/deps/libs_graph-50dbe279b9a43a2a.rlib" "<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lgcc_s" "-lutil" "-lrt" "-lpthread" "-lm" "-ldl" "-lc" "-L" "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/rustcp627Oe/raw-dylibs" "-B<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/bin/gcc-ld" "-fuse-ld=lld" "-Wl,--eh-frame-hdr" "-Wl,-z,noexecstack" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/lib" "-o" "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_index_scale-775e4c8c81433b3c" "-Wl,--gc-sections" "-pie" "-Wl,-z,relro,-z,now" "-Wl,-O1" "-nodefaultlibs"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: terminate called after throwing an instance of 'std::system_error'
+            what():  Resource temporarily unavailable
+          PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace and instructions to reproduce the bug.
+          Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+          0  libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2decb42337 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) + 39
+          1  libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2decb42c2d
+          2  libc.so.6                          0x00007f2de6843550
+          3  libc.so.6                          0x00007f2de68a0fd4
+          4  libc.so.6                          0x00007f2de6843406 gsignal + 24
+          5  libc.so.6                          0x00007f2de682952d abort + 42
+          6  libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2dec9d0ca5 __gnu_cxx::__verbose_terminate_handler() + 245
+          7  libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2dec9d0406 __cxxabiv1::__terminate(void (*)()) + 6
+          8  libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2dec9d0471
+          9  libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2dec9d05c5
+          10 libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2dec7b9bc5 std::__throw_system_error(int) + 129
+          11 libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2deca4f849
+          12 libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2decaea26c
+          13 libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2decae9cdf
+          14 libLLVM.so.22.1-rust-1.98.1-stable 0x00007f2deca4f5b0
+          15 libc.so.6                          0x00007f2de689eece
+          16 libc.so.6                          0x00007f2de6928cec
+          collect2: fatal error: ld terminated with signal 6 [Aborted], core dumped
+          compilation terminated.
+          
+
+error: could not compile `s-graph` (example "fst_index_scale") due to 1 previous error
+          Finished with result: exit-code
+Main processes terminated with: code=exited, status=101/n/a
+               Service runtime: 11.038s
+             CPU time consumed: 9.774s

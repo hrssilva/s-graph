@@ -1,0 +1,6 @@
+{"phase": "limits_verified", "pid": 2337637, "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/sgraph-index-10000000-functional-2337551.service", "enforced": "RLIMIT_AS", "address_space_limits": [1610612736, 1610612736], "cgroup_controls": {"memory.max": null, "memory.high": null, "memory.swap.max": null}}
+{"phase":"generating","triples":10000000,"shape":"functional","input_bytes":120000000,"rss_bytes":2584576,"peak_rss_bytes":2584576,"virtual_bytes":3551232 }
+{"phase":"building","triples":10000000,"shape":"functional","generated_s":0.055702512,"rss_bytes":122781696,"peak_rss_bytes":122781696,"virtual_bytes":204881920 }
+{"phase":"built","triples":10000000,"shape":"functional","physical_states":25,"packed_ram_bytes":1192,"built_s":0.699017975,"rss_bytes":2711552,"peak_rss_bytes":242589696,"virtual_bytes":3559424 }
+{"phase":"indexed","triples":10000000,"shape":"functional","physical_states":25,"height":8,"states_per_level":[1, 4, 4, 4, 4, 4, 2, 2],"packed_ram_bytes":1192,"before_ram_bytes":1576,"indexed_ram_bytes":2168,"index_bytes":592,"prepare_s":0.000002996,"rss_bytes":2711552,"peak_rss_bytes":242589696,"virtual_bytes":3559424 }
+{"phase":"complete","triples":10000000,"shape":"functional","elapsed_s":0.699134905,"count_and_inverse_edit_checks":true,"rss_bytes":2711552,"peak_rss_bytes":242589696,"virtual_bytes":3559424 }
