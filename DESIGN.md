@@ -1,8 +1,92 @@
 # Graph algorithms and storage contracts
 
 This crate owns integer graph representation and execution primitives. It does
-not own term dictionaries, named-graph interpretation, query-language algebra,
+not own term dictionaries, named-graph interpretation, query-language parsing,
 transactions, property values, or database recovery.
+
+## Current default: FST and adaptive automata (October 2026)
+
+The primary construction API is now `automata::Bgp` and typed/composed automata,
+followed by `Fst::search(&machine)`. Builders are independent of a particular
+graph; compilation produces a reusable search with separate execution memory.
+BGPS fuse through `.triple` / `.and`; OPTIONAL, MINUS, unions and filters compose
+before compilation. `Language` adapts custom slot recognizers to the same search
+entry point. Existing `Join`, `JoinQuery` and direct methods remain available.
+
+Adaptive selection now keeps Levels competitive with nested candidates, scales
+its bounded probes with large query size, and reuses compiled candidates.
+`Policy::Frontier` propagates shared-bit supports through live atom nodes,
+advancing singleton transitions across level boundaries. It is selected
+automatically only after a completed bounded fallback probe on a query with
+at most 1,024 atom/level specifications. This protects preparation and keeps
+the faster macro/level paths for ordinary shapes. The algorithm, pseudocode,
+research references and current measurements are in
+[AUTOMATA_FRONTIERS.md](examples/join/AUTOMATA_FRONTIERS.md).
+
+`Fst` names the
+BFS-ordered, power-of-two-block, forward-delta layout previously called
+`PathFstDeltaPow2Bfs`; that explicit name and all alternative executors remain
+available. `Join::new` and `Fst::join` choose `Policy::Adaptive`.
+`graph::join_run` / `try_join_run` dispatch statically: FST inputs use that same
+executor, while mutable backend inputs retain `NativeJoin`.
+
+`automata_core`, `scheduled_join`, `query_ops`, `path_ops` and `analytics` now
+live in `src`, enabled by the default `heap` feature. The comparison harness
+copies those production modules rather than installing separate prototype
+versions. Its compiled-filter/lifted/demand executors remain experiments.
+Historical sections below describe the decisions that led here; the README is
+the current usage guide. [PROMOTION.md](examples/join/PROMOTION.md) records the
+new API, persistence boundary, compatibility checks and remaining slower shapes.
+The old README is preserved as
+[LEGACY_BACKENDS.md](examples/join/LEGACY_BACKENDS.md).
+
+FST is immutable: no hidden conversion, graph-sized relation preparation or
+rebuild-on-every-insert API. Direct pattern scans integrate it with the existing
+path/regular-path interfaces and BFS. `Fst::bgp` supplies partial binding leaves
+for OPTIONAL, MINUS, correlated existence, filters and bag union. General
+recognizers, masks, reversible actions, transducers and reducers retain typed
+composition; hot traversal uses the existing specialized mask/register engine.
+A dense analytics projection remains an explicit choice, not an implied cache.
+
+The direct FST API and generic `PatternIndex` adapter share one `PatternIter`.
+Per-level decoded digit masks are cached in O(height) metadata, and the direct
+scan constructor is inlinable so path execution can fuse its iterator. No
+per-lookup adapter or adjacency allocation is needed.
+
+The FST builder now validates domains, coordinates, record capacity and 32-bit
+delta representability. An all-singleton domain uses a zero-bit, one-slot leaf
+so `(0,0,0)` and its absence remain distinguishable. Diagnostic per-level
+address directories are lazy (only per-level state counts are retained): ordinary traversal, serialization and loading
+retain no extra `u64` per physical node. Memory accounting includes that
+optional directory if a comparison sweep requests it.
+
+FST snapshots (`SGF1`, version 1, little-endian) retain the minimized DAG directly:
+three domain sizes, block capacity, logical build-node count, physical node
+count, height, physical state counts per level, a block table and raw records.
+The split schedule is derived from the domains; pointers are the same checked
+32-bit positive deltas used at runtime. There is no tuple expansion or storage
+rebuild during loading. Existing mutable-tree `SGZ1` snapshots remain separate.
+Compiled query plans borrow a graph and are reconstructed after loading. Writers
+stream the per-level counts and packed blocks directly, without constructing
+address directories or expanding the DAG.
+
+Loading is an untrusted-input boundary. Block table limits apply before graph
+allocation. Record parsing checks level cardinalities, valid occupancy bits and
+exact block boundaries. A bottom-up DAG pass checks that every reference names
+a record in the next level, every state is reachable, coordinate maxima fit the
+declared domains, logical node counts agree, and logical triple counts fit
+`u64`. The pass visits physical states/edges, not their potentially exponential
+unfolding. Temporary directories and suffix summaries are dropped afterwards.
+`DeserializeLimits` bounds block allocations, not peak process RAM: validation
+metadata is additional. Buffer loading rejects trailing bytes; stream loading
+consumes one snapshot. Writers propagate write/flush errors; snapshot file writes
+are ordinary file writes, without an atomic replacement or recovery protocol.
+
+`tests/fst.rs` covers storage round trips, shared suffix multiplicity, filtered
+counts/scans, default dispatch, cancellation/reuse, paths, domains, singleton
+and empty graphs, streaming/file I/O, resource limits, truncations and mutated
+snapshots. Existing query/path/analytics tests and 4,096/4,097-atom stack tests
+are part of normal library tests. README examples run as doctests.
 
 ## Representation and navigation
 

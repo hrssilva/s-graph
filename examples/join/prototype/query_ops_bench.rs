@@ -145,6 +145,10 @@ fn path_bench<G: s_graph::join::PatternBackend, M: PathRunner<G>>(
     println!("path-p0-p1plus,{name},{},,{time:.3},", out.len());
 }
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--paths") {
+        paths();
+        return;
+    }
     use Term::{Const as C, Var as V};
     let n = 100_000;
     let mut triples = Vec::new();
@@ -359,6 +363,10 @@ fn main() {
         },
         &expected,
     );
+    paths();
+}
+
+fn paths() {
     let triples: Vec<_> = (0..4096)
         .flat_map(|s| {
             [
@@ -374,6 +382,7 @@ fn main() {
     let expr = PathExpr::label(0).then(PathExpr::label(1).plus());
     let machine = expr.compile().unwrap();
     path_bench("fst-nfa", &index, &machine);
+    path_bench("fst-direct-nfa", &fst, &machine);
     path_bench("heap-nfa", &heap, &machine);
     let composed = Composed(And(
         PathExpr::label(0)
@@ -383,5 +392,6 @@ fn main() {
         Not(PathExpr::label(0).compile().unwrap()),
     ));
     path_bench("fst-composed", &index, &composed);
+    path_bench("fst-direct-composed", &fst, &composed);
     path_bench("heap-composed", &heap, &composed);
 }

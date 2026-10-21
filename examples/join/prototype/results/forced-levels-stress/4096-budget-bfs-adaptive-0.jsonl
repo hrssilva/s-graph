@@ -1,0 +1,1 @@
+{"mode":"budget","layout":"bfs","policy":"adaptive","atoms":4096,"finished":true,"rows":16,"expected_rows":16,"prepare_us":20236.984,"visit_us":3275.562,"nodes":196577,"candidates":196592,"planning_nodes":832,"cut":0,"plan_bytes":2686976,"workspace_bytes":409604}

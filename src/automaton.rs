@@ -108,3 +108,16 @@ impl PathAutomaton {
         ControlFlow::Continue(())
     }
 }
+
+impl PathAutomaton {
+    /// Initial state of this epsilon-free NFA.
+    pub fn start_state(&self) -> u32 { self.start }
+    /// Number of NFA states.
+    pub fn state_count(&self) -> usize { self.accepting.len() }
+    /// Whether a valid state accepts. Panics for an out-of-range state.
+    pub fn accepts_state(&self, state: u32) -> bool { self.accepting[state as usize] }
+    /// Outgoing transitions of a valid state.
+    pub fn transitions_from(&self, state: u32) -> &[Transition] {
+        &self.transitions[self.offsets[state as usize]..self.offsets[state as usize + 1]]
+    }
+}

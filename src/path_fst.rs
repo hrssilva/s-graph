@@ -1,5 +1,6 @@
-//! Experimental prototype, not production code -- see `DESIGN.md`'s
-//! "path FST prototype" entry. Builds a minimized (deduplicated)
+//! FST layouts and historical comparison implementations.
+//! [`PathFstDeltaPow2Bfs`] is the default [`crate::Fst`] storage; the other
+//! layouts remain available for measurement. See DESIGN.md for their history. Builds a minimized (deduplicated)
 //! FST-style representation of the same DFS-interleaved, bit-
 //! interleaved radix structure `tree` uses -- same per-dimension bit
 //! schedule (`total_bits_needed`/`dynamic_schedule`/`compute_qi`/
@@ -330,7 +331,7 @@ fn build_rec(
 
 /// Second blocked variant, for direct comparison against [`PathFst`]:
 /// keeps the *first* (flat-buffer) prototype's compact 4-byte backward
-/// delta instead of an 8-byte `Pos`, and uses a real [`BlockIndex`] --
+/// delta instead of an 8-byte `Pos`, and uses a real `BlockIndex` --
 /// the same Fenwick-tree directory `tree::advance`'s own slow path uses
 /// -- to turn a delta-resolved absolute byte offset back into a `Pos` on
 /// every non-leaf hop. Trades a smaller record (4 bytes/child, same as
@@ -817,7 +818,7 @@ impl PathFstDeltaPow2 {
     ///
     /// # Why one mask per level, not one `restriction_mask` call per node
     ///
-    /// The first version of this traversal called [`restriction_mask`]
+    /// The first version of this traversal called `restriction_mask`
     /// fresh, from the full `restrictions` array, on every node visited
     /// -- structurally mirroring `Heap::query_rec_restricted`'s general
     /// engine. Measured against `Heap::restricted_descent_visit`, that
@@ -831,13 +832,13 @@ impl PathFstDeltaPow2 {
     /// path -- one `u64` mask computed per tree *level*, before any
     /// recursion starts, so the walk itself never calls anything
     /// mask-computing per node. This method mirrors that trick directly:
-    /// [`Self::precompute_level_masks`] walks `lo` forward once,
+    /// `Self::precompute_level_masks` walks `lo` forward once,
     /// advancing only the `Exact` dimensions' contribution (the only
-    /// ones [`restriction_mask`] ever reads `lo` through -- `Free`'s
+    /// ones `restriction_mask` ever reads `lo` through -- `Free`'s
     /// branch, `expand_run(mask, 0, width, shifts[d])`, never reads
     /// `lo[d]` at all, the same path-independence argument this file's
     /// `(address, level)`-keyed caching experiments rely on), and
-    /// [`Self::visit_rec`] then does only `word & level_masks[level]` --
+    /// `Self::visit_rec` then does only `word & level_masks[level]` --
     /// an array index and a bitwise AND, nothing else, at every node.
     /// Measured fix: closes nearly all of the `one-Exact` gap against
     /// `Heap` (down to 0.53x-1.07x from 1.12x-1.54x across the four
@@ -870,7 +871,7 @@ impl PathFstDeltaPow2 {
     /// `total_bits_needed(..).iter().sum()` divided by the schedule's
     /// per-level minimum, nowhere near 64 for any domain this project
     /// uses). Walks `lo` forward one level at a time, advancing only the
-    /// `Exact` dimensions' contribution, calling [`restriction_mask`]
+    /// `Exact` dimensions' contribution, calling `restriction_mask`
     /// once per level instead of once per node -- see
     /// [`Self::restricted_descent_visit`]'s doc comment for why that's
     /// sound and what it replaced.
@@ -942,7 +943,7 @@ impl PathFstDeltaPow2 {
     /// Motivation, from the measured bottleneck: `one-Exact` on the
     /// larger domains runs at IPC ~1.0 with a 35-42% cache-miss rate --
     /// memory-latency-bound, not throughput-bound (see `DESIGN.md`'s
-    /// `perf`-rigorous margin entry). Plain [`Self::visit_rec`] discovers
+    /// `perf`-rigorous margin entry). Plain `Self::visit_rec` discovers
     /// each child's address and immediately recurses into it, fully
     /// serializing one miss behind the previous one's entire subtree --
     /// zero memory-level parallelism. This method issues up to the
@@ -1413,14 +1414,14 @@ impl PathFstDeltaPow2 {
     ///   rates: 0.00-9.05%, see the table above) -- not worth caching;
     /// - once every dimension is `Free` or has run out of bits (`tree`'s
     ///   own `first_fully_open_level_restricted` condition, recomputed
-    ///   here as [`Self::first_fully_open_level`] since `PathFstDeltaPow2`
+    ///   here as `Self::first_fully_open_level` since `PathFstDeltaPow2`
     ///   has no `RadixTree` to call it on), the mask is *always* the full
     ///   word -- `will_always_match`, in `fst`'s vocabulary. From that
     ///   point down, "what does this address emit" no longer depends on
     ///   the query at all, only on the DAG's own shared structure -- the
     ///   same quantity `node_count`/`visited_count` already measure a
     ///   15-21% dedup ratio for. Caching is scoped to *only* this region
-    ///   ([`Self::bulk_collect_rec`], entered once `level >=
+    ///   (`Self::bulk_collect_rec`, entered once `level >=
     ///   unconstrained_from`): far fewer distinct `(address, level)`
     ///   pairs than the whole-query caching attempt, and each one is a
     ///   real candidate for the DAG's actual sharing to pay off, not a
@@ -1430,7 +1431,7 @@ impl PathFstDeltaPow2 {
     /// allocation streaming walk (`visit_rec_fast`'s early-return
     /// branch, predating [`Self::restricted_descent_visit`]'s later
     /// precomputed-mask optimization -- this one still calls
-    /// [`restriction_mask`] per node) that already beat the cached/
+    /// `restriction_mask` per node) that already beat the cached/
     /// no-cache `Vec`-merging forms on every shape -- this method is
     /// that traversal with one targeted caching addition, not a
     /// replacement of it.
@@ -1734,9 +1735,9 @@ struct BfsNodeMeta {
 /// Dedup is inherently bottom-up (you can't know two subtrees are
 /// identical until both are fully built), but this layout is inherently
 /// top-down (level 0 must be *written* before level 1). Building it is
-/// therefore three passes instead of [`build_rec_pow2`]'s one:
-/// 1. [`collect_rec_bfs`] -- the same recursive dedup as
-///    [`build_rec_pow2`], but instead of writing to storage, it records
+/// therefore three passes instead of `build_rec_pow2`'s one:
+/// 1. `collect_rec_bfs` -- the same recursive dedup as
+///    `build_rec_pow2`, but instead of writing to storage, it records
 ///    each distinct node's `(existence_word, child_indices)` into a
 ///    per-level `Vec`, where `child_indices` are positions within the
 ///    child level's own `Vec`, not addresses.
@@ -1753,34 +1754,19 @@ struct BfsNodeMeta {
 ///    level), so `delta = child_addr - addr`, and every read path adds
 ///    the delta instead of subtracting it.
 ///
-/// **The recommended default for static, query-and-join-heavy
-/// workloads** -- see `DESIGN.md`'s "wired as default" entry and the
-/// crate root's own module docs for the full comparison against
-/// [`crate::Heap`]. Smaller on disk/in RAM than `Heap` for the same
-/// triples (the dedup this whole layout exists for), and every
-/// measured query/join shape in `DESIGN.md` is at parity with or
-/// faster than the equivalent `Heap`-based path. Prefer the
-/// automaton-driven entry points over everything else in this file:
-/// [`Self::restricted_descent_via_composed_automaton`] for restricted-
-/// descent-style pattern queries (`Exact`/`Free`/`Range`/`Multi` on any
-/// position), and [`crate::automaton_join::AutomatonJoin`] for
-/// conjunctive joins. Every other `restricted_descent*` method on this
-/// struct (`restricted_descent`, `_bfs`, `_prefetch`, `_sweep`,
-/// `_leaf_sweep`, every `_parallel*` variant) and
-/// [`crate::fst_join::FstJoin`]/[`crate::native_join::NativeJoin`] are
-/// kept for debugging and comparison -- each one's own doc comment and
-/// `DESIGN.md` record *why* it was built and what it measured, which is
-/// exactly the history that makes the automaton-driven ones the
-/// trustworthy default instead of an unverified guess.
+/// The default immutable graph index, also exported as [`crate::Fst`].
+/// Build a set of integer triples, then scan patterns, compose BGPs and paths,
+/// or stream adaptive joins with [`crate::Join`]. Snapshots preserve the packed
+/// DAG directly through validated, versioned serialization.
 ///
-/// **Not a drop-in replacement for `Heap` in general** -- this struct
-/// has no `insert`/`remove` (static build only, deliberately deferred,
-/// see above), no `serialize`/`deserialize`, no `contains_batch`/
-/// `count_matching`, and doesn't implement [`crate::join::PatternBackend`],
-/// so it can't be used with [`crate::traversal`]'s graph paths/BFS or
-/// [`crate::automaton::PathAutomaton`]'s regular-path evaluation. Reach
-/// for `Heap`/`File`/`Compressed` for any of those; reach for this
-/// struct specifically for the query/join shapes it does support.
+/// [`Self::scan`] supports exact/wildcard triple bounds, [`Self::select`]
+/// supports projected exact/range/set restrictions, and [`Self::bgp`] integrates
+/// with binding-aware OPTIONAL, MINUS and existence operators. This type also
+/// implements [`crate::join::PatternBackend`] and [`crate::path::AdjacencyBackend`].
+///
+/// Updates require rebuilding; choose the mutable [`crate::Heap`] for local
+/// insertion/removal. Explicit traversal variants below remain available for
+/// comparison; DESIGN.md records their algorithms and measurements.
 pub struct PathFstDeltaPow2Bfs {
     storage: HeapStorage,
     root_virtual_addr: u64,
@@ -1793,48 +1779,48 @@ pub struct PathFstDeltaPow2Bfs {
     capacity_bits: u32,
     capacity_mask: u64,
     node_count: u64,
+    level_node_counts: Vec<usize>,
+    pub(crate) scan_layout: Vec<crate::fst::ScanLayout>,
     visited_count: u64,
-    /// Every distinct node's real address, grouped by level -- `build`'s
-    /// own `addr_of`, persisted instead of dropped at the end of
-    /// construction. Only [`Self::restricted_descent_sweep_visit`] (a
-    /// prototype, not the default traversal) uses this: it needs to walk
-    /// *every* node at a level, not just the ones a real query reaches,
-    /// and inferring record boundaries by forward byte-arithmetic alone
-    /// doesn't work -- `HeapStorage::append_record`'s block-rollover
-    /// decision depends on the *next* record's length, which isn't known
-    /// without already knowing where it starts. Keeping the addresses
-    /// `build` already computed sidesteps that circularity entirely, at
-    /// the cost of one extra `u64` per node versus the production struct.
-    level_addrs: Vec<Vec<u64>>,
+    /// Lazily retained only by diagnostic sweep comparisons. Default queries
+    /// and serialization do not allocate this per-node directory.
+    level_addrs: std::sync::OnceLock<Vec<Vec<u64>>>,
 }
 
 impl PathFstDeltaPow2Bfs {
-    pub fn build(mut triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], block_capacity: usize) -> Self {
-        assert!(block_capacity.is_power_of_two(), "PathFstDeltaPow2Bfs requires a power-of-two block_capacity, got {block_capacity}");
+    pub fn build(triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], block_capacity: usize) -> Self {
+        Self::try_build(triples, dimension_sizes, block_capacity).expect("invalid FST build")
+    }
+
+    /// Validated static build. Domains are nonzero sizes, each at most 2^32;
+    /// blocks must be powers of two of at least 512 bytes.
+    pub fn try_build(mut triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], block_capacity: usize) -> crate::Result<Self> {
+        use crate::{TreeError, OutOfDomain};
+        if !dimension_sizes.iter().all(|n| (1..=1u64 << 32).contains(n)) {
+            return Err(TreeError::InvalidConfig("FST domains must be in 1..=2^32".into()));
+        }
+        if !block_capacity.is_power_of_two() || !(512..=u32::MAX as usize).contains(&block_capacity) {
+            return Err(TreeError::InvalidConfig("FST block capacity must be a power of two in 512..=2^31".into()));
+        }
+        if triples.len() > u32::MAX as usize {
+            return Err(TreeError::InvalidConfig("FST build exceeds 32-bit node indices".into()));
+        }
+        for &(s, p, o) in &triples {
+            for (dim, value) in [s, p, o].into_iter().enumerate() {
+                if value as u64 >= dimension_sizes[dim] {
+                    return Err(TreeError::OutOfDomain(OutOfDomain { dim, value, domain_size: dimension_sizes[dim] }));
+                }
+            }
+        }
         let capacity_bits = block_capacity.trailing_zeros();
         let capacity_mask = (block_capacity - 1) as u64;
 
         let dim_order = [0usize, 1, 2];
         let total_bits = total_bits_needed(dimension_sizes);
-        let level_dim_bits = dynamic_schedule(total_bits);
+        let mut level_dim_bits = dynamic_schedule(total_bits);
+        // One zero-bit transition represents (0,0,0), including its absence.
+        if level_dim_bits.is_empty() { level_dim_bits.push([0; NUM_DIMS]); }
         let height = level_dim_bits.len();
-        if height == 0 {
-            return PathFstDeltaPow2Bfs {
-                storage: HeapStorage::empty(),
-                root_virtual_addr: 0,
-                height: 0,
-                level_dim_bits,
-                level_shifts_cache: Vec::new(),
-                level_child_cell_bits_cache: Vec::new(),
-                dimension_sizes,
-                block_capacity,
-                capacity_bits,
-                capacity_mask,
-                node_count: 0,
-                visited_count: 0,
-                level_addrs: Vec::new(),
-            };
-        }
         let level_shifts_cache: Vec<[u8; NUM_DIMS]> = level_dim_bits.iter().map(|&db| level_shifts(db, dim_order)).collect();
         let level_child_cell_bits_cache: Vec<[u8; NUM_DIMS]> = {
             let mut remaining = total_bits;
@@ -1907,7 +1893,7 @@ impl PathFstDeltaPow2Bfs {
                 for (slot, &child_idx) in node.child_indices.iter().enumerate() {
                     let child_addr = addr_of[level + 1][child_idx as usize];
                     debug_assert!(child_addr > addr, "BFS layout expects children at strictly higher addresses than their parent");
-                    let delta = (child_addr - addr) as u32;
+                    let delta = u32::try_from(child_addr - addr).map_err(|_| TreeError::InvalidConfig("FST child delta exceeds 32 bits; use smaller blocks or partition the graph".into()))?;
                     storage.patch_appended(pos, WORD_BYTES + slot * DELTA_BYTES as usize, DELTA_BYTES, delta as u64);
                 }
             }
@@ -1916,7 +1902,8 @@ impl PathFstDeltaPow2Bfs {
 
         let root_virtual_addr = addr_of[0][0];
 
-        PathFstDeltaPow2Bfs {
+        let scan_layout = (0..height).map(|l| crate::fst::ScanLayout::new(level_dim_bits[l], level_shifts_cache[l], level_child_cell_bits_cache[l])).collect();
+        Ok(PathFstDeltaPow2Bfs {
             storage,
             root_virtual_addr,
             height,
@@ -1928,9 +1915,11 @@ impl PathFstDeltaPow2Bfs {
             capacity_bits,
             capacity_mask,
             node_count,
+            scan_layout,
+            level_node_counts: addr_of.iter().map(Vec::len).collect(),
             visited_count,
-            level_addrs: addr_of,
-        }
+            level_addrs: std::sync::OnceLock::new(),
+        })
     }
 
     pub fn contains(&self, s: u32, p: u32, o: u32) -> bool {
@@ -1965,16 +1954,40 @@ impl PathFstDeltaPow2Bfs {
         unreachable!("height > 0 loop always returns from inside")
     }
 
+    /// Retained heap allocations, including diagnostic directories if requested.
     pub fn mem_size_bytes(&self) -> usize {
         self.storage.mem_size_bytes()
+            + crate::vec_bytes(&self.scan_layout)
+            + crate::vec_bytes(&self.level_node_counts)
             + crate::vec_bytes(&self.level_dim_bits)
             + crate::vec_bytes(&self.level_shifts_cache)
             + crate::vec_bytes(&self.level_child_cell_bits_cache)
+            + self.level_addrs.get().map_or(0, |levels| crate::vec_bytes(levels) + levels.iter().map(crate::vec_bytes).sum::<usize>())
+    }
+
+    fn level_addresses(&self) -> &Vec<Vec<u64>> {
+        self.level_addrs.get_or_init(|| {
+            let mut levels = vec![vec![self.root_virtual_addr]];
+            for level in 1..self.height {
+                let mut next = Vec::new();
+                for &addr in &levels[level - 1] {
+                    let word = self.read_word(addr);
+                    for i in 0..word.count_ones() as usize { next.push(addr + self.read_delta(addr, i)); }
+                }
+                next.sort_unstable();
+                next.dedup();
+                levels.push(next);
+            }
+            levels
+        })
     }
 
     pub fn node_count(&self) -> u64 {
         self.node_count
     }
+
+    /// Distinct physical states per radix level (not logical prefix counts).
+    pub fn physical_states_per_level(&self) -> &[usize] { &self.level_node_counts }
 
     pub fn visited_count(&self) -> u64 {
         self.visited_count
@@ -2124,7 +2137,7 @@ impl PathFstDeltaPow2Bfs {
 
     /// Generic walk half of the `LevelAutomaton` split (see
     /// `level_automaton.rs` and `DESIGN.md`'s "Joins and paths as
-    /// automatons" entry) -- structurally identical to [`Self::visit_rec`],
+    /// automatons" entry) -- structurally identical to `Self::visit_rec`,
     /// just reading `automaton.mask(state, level)` instead of indexing a
     /// flat precomputed array, and carrying `automaton.advance(...)`'s
     /// result forward as `state` instead of nothing. [`Self::
@@ -2183,7 +2196,7 @@ impl PathFstDeltaPow2Bfs {
     }
 
     /// Same contract as [`Self::restricted_descent`], walked through the
-    /// generic [`Self::visit_automaton_rec`] with the simplest possible
+    /// generic `Self::visit_automaton_rec` with the simplest possible
     /// `LevelAutomaton` (`PrecomputedMaskAutomaton`, wrapping the exact
     /// same `precompute_level_masks` output `restricted_descent_visit`
     /// uses) instead of `visit_rec`'s bespoke recursion -- reproduces
@@ -2239,9 +2252,9 @@ impl PathFstDeltaPow2Bfs {
     /// `precompute_level_masks` mechanism `restricted_descent` itself
     /// uses, zero per-node dispatch. A genuine `Range`/`Multi`
     /// restriction falls back to three independent
-    /// [`crate::level_automaton::DimRestrictionAutomaton`]s (one per
+    /// `crate::level_automaton::DimRestrictionAutomaton`s (one per
     /// dimension, each computed as if the other two were unconstrained)
-    /// composed by intersection ([`crate::level_automaton::And`]) --
+    /// composed by intersection (`crate::level_automaton::And`) --
     /// this is the actual proof of "insight 3" from `DESIGN.md`'s
     /// design entry, that mixing restriction kinds can be genuinely
     /// composable rather than a `match` arm per combination.
@@ -2571,7 +2584,7 @@ impl PathFstDeltaPow2Bfs {
         let filtered: Vec<Vec<(u64, u64)>> = (0..self.height)
             .map(|level| {
                 let mask = level_masks[level];
-                self.level_addrs[level]
+                self.level_addresses()[level]
                     .iter()
                     .map(|&addr| {
                         let block = (addr >> self.capacity_bits) as usize;
@@ -2588,7 +2601,7 @@ impl PathFstDeltaPow2Bfs {
 
     fn sweep_walk_rec<T>(&self, addr: u64, lo: [u64; NUM_DIMS], level: usize, filtered: &[Vec<(u64, u64)>], emit_dim: usize, emit: &mut impl FnMut(u32) -> std::ops::ControlFlow<T>) -> std::ops::ControlFlow<T> {
         let idx = self
-            .level_addrs[level]
+            .level_addresses()[level]
             .binary_search(&addr)
             .expect("every real child address must exist in its own level's address list");
         let (word, mut relevant) = filtered[level][idx];
@@ -2665,7 +2678,7 @@ impl PathFstDeltaPow2Bfs {
     /// the full restriction set before being accepted, exactly like
     /// re-deriving the full triple and checking it from scratch. And
     /// because a shared ancestor can be reached by exponentially many
-    /// paths in the worst case, [`Self::paths_to_root`] memoizes per
+    /// paths in the worst case, `Self::paths_to_root` memoizes per
     /// address for the duration of one call -- without that, this is
     /// not just slow, it can fail to terminate in practical time on a
     /// real domain.
@@ -2697,7 +2710,7 @@ impl PathFstDeltaPow2Bfs {
 
         // Phase A: every leaf word, read into a flat array -- no
         // masking, no branching yet.
-        let leaf_addrs = &self.level_addrs[leaf_level];
+        let leaf_addrs = &self.level_addresses()[leaf_level];
         let mut words = vec![0u64; leaf_addrs.len()];
         for (i, &addr) in leaf_addrs.iter().enumerate() {
             let block = (addr >> self.capacity_bits) as usize;
@@ -2776,7 +2789,7 @@ impl PathFstDeltaPow2Bfs {
         if self.height == 0 {
             0
         } else {
-            self.level_addrs[self.height - 1].len()
+            self.level_node_counts[self.height - 1]
         }
     }
 
@@ -2786,7 +2799,7 @@ impl PathFstDeltaPow2Bfs {
             return parents;
         }
         for level in 0..self.height - 1 {
-            for &addr in &self.level_addrs[level] {
+            for &addr in &self.level_addresses()[level] {
                 let block = (addr >> self.capacity_bits) as usize;
                 let offset = (addr & self.capacity_mask) as usize;
                 let word = self.storage.read_u64(block, offset);
@@ -2950,7 +2963,7 @@ impl PathFstDeltaPow2Bfs {
     /// next step: fan out with `rayon::join` for only the first
     /// `parallel_depth` tree levels below the root, then fall back to
     /// the plain sequential `visit_rec` (via
-    /// [`Self::visit_sequential_to_vec`]) for the rest of each subtree.
+    /// `Self::visit_sequential_to_vec`) for the rest of each subtree.
     /// `parallel_depth` counts tree levels, not bisection splits --
     /// bisecting one level's sibling list in half doesn't itself consume
     /// budget, only actually descending to the next level does -- so
@@ -2975,7 +2988,7 @@ impl PathFstDeltaPow2Bfs {
         out
     }
 
-    /// Same contract as [`Self::visit_rec`], just collecting into an
+    /// Same contract as `Self::visit_rec`, just collecting into an
     /// owned `Vec` instead of streaming through a `ControlFlow` `emit`
     /// callback -- reuses the already-correct sequential traversal
     /// rather than re-deriving it, for the part of a subtree
@@ -3027,7 +3040,7 @@ impl PathFstDeltaPow2Bfs {
 
     /// Same unconditional-binary-fan-out shape as [`Self::parallel_collect`],
     /// except once `remaining_depth` reaches zero the rest of every
-    /// child's subtree finishes through [`Self::visit_sequential_to_vec`]
+    /// child's subtree finishes through `Self::visit_sequential_to_vec`
     /// instead of recursing into more `rayon::join` calls. `remaining_depth`
     /// is only decremented when a child actually descends to the next
     /// tree level (the `children.len() == 1` arm) -- bisecting a level's
@@ -3804,7 +3817,7 @@ impl PathFstDeltaPow2Bfs {
     ///
     /// A column's identity is *not* the real tree level -- after a
     /// thread steals a fresh starting point, its own column 0 can be
-    /// any real level, which is exactly why [`MatrixCell::real_level`]
+    /// any real level, which is exactly why `MatrixCell::real_level`
     /// is stored explicitly rather than inferred from the column index.
     ///
     /// `prefer_shallow` selects between two steal-order heuristics
@@ -4177,7 +4190,7 @@ impl MatrixCell {
 }
 
 /// Phase 1 of [`PathFstDeltaPow2Bfs::build`] -- bottom-up dedup, same
-/// partitioning/dedup logic as [`build_rec_pow2`], but recording each
+/// partitioning/dedup logic as `build_rec_pow2`, but recording each
 /// distinct node's `(existence_word, child_indices)` into `levels_nodes`
 /// instead of writing storage. Returns this node's index within
 /// `levels_nodes[level]`.
@@ -4268,3 +4281,6 @@ fn collect_rec_bfs(
     register[level].insert(key, idx);
     idx
 }
+
+#[path = "fst_snapshot.rs"]
+mod snapshot;

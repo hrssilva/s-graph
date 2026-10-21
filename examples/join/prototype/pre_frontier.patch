@@ -1,0 +1,843 @@
+--- a/README.md
++++ b/README.md
+@@ -2,15 +2,12 @@
+ 
+ A compact graph engine over integer `(subject, predicate, object)` triples.
+ Start with **`Fst`**, an immutable index that shares identical suffixes of the
+-K³ radix tree. Build an automaton, compose its constraints, then apply it with
+-`graph.search(&machine)`. Queries run directly over compressed states with
+-reusable execution memory.
++K³ radix tree. Queries run directly over its compressed states. The default join
++is an adaptive automaton with reusable execution memory.
+ 
+ The crate provides graph-pattern joins, OPTIONAL, MINUS, existence filters,
+ regular paths, and building blocks for graph analytics. Applications supply
+ term dictionaries, parsing, named-graph semantics and transactions.
+-
+-Run `cargo run --example automata` for a complete construction/composition example.
+ 
+ ## Install
+ 
+@@ -76,58 +73,55 @@
+ `Compressed` for local insertion/removal. Those backends retain their existing
+ APIs and native join executor; their storage is not converted into an FST.
+ 
+-## Build a graph-pattern automaton
++## Query graph patterns
+ 
+ Variables are numbered from zero; predicates can be constants or variables.
+-Build the query language independently of the graph. Compilation binds it to
+-an index and chooses an execution schedule. Reuse the compiled search and its
+-workspace, and consume borrowed result rows inside the callback.
++A join plan borrows its graph. Build it once, reuse its workspace, and consume
++borrowed result rows inside the callback.
+ 
+ ```rust
+ use std::ops::ControlFlow;
+-use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+-use s_graph::automata::{Bgp, Search, Term::{Const as C, Var as V}};
++use s_graph::{Fst, Join, JoinWorkspace, DEFAULT_BLOCK_CAPACITY};
++use s_graph::graph::{JoinQuery, TriplePattern, Term::{Const as C, Var as V}};
+ 
+ let graph = Fst::build_dynamic(vec![
+     (0, 0, 1), (0, 0, 3), (1, 1, 2),
+ ], DEFAULT_BLOCK_CAPACITY);
+-let machine = Bgp::new(2)
+-    .triple([C(0), C(0), V(0)])
+-    .triple([V(0), C(1), V(1)]);
+-let search = graph.search(&machine)?;
+-let mut workspace = Default::default();
++let query = JoinQuery {
++    num_vars: 2,
++    patterns: vec![
++        TriplePattern { subject: C(0), predicate: C(0), object: V(0) },
++        TriplePattern { subject: V(0), predicate: C(1), object: V(1) },
++    ],
++};
++let plan = Join::new(&query, &graph)?; // also graph.join(&query)?
++let mut workspace = JoinWorkspace::default();
+ let mut rows = Vec::new();
+-let _: ControlFlow<()> = search.visit(&mut workspace, |row| {
+-    rows.push(row.values.to_vec()); // copy only if retaining the row
++let _: ControlFlow<()> = plan.visit(&mut workspace, |row| {
++    rows.push(row.to_vec()); // copy only if retaining the row
+     ControlFlow::Continue(())
+ });
+ assert_eq!(rows, [vec![1, 2]]);
+ 
+ // ASK / LIMIT: Break stops traversal, and the workspace can be reused.
+-assert_eq!(search.visit(&mut workspace, |_| ControlFlow::Break(true)),
++assert_eq!(plan.visit(&mut workspace, |_| ControlFlow::Break(true)),
+            ControlFlow::Break(true));
+ # Ok::<(), s_graph::TreeError>(())
+ ```
+ 
+-`Bgp::new(width)` declares a global binding namespace; unused slots remain
+-unbound. `.triple` adds a pattern and `.and(other_bgp)` fuses two BGPs before
+-compilation, so their constraints can prune together. The builder can be
+-searched against multiple graphs; compiled searches borrow their graph.
++For collection, `graph::try_join_run(&query, &graph)?` returns `JoinRows`, a flat
++buffer with `.rows()` and `.to_vec_rows()` accessors. FST inputs use the same
++adaptive executor. Raw joins require every declared variable to appear;
++composable BGP leaves below allow unused variables in their global schema.
+ Repeated variables, predicate variables, cycles, disconnected patterns, ground
+ constraints and empty BGPs are supported. Output order is unspecified.
+ 
+ Preparation compiles guards, register writes and traversal schedules. Adaptive
+-selection compares bounded probes; larger patterns receive enough work to
+-reach across more atoms, capped at 32,768 node reads per probe. A BGP search's
+-`.planning()` reports actual reads, its `node_budget`, chosen schedule and
+-whether shared-bit frontier propagation was selected. No graph relations or
+-graph-sized query DFA are constructed. Set `.schedule(Schedule::Frontier)`
+-or another `automata::Schedule` on a BGP for explicit execution control.
+-
+-`Join::new`, `Fst::join`, `Fst::bgp`, and `graph::try_join_run` remain available
+-for callers using `JoinQuery`. They use the same engine. Low-level
+-`scheduled_join::ScheduledJoin` also exposes traversal counters and memory
+-diagnostics.
++selection probes at most 832 storage nodes; it does not copy graph relations or
++construct a graph-sized query DFA. Runtime follows only surviving transitions.
++`plan.planning`, `visit_with_stats` and `allocated_bytes` expose planning,
++execution and retained-allocation diagnostics. `scheduled_join::ScheduledJoin`
++and `Policy` expose explicit schedules when an application needs control.
+ 
+ ## Compose queries: OPTIONAL, MINUS and more
+ 
+@@ -138,15 +132,21 @@
+ ```rust
+ use std::ops::ControlFlow;
+ use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+-use s_graph::automata::{Bgp, Query, Search, Term::{Const as C, Var as V}};
++use s_graph::graph::{JoinQuery, TriplePattern, Term::{Const as C, Var as V}};
++use s_graph::query_ops::{LeftJoin, Plan};
+ 
+ let graph = Fst::build_dynamic(vec![
+     (0, 0, 1), (0, 0, 3), (1, 1, 2),
+ ], DEFAULT_BLOCK_CAPACITY);
+-let people = Bgp::new(2).triple([C(0), C(0), V(0)]);
+-let details = Bgp::new(2).triple([V(0), C(1), V(1)]);
+-let machine = people.optional(details);
+-let optional = graph.search(&machine)?;
++let people = graph.bgp(&JoinQuery {
++    num_vars: 2,
++    patterns: vec![TriplePattern { subject: C(0), predicate: C(0), object: V(0) }],
++})?;
++let details = graph.bgp(&JoinQuery {
++    num_vars: 2,
++    patterns: vec![TriplePattern { subject: V(0), predicate: C(1), object: V(1) }],
++})?;
++let optional = LeftJoin::new(people, details);
+ let mut workspace = Default::default();
+ let mut rows = Vec::new();
+ let _: ControlFlow<()> = optional.visit(&mut workspace, |row| {
+@@ -158,23 +158,17 @@
+ # Ok::<(), s_graph::TreeError>(())
+ ```
+ 
+-Build these expressions first, then pass them to `graph.search`. Compiled
+-operators share the `automata::Search::visit` interface:
++Other operators in `query_ops` use the same `Plan::visit` interface:
+ 
+ | Operator | Construction / meaning |
+ |---|---|
+-| Inner join | `left.join(right)`; merges compatible partial bindings |
+-| Union | `left.union_all(right)`; retains duplicates |
+-| MINUS | `left.minus(right)`; a matching RHS must share a bound variable |
+-| Existence | `left.exists(right)` / `left.not_exists(right)` |
+-| Filter | `input.filter(\|row: Binding<'_>\| ...)` |
+-| Conditional OPTIONAL | `left.optional_if(right, \|merged: Binding<'_>\| ...)` |
+-| Explicit values | `Values::new(width, rows)?`; `Values::unit(width)` is one empty mapping |
+-
+-Existing compiled plans and path relations also compose through `query_ops`
+-using its public operator structs. Schema mismatches in a
+-builder expression return a compilation error. Filter closures are cloned
+-into the compiled expression.
++| Inner join | `Join { left, right }`; merges compatible partial bindings |
++| Union | `UnionAll { left, right }`; retains duplicates |
++| MINUS | `Minus { left, right }`; removes compatible rows only when at least one bound variable is shared |
++| Existence | `Exists { left, right }` / `NotExists { left, right }`; retains left rows according to a correlated probe |
++| Filter | `Filter { input, condition: \|row: Binding<'_>\| ... }` |
++| Conditional OPTIONAL | `LeftJoin { left, right, condition: \|merged: Binding<'_>\| ... }` |
++| Explicit values | `Values::new(width, Vec<Vec<Option<u32>>>)?`; `Values::unit(width)` is one empty mapping |
+ 
+ Put connected inner-join patterns into a single BGP to let the scheduler prune
+ them together. RHS BGP/path probes push existing bindings into traversal.
+@@ -192,7 +186,7 @@
+ transitions can be followed. A join is a register automaton over those choices;
+ its schedule decides when to bind full atoms and when to synchronize prefixes.
+ 
+-`automata::Automaton<Event, Context>` separates state transitions,
++`automata_core::Automaton<Event, Context>` separates state transitions,
+ acceptance and pruning. Implement it for your own event type and compose typed
+ machines with `And`, `Or`, `Not` or `MapInput`. Composition is generic Rust, with
+ no boxed virtual calls in the traversal loop. `BitmapAutomaton` provides fast
+@@ -200,36 +194,12 @@
+ recognizers to compressed storage. `ReversibleAction` models branch-local
+ updates; `Project`/`Transducer` and `Reducer` model lasting output contributions.
+ 
+-`AutomatonExt` adds `.intersection`, `.union` and `.complement` constructors.
+ `And` intersects languages on the **same event sequence**; `Or` unites them.
+ `Not` complements a language, including a dead-state sink. It cannot safely
+ prune by simply inverting a prefix mask: use `Unfiltered` for arbitrary
+ complements in a bitmap walk. Relational `Join`, OPTIONAL and MINUS use the
+ binding operators above, because they combine mappings rather than recognize
+-the same word. Wrap a slot recognizer in `Language` to apply it through the
+-same `graph.search` entry point; its three output slots are S/P/O:
+-
+-```rust
+-use std::ops::ControlFlow;
+-use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+-use s_graph::automata::{AutomatonExt, Language, Mask, Search};
+-
+-let graph = Fst::build(vec![(0,0,0), (0,0,1), (1,0,1)], [2,1,2], DEFAULT_BLOCK_CAPACITY);
+-let machine = Language(Mask(3).intersection(Mask(u64::MAX)));
+-let search = graph.search(machine)?;
+-let mut count = 0;
+-let _: ControlFlow<()> = search.visit(&mut Default::default(), |_| {
+-    count += 1; ControlFlow::Continue(())
+-});
+-assert_eq!(count, 2);
+-# Ok::<(), s_graph::TreeError>(())
+-```
+-
+-`Mask` constrains **encoded slot numbers**, which depend on the storage layout;
+-use `Bgp` for coordinate/variable constraints. Custom slot recognizers implement
+-`Automaton<Slot>`; add `BitmapAutomaton` for fast masks or use `Unfiltered`.
+-Frontier joins propagate supported variable bits across live atom automata,
+-including across storage levels, and keep reversible effects in a workspace.
++the same word.
+ 
+ ## Regular graph paths
+ 
+@@ -240,7 +210,7 @@
+ ```rust
+ use std::ops::ControlFlow;
+ use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+-use s_graph::automata::{PathExpr, PathBindings};
++use s_graph::path_ops::{PathExpr, PathBindings};
+ use s_graph::traversal::HopRange;
+ use s_graph::graph::Term::{Const as C, Var as V};
+ use s_graph::query_ops::Plan;
+@@ -284,7 +254,7 @@
+ 
+ ```rust
+ use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+-use s_graph::automata::{And, FstSource, Project};
++use s_graph::automata_core::{And, FstSource, Project};
+ use s_graph::analytics::{CompressedEdges, Edge, NonLoop, Predicate, fold, PageRank, LabelPropagation};
+ 
+ let graph = Fst::build_dynamic(vec![(0, 0, 0), (0, 0, 1), (1, 1, 2)], DEFAULT_BLOCK_CAPACITY);
+@@ -316,7 +286,6 @@
+ ## Further reading
+ 
+ - [DESIGN.md](DESIGN.md): layouts, algorithms, alternatives and measurements.
+-- [Automata and frontier propagation](examples/join/AUTOMATA_FRONTIERS.md): current API, algorithm, research and performance comparisons.
+ - [Promotion notes](examples/join/PROMOTION.md): migration, compatibility and performance controls.
+ - [Query operators and paths](examples/join/QUERY_OPERATORS_AND_PATHS.md): semantics and benchmark details.
+ - [Automata scheduling](examples/join/SCHEDULED_AUTOMATA.md): the adaptive executor.
+--- a/cycle_bench.rs
++++ b/cycle_bench.rs
+@@ -163,7 +163,6 @@
+         "adaptive" => Policy::Adaptive,
+         "levels" => Policy::Levels,
+         "nested" => Policy::Nested,
+-        "frontier" => Policy::Frontier,
+         _ => panic!("unknown policy"),
+     };
+     let plan = ScheduledJoin::with_source(&f.query, source, policy).unwrap();
+@@ -201,7 +200,7 @@
+     println!(
+         concat!(
+             "{{\"finished\":{},\"rows\":{},\"expected_rows\":{},\"nodes\":{},\"candidates\":{},",
+-            "\"planning_nodes\":{},\"planning_budget\":{},\"frontier\":{},\"cut\":{},\"order\":{:?},\"certified_empty\":{},",
++            "\"planning_nodes\":{},\"cut\":{},\"order\":{:?},\"certified_empty\":{},",
+             "\"prepare_us\":{},\"visit_us\":{},\"total_us\":{},\"plan_bytes\":{},",
+             "\"workspace_bytes\":{},\"height\":{},\"triples\":{},\"level_layouts\":{:?}}}"
+         ),
+@@ -211,8 +210,6 @@
+         stats.nodes,
+         stats.candidates,
+         plan.planning.nodes,
+-        plan.planning.node_budget,
+-        plan.planning.selected_frontier,
+         plan.planning.selected_cut,
+         plan.planning.selected_order,
+         plan.planning.certified_empty,
+--- a/layout_bench.rs
++++ b/layout_bench.rs
+@@ -87,7 +87,6 @@
+         "adaptive" => Policy::Adaptive,
+         "nested" => Policy::Nested,
+         "levels" => Policy::Levels,
+-        "frontier" => Policy::Frontier,
+         "prefix2" => Policy::Prefix(2),
+         _ => panic!("unknown policy {name}"),
+     }
+--- a/schedule_stress.rs
++++ b/schedule_stress.rs
+@@ -19,7 +19,6 @@
+     let policy = match policy_name {
+         "adaptive" => Policy::Adaptive,
+         "levels" => Policy::Levels,
+-        "frontier" => Policy::Frontier,
+         _ => panic!("unknown policy"),
+     };
+     let start = Instant::now();
+--- a/src/automata_core.rs
++++ b/src/automata_core.rs
+@@ -1,30 +1,6 @@
+ //! Typed automata with static composition. The bitmap interface is an optional
+ //! execution specialization, not a restriction on the general event alphabet.
+ use crate::path_fst::PathFstDeltaPow2Bfs;
+-
+-/// Supported values of one Boolean projection of a packed transition set.
+-/// Intersections combine independent constraints on the same variable bit.
+-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+-pub struct BitSupport(u8);
+-impl BitSupport {
+-    pub const BOTH: Self = Self(3);
+-    pub fn from_mask(allowed: u64, ones: u64) -> Self {
+-        Self(u8::from(allowed & !ones != 0) | (u8::from(allowed & ones != 0) << 1))
+-    }
+-    pub fn intersection(self, other: Self) -> Self {
+-        Self(self.0 & other.0)
+-    }
+-    pub fn is_empty(self) -> bool {
+-        self.0 == 0
+-    }
+-    pub fn singleton(self) -> Option<bool> {
+-        match self.0 {
+-            1 => Some(false),
+-            2 => Some(true),
+-            _ => None,
+-        }
+-    }
+-}
+ 
+ /// Language semantics over a typed alphabet. Missing transitions reject.
+ /// Context is read-only; reversible effects belong to the execution layer.
+@@ -108,7 +84,6 @@
+         self.0.can_match(&s.0, c) && self.1.can_match(&s.1, c)
+     }
+ }
+-#[derive(Clone, Copy)]
+ pub struct Or<A, B>(pub A, pub B);
+ impl<E, C: ?Sized, A: Automaton<E, C>, B: Automaton<E, C>> Automaton<E, C> for Or<A, B> {
+     type State = (Option<A::State>, Option<B::State>);
+@@ -135,7 +110,6 @@
+ }
+ /// Complement completes missing transitions with a live sink. Inverting a
+ /// prefix mask is NOT a correct implementation of language complement.
+-#[derive(Clone, Copy)]
+ pub struct Not<A>(pub A);
+ impl<E, C: ?Sized, A: Automaton<E, C>> Automaton<E, C> for Not<A> {
+     type State = Option<A::State>;
+@@ -557,7 +531,6 @@
+ 
+ /// Correctness-preserving adapter for ordinary automata without a mask oracle.
+ /// It leaves prefix pruning to step()/can_match(); complement uses this path.
+-#[derive(Clone, Copy)]
+ pub struct Unfiltered<A>(pub A);
+ impl<C: ?Sized, A: Automaton<Slot, C>> Automaton<Slot, C> for Unfiltered<A> {
+     type State = A::State;
+@@ -586,16 +559,6 @@
+     source: &S,
+     machine: &A,
+     context: &C,
+-    emit: impl FnMut(&[Slot]) -> std::ops::ControlFlow<T>,
+-) -> std::ops::ControlFlow<T> {
+-    visit_language_with_workspace(source, machine, context, &mut Vec::new(), emit)
+-}
+-/// Reusable path scratch for repeated finite-source product traversals.
+-pub fn visit_language_with_workspace<S: BitmapSource, C: ?Sized, A: BitmapAutomaton<C>, T>(
+-    source: &S,
+-    machine: &A,
+-    context: &C,
+-    path: &mut Vec<Slot>,
+     mut emit: impl FnMut(&[Slot]) -> std::ops::ControlFlow<T>,
+ ) -> std::ops::ControlFlow<T> {
+     use std::ops::ControlFlow;
+@@ -643,7 +606,6 @@
+         }
+         ControlFlow::Continue(())
+     }
+-    path.clear();
+     let Some(root) = source.root() else {
+         return ControlFlow::Continue(());
+     };
+@@ -654,7 +616,7 @@
+         root,
+         0,
+         machine.start(),
+-        path,
++        &mut Vec::with_capacity(source.height()),
+         &mut emit,
+     )
+ }
+--- a/src/fst.rs
++++ b/src/fst.rs
+@@ -34,15 +34,6 @@
+ pub type Scan<'a> = crate::path_ops::PatternIter<'a, crate::automata_core::FstSource<'a>>;
+ 
+ impl Fst {
+-    /// Compile an explicitly constructed automaton against this immutable graph.
+-    /// The expression can be reused against other graphs; execution memory is
+-    /// separate and reusable through the returned `automata::Search` plan.
+-    pub fn search<'a, A: crate::automata::Compile<crate::automata_core::FstSource<'a>>>(
+-        &'a self,
+-        machine: A,
+-    ) -> Result<A::Compiled> {
+-        machine.compile(crate::automata_core::FstSource(self))
+-    }
+     /// Infer each coordinate domain from the largest ID (empty domains use 1).
+     pub fn build_dynamic(triples: Vec<Triple>, block_capacity: usize) -> Self {
+         Self::try_build_dynamic(triples, block_capacity).expect("invalid FST build")
+--- a/src/large_bgp_cases.rs
++++ b/src/large_bgp_cases.rs
+@@ -114,22 +114,18 @@
+                         Policy::Nested,
+                         Policy::Prefix(1),
+                         Policy::Levels,
+-                        Policy::Frontier,
+                         Policy::Adaptive,
+                     ] {
+                         // Carry permits exponentially many coarse prefixes
+                         // under level synchronization. Exercise that shape
+                         // at large size with schedules that bind whole atoms.
+                         if kind == "carry-chain"
+-                            && !matches!(
+-                                policy,
+-                                Policy::Nested | Policy::Frontier | Policy::Adaptive
+-                            )
++                            && !matches!(policy, Policy::Nested | Policy::Adaptive)
+                         {
+                             continue;
+                         }
+                         let plan = HybridJoin::new(&q, &tree, policy).unwrap();
+-                        assert!(plan.planning.nodes <= plan.planning.node_budget);
++                        assert!(plan.planning.nodes <= 832);
+                         assert_eq!(plan.states(), n * tree.height());
+                         let mut ws = ScheduleWorkspace::default();
+                         if !expected.is_empty() {
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,8 +1,7 @@
+ //! Compact integer graph storage with composable automata.
+ //!
+ //! With the default `heap` feature, start with `Fst`: an immutable, suffix-sharing index over `(u32, u32, u32)`
+-//! triples. Build `automata::Bgp` or a composed recognizer and apply it through
+-//! `Fst::search`. `Join` also executes adaptive joins directly on the index;
++//! triples. `Join` executes adaptive automaton joins directly on the index;
+ //! `query_ops` composes BGPs, OPTIONAL, MINUS, unions and existence filters.
+ //! `path_ops` builds regular path languages, while `automata_core` supplies
+ //! reusable recognizers, boolean composition, transducers and reducers.
+@@ -66,11 +65,7 @@
+ #[cfg(feature = "heap")]
+ pub mod automata_core;
+ #[cfg(feature = "heap")]
+-pub mod automata;
+-#[cfg(feature = "heap")]
+ pub mod fst;
+-#[cfg(feature = "heap")]
+-mod frontier_join;
+ #[cfg(feature = "heap")]
+ pub mod large_bgp_cases;
+ #[cfg(feature = "heap")]
+--- a/src/query_ops.rs
++++ b/src/query_ops.rs
+@@ -144,7 +144,6 @@
+     }
+ }
+ /// VALUES is a multiset. Empty mappings and duplicate rows are retained.
+-#[derive(Clone)]
+ pub struct Values {
+     width: usize,
+     rows: Vec<Row>,
+@@ -227,14 +226,6 @@
+     }
+ }
+ impl<S: TripleSource> Bgp<S> {
+-    pub fn planning(&self) -> &crate::scheduled_join::PlanningStats {
+-        &self.machine.planning
+-    }
+-    pub fn allocated_bytes(&self) -> usize {
+-        self.machine.allocated_bytes()
+-            + self.variables.capacity() * std::mem::size_of::<usize>()
+-            + self.possible.capacity() * 8
+-    }
+     pub fn new(query: &JoinQuery<Term>, source: S, policy: Policy) -> Result<Self> {
+         let mut used = vec![false; query.num_vars];
+         for p in &query.patterns {
+@@ -299,17 +290,6 @@
+         ws: &mut Self::Workspace,
+         mut emit: impl FnMut(Binding<'_>) -> ControlFlow<T>,
+     ) -> ControlFlow<T> {
+-        // Sorted global IDs are the identity mapping when every slot is used.
+-        // Keep the register machine's borrowed row rather than copying it into
+-        // a second full-width row on the primary public BGP search path.
+-        if self.variables.len() == self.width {
+-            return self.machine.visit(&mut ws.machine, |values| {
+-                emit(Binding {
+-                    values,
+-                    bound: &self.possible,
+-                })
+-            });
+-        }
+         ws.row.reset(self.width);
+         for &v in &self.variables {
+             ws.row.set(v, 0);
+@@ -331,16 +311,6 @@
+         ws.parameters.clear();
+         ws.parameters
+             .extend(self.variables.iter().map(|&v| hint.get(v)));
+-        if self.variables.len() == self.width {
+-            return self
+-                .machine
+-                .visit_matching(&ws.parameters, &mut ws.machine, |values| {
+-                    emit(Binding {
+-                        values,
+-                        bound: &self.possible,
+-                    })
+-                });
+-        }
+         ws.row.reset(self.width);
+         for &v in &self.variables {
+             ws.row.set(v, 0);
+@@ -376,7 +346,6 @@
+         self(row)
+     }
+ }
+-#[derive(Clone, Copy)]
+ pub struct Always;
+ impl Condition for Always {
+     fn test(&self, _: Binding<'_>) -> bool {
+--- a/src/query_ops_tests.rs
++++ b/src/query_ops_tests.rs
+@@ -440,7 +440,6 @@
+             Policy::Nested,
+             Policy::Prefix(1),
+             Policy::Levels,
+-            Policy::Frontier,
+             Policy::Adaptive,
+         ] {
+             let p = ScheduledJoin::with_source(&q, FstSource(&tree), policy).unwrap();
+--- a/src/scheduled_join.rs
++++ b/src/scheduled_join.rs
+@@ -17,7 +17,6 @@
+ use std::ops::ControlFlow;
+ const ROOT: usize = usize::MAX;
+ const PROBE_NODES: u64 = 128;
+-const MAX_FRONTIER_PROBE_STATES: usize = 1024;
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum Policy {
+     /// Finish each atom before entering the next.
+@@ -26,8 +25,6 @@
+     Prefix(usize),
+     /// Synchronize every level across all atoms.
+     Levels,
+-    /// Intersect shared-bit supports and advance singleton atom frontiers.
+-    Frontier,
+     /// Choose a schedule with bounded probes; the public default.
+     Adaptive,
+ }
+@@ -75,17 +72,6 @@
+     cut: usize,
+     order: Vec<usize>,
+ }
+-impl Plan {
+-    fn empty() -> Self {
+-        Self {
+-            stages: Vec::new(),
+-            blocks: Vec::new(),
+-            prefix: 0,
+-            cut: 0,
+-            order: Vec::new(),
+-        }
+-    }
+-}
+ #[derive(Clone, Copy, Default)]
+ struct Frame<C: Copy + Default> {
+     address: C,
+@@ -100,7 +86,6 @@
+ }
+ #[derive(Default)]
+ pub struct ScheduleWorkspace<C: Copy + Default = u64> {
+-    frontier: crate::frontier_join::FrontierWorkspace<C>,
+     frames: Vec<Frame<C>>,
+     bindings: Vec<u32>,
+     masks: Vec<CachedMask>,
+@@ -110,8 +95,7 @@
+ }
+ impl<C: Copy + Default> ScheduleWorkspace<C> {
+     pub fn allocated_bytes(&self) -> usize {
+-        self.frontier.allocated_bytes()
+-            + self.frames.capacity() * std::mem::size_of::<Frame<C>>()
++        self.frames.capacity() * std::mem::size_of::<Frame<C>>()
+             + self.bindings.capacity() * 4
+             + self.masks.capacity() * std::mem::size_of::<CachedMask>()
+             + self.parameters.capacity() * 8
+@@ -130,23 +114,18 @@
+ }
+ #[derive(Default, Clone, Debug)]
+ pub struct PlanningStats {
+-    /// Sum of the hard node limits of attempted probes. Large queries receive
+-    /// a query-size-aware limit, capped at 32,768 nodes per probe.
+-    pub node_budget: u64,
+     pub nodes: u64,
+     pub candidates: u64,
+     pub trials: usize,
+     pub certified_empty: bool,
+     pub selected_cut: usize,
+     pub selected_order: Vec<usize>,
+-    pub selected_frontier: bool,
+-}
+-pub(crate) enum Stop<T> {
++}
++enum Stop<T> {
+     User(T),
+     Budget,
+ }
+ pub struct ScheduledJoin<S: TripleSource> {
+-    frontier: Option<crate::frontier_join::FrontierPlan>,
+     source: S,
+     plan: Plan,
+     variables: usize,
+@@ -268,21 +247,8 @@
+             Policy::Adaptive if anchored.is_none() && atoms.len() > 1 => source.height(),
+             _ => 0,
+         };
+-        let frontier = (policy == Policy::Frontier)
+-            .then(|| crate::frontier_join::FrontierPlan::compile(&source, &atoms, &zero));
+-        let plan = if frontier.is_some() {
+-            Plan {
+-                stages: Vec::new(),
+-                blocks: Vec::new(),
+-                prefix: 0,
+-                cut: 0,
+-                order: order.clone(),
+-            }
+-        } else {
+-            compile(&source, &atoms, &order, &zero, cut)
+-        };
++        let plan = compile(&source, &atoms, &order, &zero, cut);
+         let mut join = Self {
+-            frontier,
+             source,
+             plan,
+             variables: query.num_vars,
+@@ -291,41 +257,18 @@
+             planning: PlanningStats::default(),
+         };
+         if policy == Policy::Adaptive && !empty && atoms.len() > 1 && anchored.is_none() {
+-            // A probe must reach across a large query before lack of rows is
+-            // meaningful. Still cap each trial independently of graph size.
+-            let large = atoms.len() > 16;
+-            let limit = if large {
+-                (atoms
+-                    .len()
+-                    .saturating_mul(join.source.height())
+-                    .saturating_mul(4) as u64)
+-                    .clamp(64, 32_768)
+-            } else {
+-                64
+-            };
+-            let nested_limit = if large { limit } else { PROBE_NODES };
+-            let (initial, finished) = join.probe(limit);
++            // Try an inexpensive contradiction certificate before order search.
++            let (initial, finished) = join.probe(64);
+             if finished && initial.rows == 0 {
+                 join.empty = true;
+                 join.planning.certified_empty = true;
+             } else if !finished {
+-                let levels = std::mem::replace(&mut join.plan, Plan::empty());
+                 let mut best_score = -1f64;
+                 let mut best_order = order.clone();
+-                let mut best_stats = ScheduleStats::default();
+-                let mut best_plan = None;
+                 let mut explosive = false;
+-                // Recompiling permutations dominates preparation at thousands
+-                // of atoms. The incidence heuristic already orders those in
+-                // O(atoms log atoms); compare schedules on that order.
+-                let candidates = if large {
+-                    vec![order.clone()]
+-                } else {
+-                    orders(&order)
+-                };
+-                for candidate in candidates {
++                for candidate in orders(&order) {
+                     join.plan = compile(&join.source, &atoms, &candidate, &zero, 0);
+-                    let (stats, finished) = join.probe(nested_limit);
++                    let (stats, finished) = join.probe(PROBE_NODES);
+                     if finished && stats.rows == 0 {
+                         join.empty = true;
+                         join.planning.certified_empty = true;
+@@ -342,8 +285,6 @@
+                     if score > best_score {
+                         best_score = score;
+                         best_order = candidate;
+-                        best_stats = stats.clone();
+-                        best_plan = Some(std::mem::replace(&mut join.plan, Plan::empty()));
+                         explosive = amplified;
+                     }
+                     if explosive {
+@@ -351,65 +292,20 @@
+                     }
+                 }
+                 if !join.empty {
+-                    // Compare completed answers per unit of traversal work.
+-                    // Terminal-check progress still chooses a nested order
+-                    // when neither schedule has produced any answers.
+-                    let rate = |s: &ScheduleStats| {
+-                        s.rows as f64 / (s.nodes as f64 + s.candidates as f64 * 0.125).max(1.)
++                    let selected_cut = if explosive {
++                        2.min(join.source.height())
++                    } else {
++                        0
+                     };
+-                    if initial.rows > 0 && rate(&initial) > rate(&best_stats) * 1.05 {
+-                        join.plan = levels;
+-                    } else {
+-                        join.plan = if explosive {
+-                            compile(
+-                                &join.source,
+-                                &atoms,
+-                                &best_order,
+-                                &zero,
+-                                2.min(join.source.height()),
+-                            )
+-                        } else {
+-                            best_plan.unwrap()
+-                        };
+-                    }
+-                    if initial.rows == 0
+-                        && best_stats.rows == 0
+-                        && atoms.len().saturating_mul(join.source.height())
+-                            <= MAX_FRONTIER_PROBE_STATES
+-                    {
+-                        // Shared-bit propagation is a more expensive executor.
+-                        // Use it only with evidence: a completed bounded probe
+-                        // while neither cheap schedule has yielded a row.
+-                        join.frontier = Some(crate::frontier_join::FrontierPlan::compile(
+-                            &join.source,
+-                            &atoms,
+-                            &zero,
+-                        ));
+-                        let (frontier_stats, completed) = join.probe(nested_limit);
+-                        if completed {
+-                            if frontier_stats.rows == 0 {
+-                                join.empty = true;
+-                                join.planning.certified_empty = true;
+-                            }
+-                            let order = std::mem::take(&mut join.plan.order);
+-                            join.plan = Plan {
+-                                order,
+-                                ..Plan::empty()
+-                            };
+-                        } else {
+-                            join.frontier = None;
+-                        }
+-                    }
++                    join.plan = compile(&join.source, &atoms, &best_order, &zero, selected_cut);
+                 }
+             }
+         }
+         join.planning.selected_cut = join.plan.cut;
+         join.planning.selected_order = join.plan.order.clone();
+-        join.planning.selected_frontier = join.frontier.is_some();
+         Ok(join)
+     }
+     fn probe(&mut self, limit: u64) -> (ScheduleStats, bool) {
+-        self.planning.node_budget += limit;
+         let mut stats = ScheduleStats::default();
+         let mut ws = ScheduleWorkspace::default();
+         let flow = self.run::<true, true, false, ()>(&mut ws, &mut stats, limit, &mut |_| {
+@@ -421,8 +317,7 @@
+         (stats, matches!(flow, ControlFlow::Continue(())))
+     }
+     pub fn allocated_bytes(&self) -> usize {
+-        self.frontier.as_ref().map_or(0, |p| p.allocated_bytes())
+-            + self.plan.stages.capacity() * std::mem::size_of::<Stage>()
++        self.plan.stages.capacity() * std::mem::size_of::<Stage>()
+             + self.plan.blocks.capacity() * std::mem::size_of::<Block>()
+             + self.plan.order.capacity() * std::mem::size_of::<usize>()
+             + self
+@@ -434,9 +329,7 @@
+             + self.planning.selected_order.capacity() * std::mem::size_of::<usize>()
+     }
+     pub fn states(&self) -> usize {
+-        self.frontier
+-            .as_ref()
+-            .map_or(self.plan.stages.len(), |p| p.states())
++        self.plan.stages.len()
+     }
+     pub fn visit<T>(
+         &self,
+@@ -464,20 +357,6 @@
+         mut emit: impl FnMut(&[u32]) -> ControlFlow<T>,
+     ) -> ControlFlow<T> {
+         assert_eq!(values.len(), self.variables);
+-        if self.frontier.is_some() {
+-            ws.frontier.parameters.clear();
+-            ws.frontier.parameters.extend_from_slice(values);
+-            return match self.run::<false, false, true, T>(
+-                ws,
+-                &mut ScheduleStats::default(),
+-                u64::MAX,
+-                &mut emit,
+-            ) {
+-                ControlFlow::Continue(()) => ControlFlow::Continue(()),
+-                ControlFlow::Break(Stop::User(t)) => ControlFlow::Break(t),
+-                _ => unreachable!(),
+-            };
+-        }
+         if values.iter().all(Option::is_none) {
+             return self.visit(ws, emit);
+         }
+@@ -547,15 +426,6 @@
+     ) -> ControlFlow<Stop<T>> {
+         if self.empty {
+             return ControlFlow::Continue(());
+-        }
+-        if let Some(plan) = &self.frontier {
+-            return plan.run::<S, TRACK, LIMIT, PARAM, T>(
+-                &self.source,
+-                &mut ws.frontier,
+-                stats,
+-                limit,
+-                emit,
+-            );
+         }
+         ws.bindings.resize(self.variables, 0);
+         ws.bindings.fill(0);
+@@ -1024,11 +894,10 @@
+             Policy::Prefix(1),
+             Policy::Prefix(2),
+             Policy::Levels,
+-            Policy::Frontier,
+             Policy::Adaptive,
+         ] {
+             let p = HybridJoin::new(q, tree, policy).unwrap();
+-            assert!(p.planning.nodes <= p.planning.node_budget);
++            assert!(p.planning.nodes <= 64 + 6 * PROBE_NODES);
+             if p.planning.certified_empty {
+                 assert!(oracle.is_empty());
+             }
+@@ -1198,7 +1067,6 @@
+             Policy::Nested,
+             Policy::Prefix(1),
+             Policy::Levels,
+-            Policy::Frontier,
+             Policy::Adaptive,
+         ] {
+             let p = ScheduledJoin::with_source(&q, OneWord((1 << 1) | (1 << 4) | (1 << 2)), policy)
+--- a/tests/fst.rs
++++ b/tests/fst.rs
+@@ -160,7 +160,7 @@
+         ControlFlow::Continue(())
+     });
+     assert_eq!(count, 2);
+-    assert!(plan.planning.nodes <= plan.planning.node_budget);
++    assert!(plan.planning.nodes <= 832);
+     assert_eq!(
+         s_graph::path::bfs_sequential(&fst, 0, None),
+         s_graph::path::bfs_sequential(&heap, 0, None)

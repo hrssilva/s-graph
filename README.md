@@ -1,376 +1,327 @@
 # s-graph
 
-A compact graph representation and algorithm library over integer triples
-`(subject, predicate, object)`: a DFS-preorder, interleaved-skip-pointer radix trie over
-Morton-coded triples, generic over three storage backends (in-RAM,
-real-file, LZ4-compressed in-RAM), with local insertion, native prefix
-conjunctive joins, bounded paths, and regular-path automata. Dictionaries,
-named-graph semantics, query languages and transactions belong to consumers.
+A compact graph engine over integer `(subject, predicate, object)` triples.
+Start with **`Fst`**, an immutable index that shares identical suffixes of the
+K³ radix tree. Build an automaton, compose its constraints, then apply it with
+`graph.search(&machine)`. Queries run directly over compressed states with
+reusable execution memory.
 
-It grew out of an exploratory comparison against the k²-tree family
-(Mk²-tree, IK²-tree) and Omnitree, kept in `examples/` along with the
-full survey and literature grounding (see `examples/README.md`). This
-crate (`src/`) is the productionized result: the same structure, with
-`Result`-based error handling, feature-gated backends, and a real public
-API instead of a benchmark harness.
+The crate provides graph-pattern joins, OPTIONAL, MINUS, existence filters,
+regular paths, and building blocks for graph analytics. Applications supply
+term dictionaries, parsing, named-graph semantics and transactions.
 
-## Why
-
-Compact RDF indexes (k²-tree-family structures especially) are usually
-build-once, query-forever: adding one triple means rebuilding the whole
-structure. `s-graph` inserts locally, with O(height log B + block bytes)
-work for ordinary insertions and O(B) block-directory work on splits,
-where B is the block count, while keeping the same
-DFS-preorder byte layout that makes the structure page/compress
-naturally. Query latency and memory footprint don't degrade on skewed or
-concentrated data the way the k²-tree family's unconditional per-level
-fan-out does (see `examples/README.md` §5 for the measured ~2000x gap
-this design avoids structurally).
-
-If your workload doesn't need that local-insertion property -- build
-once, then query and join a lot -- `PathFstDeltaPow2Bfs` (same `heap`
-feature) measures smaller and at least as fast on every shape tried so
-far; see "The FST layout" below.
+Run `cargo run --example automata` for a complete construction/composition example.
 
 ## Install
 
 ```toml
 [dependencies]
-s-graph = { path = "../s-graph" }  # or a git dependency, once published
+s-graph = { path = "../s-graph" }
 ```
 
-Feature flags (`heap` is the only one on by default):
+The default `heap` feature enables FST storage and the composed query/analytics
+modules, without additional runtime dependencies. `file` and `compressed` add
+mutable tree backends; `parallel` adds Rayon bulk building and parallel BFS for
+compatible backends. Enable `heap` alongside these features to retain FST APIs.
 
-| Feature | Adds | For |
-|---|---|---|
-| `heap` | `Heap` backend *and* `PathFstDeltaPow2Bfs` | In-RAM, fastest, no extra dependencies -- see "The FST layout" below for which one to reach for |
-| `file` | `File` backend | Real backing file, `pread`/`pwrite`, near-zero steady-state RAM |
-| `compressed` | `Compressed` backend | LZ4-compressed in-RAM blocks, for RAM-constrained/no-disk deployments |
-| `parallel` | `rayon`-based bulk-build fan-out | ~4x faster bulk build at large N (measured); off by default so a single-threaded consumer isn't forced to accept the dependency |
-
-## Quick start
+## Build, read and persist an FST
 
 ```rust
-use s_graph::Heap;
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
 
-// Build from a batch of (subject, predicate, object) u32 triples.
-// A real application dictionary-encodes its own IRIs/literals to u32s
-// (see "Getting real data in" below) -- this crate indexes ids, it
-// doesn't do term interning itself.
-let triples = vec![(0, 0, 1), (0, 1, 2), (1, 0, 2)];
-let mut tree = Heap::build_dynamic(triples, /* block_capacity */ 4096);
+let graph = Fst::try_build_dynamic(vec![
+    (0, 0, 1), (0, 0, 3), (1, 1, 2),
+], DEFAULT_BLOCK_CAPACITY)?;
 
-assert!(tree.contains(0, 0, 1));
-assert!(!tree.contains(2, 2, 2));
+assert!(graph.contains(0, 0, 1));
+let mut neighbors: Vec<_> = graph.scan([Some(0), Some(0), None])
+    .map(|(_, _, object)| object).collect();
+neighbors.sort_unstable();
+assert_eq!(neighbors, [1, 3]);
+assert_eq!(graph.count_matching([Some(0), None, None]), 2);
+assert_eq!(graph.contains_batch(&[(0, 0, 1), (9, 9, 9)]), [true, false]);
 
-// Row/column-style restricted queries: a per-dimension restriction
-// (`Exact`, `Range`, `Multi`, or `Free`) plus which dimension to emit.
-use s_graph::tree::DimRestriction;
-let objects_of_0_via_pred_0 = tree.restricted_descent([DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free], 2); // subject=0, predicate=0, object=?
-let predicates_between = tree.predicates_for(0, 1); // subject=0, object=1, predicate=?
-
-// Many point-existence checks at once (filters, graph diff): shares
-// descent work across queries that land on the same trie node instead of
-// re-descending from the root per query -- see "Batched reads" below.
-let hits = tree.contains_batch(&[(0, 0, 1), (9, 9, 9)]); // [true, false]
-
-// Count matches without listing them -- `None` is a wildcard, same
-// convention as `scan`.
-let num_edges_of_0 = tree.count_matching([Some(0), None, None]);
-
-// Insert within the declared coordinate domains.
-assert!(tree.insert(1, 1, 1).unwrap()); // true: newly inserted
-assert!(!tree.insert(0, 0, 1).unwrap()); // false: already present
-
-// An out-of-domain coordinate is rejected, not silently accepted into
-// the wrong bit of an unrelated triple -- subject 2 is out of range
-// here since only subjects 0 and 1 appeared in the triples this tree
-// was built from. Check `tree.in_bounds(s, p, o)` up front if you'd
-// rather filter than handle the error.
-assert!(tree.insert(2, 0, 0).is_err());
-
-// Delete a triple -- full, immediate reclamation: any node left
-// entirely empty by the removal is physically removed too, cascading
-// up to (but never including) the root, not just a bit flip deferred
-// to a separate compaction step. An out-of-domain coordinate here
-// simply can't match anything, so this returns `Ok(false)`, not `Err`.
-assert!(tree.remove(0, 0, 1).unwrap());
-assert!(!tree.contains(0, 0, 1));
-
-// Persist and reload -- the format is backend-agnostic: bytes from a
-// `Heap` deserialize correctly into a `File` or `Compressed` tree too.
-let bytes = tree.serialize();
-let restored = Heap::deserialize(&bytes).unwrap();
-assert!(restored.contains(0, 1, 2));
-assert!(!restored.contains(0, 0, 1)); // the removal above survives the round trip too
+let bytes = graph.serialize();
+let restored = Fst::deserialize(&bytes)?;
+assert!(restored.contains(1, 1, 2));
+# Ok::<(), s_graph::TreeError>(())
 ```
 
-Swap `Heap` for `s_graph::File` or `s_graph::Compressed` (behind their
-features) to change *only* the storage backend — every method above is
-identical across all three; see `src/storage_file.rs`/
-`src/storage_compressed.rs` for what each one actually trades off.
+`try_build_dynamic` infers each domain as its largest ID plus one. Use
+`Fst::try_build(triples, [subjects, predicates, objects], block_capacity)` to
+supply explicit domain **sizes**, each in `1..=2^32`. Duplicate triples collapse
+to one edge. Empty graphs and `(0, 0, 0)` are supported. Block capacity must be
+a power of two of at least 512 bytes; use `DEFAULT_BLOCK_CAPACITY` normally.
+`build`/`build_dynamic` are convenience constructors that panic on invalid input;
+the `try_` forms return errors, including unrepresentable 32-bit child deltas.
+Build input is currently limited to `u32::MAX` triples.
 
-### Joins and graph traversal
+`scan` accepts exact values or `None` wildcards and allocates no heap memory.
+`select([DimRestriction; 3], output_dimension)` projects sorted, distinct values
+with exact, inclusive range, union-of-ranges or free restrictions (`tree::DimRestriction`).
+`count_matching` counts logical matches while memoizing shared suffixes.
+Batch existence checks currently perform independent point lookups.
 
-```rust
-use s_graph::graph::{JoinQuery, Term, TriplePattern, join_run};
-use s_graph::path::bfs_sequential;
-use s_graph::Heap;
+For files, use `graph.serialize_to_path("graph.sgf")?` and
+`Fst::deserialize_from_path("graph.sgf")?`. `serialize_into`/`deserialize_from`
+stream through `Write`/`Read`. Loading checks the version, resource limits,
+record boundaries, DAG links, reachability and coordinate domains before
+exposing the graph. `serialize::DeserializeLimits` and the `_with_limits`
+loaders control maximum block count, block size and stored bytes (default 1 GiB);
+validation also needs temporary memory proportional to physical states/edges.
+FST snapshots use their own format, separate from mutable-tree snapshots.
+Persist graphs; rebuild query plans against the loaded graph.
 
-let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2), (0, 0, 3)], 4096);
+FSTs are immutable. Rebuild for updates, or explicitly choose `Heap`, `File` or
+`Compressed` for local insertion/removal. Those backends retain their existing
+APIs and native join executor; their storage is not converted into an FST.
 
-// Collect a native prefix-join result: "subject 0 --p0--> ?a . ?a --p1--> ?b"
-let query = JoinQuery {
-    num_vars: 2,
-    patterns: vec![
-        TriplePattern { subject: Term::Const(0), predicate: 0, object: Term::Var(0) },
-        TriplePattern { subject: Term::Var(0), predicate: 1, object: Term::Var(1) },
-    ],
-};
-let bindings = join_run(&query, &tree); // JoinRows: one flat buffer, each row a borrowed &[u32]
-for row in bindings.rows() {
-    // row: &[u32], indexed by variable ID
-}
+## Build a graph-pattern automaton
 
-// BFS / shortest hop-count reachability.
-let dist = bfs_sequential(&tree, /* start */ 0, /* predicate filter */ None);
-```
-
-For joins directly over the S/P/O topology, compile the global prefix schedule
-and stream borrowed bindings. Predicates remain structural, including a predicate
-variable shared across atoms. Compilation does not scan or copy graph relations:
+Variables are numbered from zero; predicates can be constants or variables.
+Build the query language independently of the graph. Compilation binds it to
+an index and chooses an execution schedule. Reuse the compiled search and its
+workspace, and consume borrowed result rows inside the callback.
 
 ```rust
 use std::ops::ControlFlow;
-use s_graph::graph::{JoinQuery, Term, TriplePattern};
-use s_graph::native_join::{NativeJoin, NativeJoinWorkspace};
-use s_graph::path::{HopRange, Step, PathWorkspace, has_path};
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+use s_graph::automata::{Bgp, Search, Term::{Const as C, Var as V}};
 
-let tree = s_graph::Heap::build_dynamic(vec![(0, 0, 1), (1, 0, 2)], 4096);
-let query = JoinQuery {
-    num_vars: 4,
-    patterns: vec![
-        TriplePattern { subject: Term::Var(0), predicate: Term::Var(1), object: Term::Var(2) },
-        TriplePattern { subject: Term::Var(2), predicate: Term::Var(1), object: Term::Var(3) },
-    ],
-};
-let plan = NativeJoin::new(&query, &tree).unwrap();
-let mut workspace = NativeJoinWorkspace::default();
-let _: ControlFlow<()> = plan.visit(&mut workspace, |binding| {
-    // Consume binding immediately; Break stops enumeration.
-    assert_eq!(binding, &[0, 0, 1, 2]);
+let graph = Fst::build_dynamic(vec![
+    (0, 0, 1), (0, 0, 3), (1, 1, 2),
+], DEFAULT_BLOCK_CAPACITY);
+let machine = Bgp::new(2)
+    .triple([C(0), C(0), V(0)])
+    .triple([V(0), C(1), V(1)]);
+let search = graph.search(&machine)?;
+let mut workspace = Default::default();
+let mut rows = Vec::new();
+let _: ControlFlow<()> = search.visit(&mut workspace, |row| {
+    rows.push(row.values.to_vec()); // copy only if retaining the row
     ControlFlow::Continue(())
 });
-let mut paths = PathWorkspace::default(); // sparse visitation, independent of max ID
-assert!(has_path(&tree, 0, 2, HopRange::new(2, 2).unwrap(), Step::default(), &mut paths));
+assert_eq!(rows, [vec![1, 2]]);
+
+// ASK / LIMIT: Break stops traversal, and the workspace can be reused.
+assert_eq!(search.visit(&mut workspace, |_| ControlFlow::Break(true)),
+           ControlFlow::Break(true));
+# Ok::<(), s_graph::TreeError>(())
 ```
 
-`NativeJoin` uses O(atoms × tree height + variables) metadata and workspace,
-independent of the number of triples. It supports constants, repeated variables,
-cycles, ground constraints and disconnected patterns. The plan borrows its tree;
-drop it before mutation and compile a new plan afterwards. Output order is
-unspecified. There is no established WCO bound for this native traversal, and
-uneven split schedules can delay pruning. `visit_with_stats` reports node
-openings and surviving child choices. `allocated_bytes` reports retained vector
-capacity for the plan or workspace; backend cache memory is separate.
+`Bgp::new(width)` declares a global binding namespace; unused slots remain
+unbound. `.triple` adds a pattern and `.and(other_bgp)` fuses two BGPs before
+compilation, so their constraints can prune together. The builder can be
+searched against multiple graphs; compiled searches borrow their graph.
+Repeated variables, predicate variables, cycles, disconnected patterns, ground
+constraints and empty BGPs are supported. Output order is unspecified.
 
-`graph::join_run` and `graph::try_join_run` compile and collect native joins
-into a `JoinRows`: one flat `Vec<u32>` for the whole result set, each row a
-borrowed `&[u32]` via `.rows()` -- not one `Vec` per row. Call
-`.to_vec_rows()` for owned per-row `Vec<u32>`s if you actually want that.
-The historical names `ltj_run` and `try_ltj_run` are aliases for those helpers;
-they no longer execute Leapfrog Triejoin. Reuse `NativeJoin` and its workspace
-for repeated queries. Native joins accept the tree's `BlockStorage` backends;
-`join::PatternBackend` remains the generic scan interface for path algorithms.
+Preparation compiles guards, register writes and traversal schedules. Adaptive
+selection compares bounded probes; larger patterns receive enough work to
+reach across more atoms, capped at 32,768 node reads per probe. A BGP search's
+`.planning()` reports actual reads, its `node_budget`, chosen schedule and
+whether shared-bit frontier propagation was selected. No graph relations or
+graph-sized query DFA are constructed. Set `.schedule(Schedule::Frontier)`
+or another `automata::Schedule` on a BGP for explicit execution control.
 
-There is no `MINUS`/`FILTER NOT EXISTS` operator in this crate -- two
-in-descent and collect-then-filter designs were tried and both measured
-worse than a consumer composing its own anti-join from `NativeJoin::visit`
-(streamed, borrowed `&[u32]` rows, no per-row allocation) and
-`contains_batch` directly, informed by its own data's actual shape. See
-`DESIGN.md` for the measurements.
+`Join::new`, `Fst::join`, `Fst::bgp`, and `graph::try_join_run` remain available
+for callers using `JoinQuery`. They use the same engine. Low-level
+`scheduled_join::ScheduledJoin` also exposes traversal counters and memory
+diagnostics.
 
-The materialized `PreparedJoin`, its `JoinOptions`, `RelationLayout` and
-`JoinWorkspace`, and the boxed `GraphBackend`/sorted-neighbor adapters have been
-removed. Migrate prepared queries to `NativeJoin`/`NativeJoinWorkspace`; plans
-now borrow the tree rather than own snapshots. No proven WCO executor is currently
-provided; proving or improving the native traversal's bound remains open work.
+## Compose queries: OPTIONAL, MINUS and more
 
-- `tree.scan([s, p, o])`: allocation-free filtered triples in Morton order.
-- `tree.count_matching([s, p, o])`: count of matching triples, same bound/
-  wildcard convention as `scan`, without decoding or collecting any of them.
-- `restricted_descent` / `restricted_descent_into`: one method for every
-  bound/one-bound/range-restricted adjacency query -- a `[DimRestriction; 3]`
-  (`Free`, `Exact(v)`, `Range(lo, hi)`, or `Multi(&[(lo, hi)])` per
-  dimension) plus which dimension to emit, sorted adjacency in reusable
-  buffers. Replaces the old `query_two_bound`/`query_one_bound` method
-  pair -- those restricted to exact values only; this adds real
-  range/set restrictions, pruned at native tree speed instead of a
-  `scan` plus manual filter.
-- `restricted_descent_visit` / `predicates_for_visit`: streamed adjacency
-  with the same pruning as the `_into` forms but no sort, no dedup, and
-  real early exit (`LIMIT`/`ASK`) via a `ControlFlow`-returning callback
-  -- stopping early skips the rest of the traversal entirely, not just
-  the rest of the collecting.
-- `path::reachable`: distinct endpoints reachable by walks within min/max hops.
-- `path::shortest_walk`: shortest qualifying walk with nodes and edges reconstructed.
-- `path::enumerate_paths`: streamed walks, trails or simple paths, with optional target.
-- `automaton::PathAutomaton`: epsilon-free NFA evaluation for label sequences,
-  alternatives and repetition, with hop bounds and distinct endpoint output.
-
-Traversal supports outgoing, incoming or both directions. Identical triples are
-one edge; edge multiplicity must be encoded by the consumer. Supplied start IDs
-are considered valid for zero-hop paths, including externally managed isolated
-vertices. Path enumeration can have exponential output; callbacks can stop early.
-
-All serial algorithms support every storage backend. `bfs_parallel` requires
-a `Sync` backend: `Heap` qualifies, while `File` and
-`Compressed` retain single-threaded interior caches. Native plans borrow the
-backend and inherit its threading constraints; Heap plans can be shared with
-separate workspaces.
-
-See [DESIGN.md](DESIGN.md) for complexity, memory, semantics and tradeoffs.
-
-### The FST layout: prefer this for static, query-and-join-heavy workloads
-
-Everything above builds on `Heap`/`File`/`Compressed` -- the mutable
-tree family, needed whenever you insert/remove after the initial
-build, serialize, batch-check existence, or walk graph paths/regular-path
-automata. If your workload is **build once, then query and join a lot**,
-build a `PathFstDeltaPow2Bfs` instead (same `heap` feature, on by
-default) and use its automaton-driven methods specifically:
+All leaves in a composed query use the **same global variable width**.
+`Binding::get(variable)` returns `Option<u32>`: an OPTIONAL result may leave a
+variable unbound. Operators stream rows and preserve duplicate solution rows.
 
 ```rust
-use s_graph::path_fst::PathFstDeltaPow2Bfs;
-use s_graph::tree::DimRestriction;
-use s_graph::automaton_join::AutomatonJoin;
-use s_graph::graph::{JoinQuery, Term, TriplePattern};
+use std::ops::ControlFlow;
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+use s_graph::automata::{Bgp, Query, Search, Term::{Const as C, Var as V}};
 
-let triples = vec![(0, 0, 1), (1, 1, 2), (0, 0, 3)];
-let tree = PathFstDeltaPow2Bfs::build(triples, /* dimension sizes */ [2, 2, 4], /* block_capacity */ 4096);
-
-// Restricted-descent-style pattern queries: Exact/Free/Range/Multi on
-// any position, same `DimRestriction` convention as `Heap::restricted_descent`.
-let objects_of_0_via_pred_0 = tree.restricted_descent_via_composed_automaton(
-    [DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free],
-    2, // emit object
-);
-assert_eq!(objects_of_0_via_pred_0, vec![1, 3]);
-
-// Conjunctive joins: "subject 0 --p0--> ?a . ?a --p1--> ?b"
-let query = JoinQuery::<Term> {
-    num_vars: 2,
-    patterns: vec![
-        TriplePattern { subject: Term::Const(0), predicate: Term::Const(0), object: Term::Var(0) },
-        TriplePattern { subject: Term::Var(0), predicate: Term::Const(1), object: Term::Var(1) },
-    ],
-};
-let plan = AutomatonJoin::new(&query, &tree).unwrap();
-let mut bindings = Vec::new();
-let _: std::ops::ControlFlow<()> = plan.visit(&mut bindings, |row| {
-    assert_eq!(row, &[1, 2]); // row: &[u32], indexed by variable ID
-    std::ops::ControlFlow::Continue(())
+let graph = Fst::build_dynamic(vec![
+    (0, 0, 1), (0, 0, 3), (1, 1, 2),
+], DEFAULT_BLOCK_CAPACITY);
+let people = Bgp::new(2).triple([C(0), C(0), V(0)]);
+let details = Bgp::new(2).triple([V(0), C(1), V(1)]);
+let machine = people.optional(details);
+let optional = graph.search(&machine)?;
+let mut workspace = Default::default();
+let mut rows = Vec::new();
+let _: ControlFlow<()> = optional.visit(&mut workspace, |row| {
+    rows.push(row.to_options());
+    ControlFlow::Continue(())
 });
+rows.sort_unstable();
+assert_eq!(rows, [vec![Some(1), Some(2)], vec![Some(3), None]]);
+# Ok::<(), s_graph::TreeError>(())
 ```
 
-Every query/join shape measured in `DESIGN.md`'s "wired as default"
-entry runs at parity with or faster than the equivalent `Heap`-based
-path, on a structure that's also smaller on disk/in RAM for the same
-triples (the whole point of its DAG deduplication). **Always reach for
-`restricted_descent_via_composed_automaton` and `AutomatonJoin`
-specifically** -- not `PathFstDeltaPow2Bfs::restricted_descent` (and
-its many other `restricted_descent*` variants), not `FstJoin`, not
-`NativeJoin` on a `PathFstDeltaPow2Bfs`-sized problem. Those are kept
-for debugging and comparison: each has its own doc comment and a
-`DESIGN.md` entry recording what it measured, which is exactly the
-history that makes the automaton-driven ones trustworthy as the
-default instead of an unverified guess.
+Build these expressions first, then pass them to `graph.search`. Compiled
+operators share the `automata::Search::visit` interface:
 
-`PathFstDeltaPow2Bfs` is a query/join index over a structure built
-once -- it has no `insert`/`remove`, `serialize`/`deserialize`,
-`contains_batch`/`count_matching`, and isn't a `join::PatternBackend`
-(so no graph traversal/paths, no regular-path automata). Reach for
-`Heap`/`File`/`Compressed` for any of that; reach for
-`PathFstDeltaPow2Bfs` specifically for the query/join shapes above.
+| Operator | Construction / meaning |
+|---|---|
+| Inner join | `left.join(right)`; merges compatible partial bindings |
+| Union | `left.union_all(right)`; retains duplicates |
+| MINUS | `left.minus(right)`; a matching RHS must share a bound variable |
+| Existence | `left.exists(right)` / `left.not_exists(right)` |
+| Filter | `input.filter(\|row: Binding<'_>\| ...)` |
+| Conditional OPTIONAL | `left.optional_if(right, \|merged: Binding<'_>\| ...)` |
+| Explicit values | `Values::new(width, rows)?`; `Values::unit(width)` is one empty mapping |
 
-### Batched reads
+Existing compiled plans and path relations also compose through `query_ops`
+using its public operator structs. Schema mismatches in a
+builder expression return a compilation error. Filter closures are cloned
+into the compiled expression.
 
-`contains_batch`/`contains_batch_into` answer many point-existence queries
-(filters, graph diff against another tree's triples) faster than calling
-`contains` once per query: they sort an internal copy into Morton order and
-walk once, reusing the previous query's root-to-leaf path at every level two
-consecutive queries still agree on, instead of re-descending from the root
-each time. Output order always matches the input order, never the internal
-sort order. Measured 7-13x faster than the per-triple loop across scattered,
-subject-clustered and diff-style batches (see DESIGN.md) -- it's never slower,
-since a batch with no shared prefixes at all degenerates to exactly that loop.
+Put connected inner-join patterns into a single BGP to let the scheduler prune
+them together. RHS BGP/path probes push existing bindings into traversal.
+Ordinary RHS filters see their own relation; use `CorrelatedFilter` for a
+predicate that explicitly inspects both the outer binding and an RHS row.
+`MINUS` and `NOT EXISTS` differ on disjoint/empty mappings. OPTIONAL emits the
+original left row only if no right match passes its condition. These are
+binding operators, with semantics beyond boolean language composition.
 
-### Error handling
+## What “automaton” means here
 
-`insert`/`insert_batch`, `build`/`build_with_order`, and
-`deserialize*` return `Result<_, TreeError>`. Read methods
-(`contains`, `restricted_descent`, `predicates_for`)
-return false/empty results for out-of-domain coordinates, which cannot match
-anything. `remove`/`remove_batch` also return `Result<_, TreeError>` (for
-signature symmetry with `insert`/`insert_batch`), but behave like a read
-method for an out-of-domain coordinate: `Ok(false)`, never `Err` -- removal
-never changes the domain either way, so there's nothing to misrepresent by
-accepting one. File I/O failures during traversal still panic.
-Snapshot loading validates metadata, topology, record boundaries and skip spans.
-Default limits are 1 GiB of block capacity, 1,000,000 blocks and 16 MiB per block;
-use `deserialize_with_limits` / `deserialize_from_path_with_limits` to change them.
-Configuration-taking infallible builders panic on invalid configuration; `build`
-and `build_with_order` return errors. See crate docs for the remaining panic contract.
+The graph is a finite language of encoded triples. Identical suffix languages
+share one physical FST state. A query supplies another machine: constants,
+variable-equality guards and reversible binding writes constrain which storage
+transitions can be followed. A join is a register automaton over those choices;
+its schedule decides when to bind full atoms and when to synchronize prefixes.
 
-## Getting real data in
+`automata::Automaton<Event, Context>` separates state transitions,
+acceptance and pruning. Implement it for your own event type and compose typed
+machines with `And`, `Or`, `Not` or `MapInput`. Composition is generic Rust, with
+no boxed virtual calls in the traversal loop. `BitmapAutomaton` provides fast
+candidate masks; `GraphAutomaton`, `FstSource` and `visit_language` connect
+recognizers to compressed storage. `ReversibleAction` models branch-local
+updates; `Project`/`Transducer` and `Reducer` model lasting output contributions.
 
-`s-graph` indexes `(u32, u32, u32)` triples; it doesn't parse RDF syntax
-or intern terms itself. For real IRIs/literals, parse with a real RDF
-parser and dictionary-encode the terms you get back into `u32` ids
-(one shared id space for subjects/objects, since the same IRI can appear
-in both positions; blank nodes scoped per source document, since their
-identity is only meaningful within it).
+`AutomatonExt` adds `.intersection`, `.union` and `.complement` constructors.
+`And` intersects languages on the **same event sequence**; `Or` unites them.
+`Not` complements a language, including a dead-state sink. It cannot safely
+prune by simply inverting a prefix mask: use `Unfiltered` for arbitrary
+complements in a bitmap walk. Relational `Join`, OPTIONAL and MINUS use the
+binding operators above, because they combine mappings rather than recognize
+the same word. Wrap a slot recognizer in `Language` to apply it through the
+same `graph.search` entry point; its three output slots are S/P/O:
 
-## Benchmarks
+```rust
+use std::ops::ControlFlow;
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+use s_graph::automata::{AutomatonExt, Language, Mask, Search};
 
-[`s-bench`](https://github.com/hrssilva/s-bench) is a separate repository
-that builds and queries this crate (`Heap`/`File`/`Compressed`, all three)
-against the real [W3C RDF 1.1 test suite](https://github.com/w3c/rdf-tests),
-parsed with [`s-parser`](https://github.com/hrssilva/s-parser) — real
-IRIs/literals dictionary-encoded into triples, not this project's own
-synthetic dataset generator. It's a separate repository specifically so
-neither it nor its private dependencies ever become something
-`cargo build`/`cargo test` on this crate needs to resolve. See its README
-for current numbers (build time, memory, `contains` latency, all three
-backends, at both the real corpus's own small scale and amplified to
-~1.5M triples) and exactly how to reproduce them.
-
-## Project layout
-
-- `src/` — the published library (this crate).
-- `examples/` — the exploratory comparison this design was measured
-  against (Mk²-tree, IK²-tree, Omnitree, and every intermediate
-  RadixTree layout variant), kept for its literature grounding and
-  measured history. Not part of the public API.
-
-## TODO
-
-- **Domain growth.** Coordinate domains are fixed at construction
-  (`build_dynamic_empty`/`build_dynamic`); there is no way to extend
-  them afterward. Not implemented.
-- **Block-to-block rebalancing.** `remove`/`remove_batch` shrink a
-  block as its content dies but never merge a now-underfull block with
-  a neighbor. Heavy, sustained deletion churn can leave many small
-  blocks behind. Not implemented.
-
-## Testing
-
-```sh
-cargo test                 # default features (heap)
-cargo test --all-features  # + file, compressed, parallel
-cargo bench --bench algorithms  # preparation, repeated execution, scans and paths
+let graph = Fst::build(vec![(0,0,0), (0,0,1), (1,0,1)], [2,1,2], DEFAULT_BLOCK_CAPACITY);
+let machine = Language(Mask(3).intersection(Mask(u64::MAX)));
+let search = graph.search(machine)?;
+let mut count = 0;
+let _: ControlFlow<()> = search.visit(&mut Default::default(), |_| {
+    count += 1; ControlFlow::Continue(())
+});
+assert_eq!(count, 2);
+# Ok::<(), s_graph::TreeError>(())
 ```
 
-## License
+`Mask` constrains **encoded slot numbers**, which depend on the storage layout;
+use `Bgp` for coordinate/variable constraints. Custom slot recognizers implement
+`Automaton<Slot>`; add `BitmapAutomaton` for fast masks or use `Unfiltered`.
+Frontier joins propagate supported variable bits across live atom automata,
+including across storage levels, and keep reversible effects in a workspace.
 
-MIT — see `LICENSE`.
+## Regular graph paths
+
+`PathExpr` builds label languages with `.then`, `.or`, `.optional`, `.star`,
+`.plus`, inverse labels and `.reversed()`. Compilation produces a packed NFA;
+execution traverses the product of graph vertices and automaton states.
+
+```rust
+use std::ops::ControlFlow;
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+use s_graph::automata::{PathExpr, PathBindings};
+use s_graph::traversal::HopRange;
+use s_graph::graph::Term::{Const as C, Var as V};
+use s_graph::query_ops::Plan;
+
+let graph = Fst::build_dynamic(vec![(0, 0, 1), (1, 1, 2), (2, 1, 3)], DEFAULT_BLOCK_CAPACITY);
+let language = PathExpr::label(0).then(PathExpr::label(1).plus()).compile()?;
+let paths = PathBindings::new(&graph, &language, vec![], C(0), V(0), 1,
+                              HopRange::new(1, 8)?)?;
+let mut endpoints = Vec::new();
+let _: ControlFlow<()> = paths.visit(&mut Default::default(), |row| {
+    endpoints.push(row.get(0).unwrap()); ControlFlow::Continue(())
+});
+endpoints.sort_unstable();
+assert_eq!(endpoints, [2, 3]);
+# Ok::<(), s_graph::TreeError>(())
+```
+
+Use `PathBindings` anywhere a `Plan` is accepted, including OPTIONAL and MINUS.
+For an unbound subject, pass the vertex universe (including isolated vertices)
+as the third constructor argument; it is deduplicated once. A constant start
+can be supplied without that universe and is valid for zero-hop queries.
+`PathAutomaton::reachable` also streams `(endpoint, shortest_qualifying_hops)`
+directly, using `AutomatonWorkspace`.
+
+Path languages implement the shared automaton trait too. For example,
+`Composed(And(&allowed, Not(&excluded)))` is a path runner and can be supplied
+to `PathBindings`; both operands are compiled `PathAutomaton`s. Its generic
+product runner preserves language intersection/complement semantics; a plain
+packed NFA normally runs faster by pushing label bounds directly into scans.
+
+Paths return **distinct endpoint pairs**, rather than every witness walk.
+Use BGPs for fixed-length sequences whose intermediate bindings or multiplicity
+matter. `traversal` separately exposes bounded reachability, shortest-walk
+reconstruction, and walk/trail/simple-path enumeration. Cancellation is via
+`ControlFlow`; enumeration can have exponential output.
+
+## Transducers and graph analytics
+
+The same recognizers can filter edges, project contributions and feed a
+reducer. Here two automata select non-loop edges with predicate 0:
+
+```rust
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+use s_graph::automata::{And, FstSource, Project};
+use s_graph::analytics::{CompressedEdges, Edge, NonLoop, Predicate, fold, PageRank, LabelPropagation};
+
+let graph = Fst::build_dynamic(vec![(0, 0, 0), (0, 0, 1), (1, 1, 2)], DEFAULT_BLOCK_CAPACITY);
+let edges = CompressedEdges::new(FstSource(&graph), 3, None)?;
+let machine = Project(And(Predicate(Some(0)), NonLoop), |edge: &Edge, _: &()| edge.target);
+let mut targets = Vec::new();
+fold(&edges, &mut Default::default(), &machine, &(), &mut |target| targets.push(target));
+assert_eq!(targets, [1]);
+
+let mut rank = PageRank::default();
+let (_, converged, _) = rank.run(&edges, 0.85, 1e-9, 100);
+assert!(converged);
+assert_eq!(rank.rank.len(), 3);
+let mut communities = LabelPropagation::default();
+let _ = communities.run(&edges, 20);
+assert_eq!(communities.labels.len(), 3);
+# Ok::<(), s_graph::TreeError>(())
+```
+
+Graph algorithms keep per-vertex state in their workspaces/reducers; shared FST
+states are storage states, not graph vertices. PageRank is directed and handles
+dangling vertices. Label propagation is synchronous and undirected, ignores
+self-loops, chooses the smallest tied label, and can oscillate; check its
+convergence flag. Both currently use dense vertex arrays. For repeated full
+scans, `Csr::from_source(&edges, predicate)` trades an explicit two-pass
+projection and extra memory for faster iteration. Composability does not make
+all graph algorithms finite-state or remove their algorithm-specific state.
+
+## Further reading
+
+- [DESIGN.md](DESIGN.md): layouts, algorithms, alternatives and measurements.
+- [Automata and frontier propagation](examples/join/AUTOMATA_FRONTIERS.md): current API, algorithm, research and performance comparisons.
+- [Promotion notes](examples/join/PROMOTION.md): migration, compatibility and performance controls.
+- [Query operators and paths](examples/join/QUERY_OPERATORS_AND_PATHS.md): semantics and benchmark details.
+- [Automata scheduling](examples/join/SCHEDULED_AUTOMATA.md): the adaptive executor.
+- [Analytics and large BGPs](examples/join/ANALYTICS_AND_LARGE_BGP.md): full-scan tradeoffs and thousands-of-pattern tests.
+- [Historical backend guide](examples/join/LEGACY_BACKENDS.md): mutable storage APIs and earlier defaults.
+- [Comparison harness](examples/join/prototype/prepare.py): reproducible alternatives; promoted modules come from `src/`.
+
+README Rust examples are compiled and executed by `cargo test --doc`.

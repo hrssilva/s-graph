@@ -1,0 +1,23 @@
+   Compiling s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph)
+    Finished `profiling` profile [optimized + debuginfo] target(s) in 5.49s
+     Running benches/algorithms.rs (target/automata-prototype/profiling/deps/algorithms-d0e1642a50300bdd)
+FST: 1764 allocated bytes; 1557 snapshot bytes
+dataset: 20000 vertices, 60000 triples; tree: 474862 allocated bytes
+FST default anchored: compile 1439 ns; execute 378 ns; first 249 ns; compile + fresh workspace + execute 1876 ns
+FST default anchored: plan 4896 bytes; workspace 880 bytes; 28 node openings; 28 candidate children; 1 results
+native anchored: compile 976 ns; execute 1312 ns; first 291 ns; compile + fresh workspace + execute 2350 ns
+native anchored: plan 3888 bytes; workspace 1024 bytes; 55 node openings; 55 candidate children; 1 results
+bounded reachability (0..8): 57810 ns
+single-node allocated adjacency: 869 ns
+single-node reused adjacency: 844 ns
+single-node streamed edges: 2463 ns
+hub materialization, first result: 33606 ns
+hub scan, first result: 244 ns
+FST default triangle: compile 25306 ns; execute 5041172 ns; first 262 ns; compile + fresh workspace + execute 7067506 ns
+FST default triangle: plan 4896 bytes; workspace 880 bytes; 342861 node openings; 362860 candidate children; 20000 results
+native triangle: compile 1023 ns; execute 2402851 ns; first 305 ns; compile + fresh workspace + execute 2451292 ns
+native triangle: plan 3888 bytes; workspace 1024 bytes; 134295 node openings; 154294 candidate children; 20000 results
+FST default shared predicate path: compile 9338 ns; execute 10543431 ns; first 201 ns; compile + fresh workspace + execute 10236826 ns
+FST default shared predicate path: plan 3392 bytes; workspace 592 bytes; 698581 node openings; 758580 candidate children; 60000 results
+native shared predicate path: compile 786 ns; execute 5550127 ns; first 195 ns; compile + fresh workspace + execute 5545694 ns
+native shared predicate path: plan 2592 bytes; workspace 688 bytes; 324303 node openings; 384302 candidate children; 60000 results

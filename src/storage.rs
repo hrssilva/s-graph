@@ -1,8 +1,8 @@
 //! The storage abstraction: [`BlockStorage`], the trait every backend
 //! implements, plus [`Pos`] (a logical block/offset address) and
-//! [`HeapStorage`], the always-available, zero-dependency, full-RAM-
+//! `HeapStorage`, the `heap` feature’s zero-dependency, full-RAM-
 //! resident backend. `file`/`compressed`-feature backends live in
-//! [`crate::storage_file`]/[`crate::storage_compressed`].
+//! `crate::storage_file`/`crate::storage_compressed`.
 
 #[cfg(feature = "heap")]
 use crate::tree::{read_var_at, write_var_at};
@@ -133,7 +133,7 @@ pub trait BlockStorage: Sized {
     /// they're done with a burst of insertion activity (a whole
     /// `insert_batch` call, or "no more inserts for now") -- calling it
     /// after *every* insert or every batch would be counterproductive
-    /// (see [`HeapStorage::insert_bytes`]'s own doc comment: every block
+    /// (see `HeapStorage::insert_bytes`'s own doc comment: every block
     /// a caller is still actively growing is deliberately pre-reserved to
     /// `block_capacity` precisely so repeated nearby inserts don't each
     /// pay for a reallocation -- shrinking it back down immediately would

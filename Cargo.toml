@@ -20,7 +20,8 @@ strip = false
 
 [features]
 default = ["heap"]
-# The in-RAM, no-slot-indirection backend. Zero extra dependencies.
+# Immutable FST, composable automata/queries/analytics, and the mutable Heap
+# backend. Zero extra runtime dependencies.
 heap = []
 # Real-file backend (pread/pwrite + a page-chunked stack cache). Near-zero
 # steady-state RAM at the cost of I/O latency; see `storage_file` module docs.
@@ -70,6 +71,11 @@ lz4_flex = "0.14"
 [[example]]
 name = "join_perf_four"
 path = "examples/join/join_perf_four.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "automata"
+path = "examples/automata.rs"
 required-features = ["heap"]
 
 [[example]]

@@ -1,17 +1,7 @@
-//! **The preferred join executor for `PathFstDeltaPow2Bfs`** -- see
-//! `DESIGN.md`'s "wired as default" entry. Every shape measured so far
-//! (star, triangle, shared-subject-with-a-variable-predicate) is faster
-//! here than through [`crate::fst_join::FstJoin`] or
-//! [`crate::native_join::NativeJoin`], by 1.7x to ~50x depending on
-//! shape. `FstJoin` is kept, unmodified, specifically so that
-//! comparison stays possible -- see its own module doc for the one
-//! kind of query shape (many atoms, a long chain of shared variables,
-//! deep intermediate results) where interleaving's *cross-atom*
-//! pruning might still win, which hasn't been measured yet. Reach for
-//! `FstJoin`/`NativeJoin` instead of this module only when debugging a
-//! discrepancy against them, or when a query uses a variable repeated
-//! *within* one atom (`?x :p ?x`), which this module rejects outright
-//! (see below) rather than getting wrong.
+//! Historical whole-atom automaton executor, retained for comparisons.
+//! Use [`crate::Join`] for the default adaptive FST executor, which supports
+//! repeated variables within atoms and addresses skew/prefix regressions.
+//! The implementation history below explains this alternative's design.
 //!
 //! Originally built to be compared against `fst_join::FstJoin`, not to
 //! replace it -- see `DESIGN.md`'s "Phase 2" entries. `FstJoin` was
@@ -31,7 +21,7 @@
 //! by an earlier atom becomes `DimRestriction::Exact(bindings[v])`.
 //!
 //! **A first version routed each atom's walk through
-//! [`crate::level_automaton::LevelAutomaton`]** (composing three
+//! `crate::level_automaton::LevelAutomaton`** (composing three
 //! `DimRestrictionAutomaton`s via `And`, exactly like
 //! `restricted_descent_via_composed_automaton`) -- straightforward reuse
 //! of Phase 1's machinery, and it measured 1.2-1.7x slower than `FstJoin`
@@ -59,7 +49,7 @@
 //! `[u64; MAX_HEIGHT]` array and zero per-node dispatch -- the same
 //! mechanism `restricted_descent`/`PrecomputedMaskAutomaton` use. This
 //! version computes that flat array once per atom entry
-//! ([`compute_atom_masks`], a near-verbatim copy of
+//! (`compute_atom_masks`, a near-verbatim copy of
 //! `PathFstDeltaPow2Bfs::precompute_level_masks`) and walks through it
 //! directly, with no `LevelAutomaton` involved at all. Measured effect:
 //! see `DESIGN.md`.

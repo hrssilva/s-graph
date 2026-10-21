@@ -1,0 +1,96 @@
+{
+  "recorded_utc": "2026-10-21T11:21:14.031954+00:00",
+  "cpu": "AMD Ryzen 5 PRO 4650U with Radeon Graphics",
+  "platform": "Linux-7.2.2-1-default-x86_64-with-glibc2.44",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "profile": "profiling (inherits release; debug information retained)",
+  "timing": "Warm prepared visits; graph build, plan preparation and initial result validation outside timed join region. Operator CSV separates preparation, visit and total. Runs sequential; no CPU pinning.",
+  "diagnostics": false,
+  "benchmark_snapshot": "target/automata-tmp/sgraph-composition-s04_dm60",
+  "benchmark_production_sources_sha256": {
+    "src/automata_core.rs": "c394fcf95d04928ed2e329815570744c9630e4266d5345ae21675492830cbb4f",
+    "src/scheduled_join.rs": "1680fdd14ee4d8cb4ea1db65683f04df428dc566076bd47cd01d1ff320dbd253",
+    "src/query_ops.rs": "b8e1e4ae410f21a5160046cea49b530ec86fc733941caa08cb3dafbba50651c6",
+    "src/path_ops.rs": "9c1c41487cc4ada953ea686c4d47769de3f9aa75c12abbc65dbc05fb0008b2e4",
+    "src/analytics.rs": "e5efef2567f378f94223314cee3e90e25e4f8f7c23afa434bd7242d21ac17318",
+    "src/fst.rs": "5a8eac24f3ed5e893eb6d2390ccc0442f2aa41582584df1df7f82804c64b175d",
+    "src/fst_snapshot.rs": "d4b52aef699abec32eb50d72d97b2c33bcbebb5d22d435af2dd01b836d6a5329",
+    "src/path_fst.rs": "334cc45098c0c7f8c5f812cdfb8003e5d28eb5cee8f2c4f97bd640af604bf931",
+    "src/graph.rs": "c1dd558927ba5416fba2ce3f291f2f8342ff9f34c2e03a6c966ed39e042ed09e",
+    "src/join.rs": "4e7395fd200d0eaccb8580a19abe66ea23d779549da22cbad0266bd613fcce38",
+    "src/automaton.rs": "ae51cb04058035d1903657f7e59e5cc2b6cd589a4fb68518c8f0d9d65385794e",
+    "src/native_join.rs": "36a257f2d53030d757e7743e745926268f7332867b001fe562ad04a8031952fe",
+    "src/fst_join.rs": "95be7f4b5025e99a4cb5ba8f0c6af37fce0d9d66d682a97b110e80909f77a052",
+    "src/recursive_join.rs": "d03fbb26dad6392c62a6f9e9aaec558d2f9547e85763761ccc9ac928ee9e2965",
+    "src/automaton_join.rs": "38dc60e90f222ac7b6e6a55b8b3d1a2ea06669c4b14003e7333b8cf74928cffe",
+    "src/storage.rs": "95dc07df0148dadadcc71aaddb39e180ad15dd68d78df069de7873b2fd4a3085",
+    "src/tree.rs": "5990c2fab07528ff0a77d6772efc12f41c0db3c03e4a953cc8014b9192d2ab11",
+    "Cargo.toml": "9f8fcfade11b028fe0fce8745af5a503050cc82dc39a494503159783dca0f48b",
+    "Cargo.lock": "7ef7e2c0c411a406e0c4467d39fbd6419622bf965ccb7a08bebe1befd755c821"
+  },
+  "current_production_sources_sha256": {
+    "src/automata_core.rs": "c394fcf95d04928ed2e329815570744c9630e4266d5345ae21675492830cbb4f",
+    "src/scheduled_join.rs": "1680fdd14ee4d8cb4ea1db65683f04df428dc566076bd47cd01d1ff320dbd253",
+    "src/query_ops.rs": "b8e1e4ae410f21a5160046cea49b530ec86fc733941caa08cb3dafbba50651c6",
+    "src/path_ops.rs": "9c1c41487cc4ada953ea686c4d47769de3f9aa75c12abbc65dbc05fb0008b2e4",
+    "src/analytics.rs": "e5efef2567f378f94223314cee3e90e25e4f8f7c23afa434bd7242d21ac17318",
+    "src/fst.rs": "5a8eac24f3ed5e893eb6d2390ccc0442f2aa41582584df1df7f82804c64b175d",
+    "src/fst_snapshot.rs": "d4b52aef699abec32eb50d72d97b2c33bcbebb5d22d435af2dd01b836d6a5329",
+    "src/path_fst.rs": "8d98f9b08d0aa682d3e068e4473872257945d5a1e4eb8ba1a5353984abd7bf04",
+    "src/graph.rs": "c1dd558927ba5416fba2ce3f291f2f8342ff9f34c2e03a6c966ed39e042ed09e",
+    "src/join.rs": "4e7395fd200d0eaccb8580a19abe66ea23d779549da22cbad0266bd613fcce38",
+    "src/automaton.rs": "ae51cb04058035d1903657f7e59e5cc2b6cd589a4fb68518c8f0d9d65385794e",
+    "src/native_join.rs": "36a257f2d53030d757e7743e745926268f7332867b001fe562ad04a8031952fe",
+    "src/fst_join.rs": "95be7f4b5025e99a4cb5ba8f0c6af37fce0d9d66d682a97b110e80909f77a052",
+    "src/recursive_join.rs": "d03fbb26dad6392c62a6f9e9aaec558d2f9547e85763761ccc9ac928ee9e2965",
+    "src/automaton_join.rs": "fd318421081eec9f6c0fa1e67b91e9ec9a3e00bf7cddb79d39dec4232fba27a1",
+    "src/storage.rs": "95dc07df0148dadadcc71aaddb39e180ad15dd68d78df069de7873b2fd4a3085",
+    "src/tree.rs": "5990c2fab07528ff0a77d6772efc12f41c0db3c03e4a953cc8014b9192d2ab11",
+    "Cargo.toml": "9b407518d5d6dc2deed3e330d4dd12ec0ee0433726ee00c93ce51a9c41609019",
+    "Cargo.lock": "7ef7e2c0c411a406e0c4467d39fbd6419622bf965ccb7a08bebe1befd755c821"
+  },
+  "source_verification": "Production implementations match the benchmark snapshot ignoring rustdoc. AutomatonJoin has appended lab-only accounting methods; timing uses unchanged visit. Cargo manifest and lib module list add benchmark/experimental targets. LevelAutomaton gains equality/hash derives and lab-only byte accounting.",
+  "benchmark_sources_sha256": {
+    "join_profile.rs": "4c9d08b36fd109e64e484e127ec16fe937de4ba5cb341f96c76b06ff5d3b6d5d",
+    "query_ops_bench.rs": "5a7294ec2cb77f013fc3ee258542e893a884df3f772b4d952a95d7704ee667fb",
+    "rdf_gen.rs": "f90507daee57dcaec0c9d22db125af74eba589a23959702c98a0de945cc4e036",
+    "Cargo.toml": "9f8fcfade11b028fe0fce8745af5a503050cc82dc39a494503159783dca0f48b"
+  },
+  "comparison_tests_passed": {
+    "groups": [
+      95,
+      9,
+      7,
+      7
+    ],
+    "total": 118
+  },
+  "root_all_features_tests_passed": {
+    "library": 90,
+    "algorithms": 9,
+    "fst": 7,
+    "native_join": 7,
+    "total": 113
+  },
+  "readme_doctests_passed": 5,
+  "checks": [
+    "no-default-features library/tests compile",
+    "no-default-features file,compressed,parallel library check",
+    "all-features examples and benches check",
+    "all-features rustdoc -D warnings",
+    "no-default-features rustdoc -D warnings",
+    "rustfmt promoted modules and tests",
+    "git diff --check"
+  ],
+  "results_sha256": {
+    "promotion-joins.jsonl": "f0478a2952c6780b9449d632399e5b8c921d7a86cf2c72a09041ca9f8dadd16e",
+    "promotion-query-ops.csv": "a9edff77841b7cf4bbad64e087e7305e646a75386ff353027827071fdf71dcb4",
+    "promotion-paths.csv": "71e3a57839c9f7075d04c3b46fb455900dba7e00344a5ccd9b41a5d8df3604f5",
+    "promotion-smoke-bench.log": "16e128fc854e000941fada84d96935372bfd877f3814101085379ec5c228861d"
+  },
+  "smoke_benchmark": {
+    "command": "cargo bench --offline --profile profiling --bench algorithms",
+    "status": "passed",
+    "note": "Includes a functional successor fixture where mutable NativeJoin is faster; see PROMOTION.md."
+  }
+}

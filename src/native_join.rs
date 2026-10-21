@@ -1,16 +1,9 @@
 //! Conjunctive joins directly over the joint S/P/O Morton topology.
 //!
-//! The only join executor over [`crate::Heap`]/[`crate::File`]/
-//! [`crate::Compressed`] -- there's no alternative to prefer here the
-//! way [`crate::automaton_join::AutomatonJoin`] is preferred over
-//! [`crate::fst_join::FstJoin`] on [`crate::path_fst::PathFstDeltaPow2Bfs`].
-//! If a query can be answered on either structure, building the
-//! `PathFstDeltaPow2Bfs` and using `AutomatonJoin` measures faster on
-//! every shape tried so far (`DESIGN.md`'s "wired as default" entry) --
-//! but that struct has no mutation, serialization, or batched-existence
-//! API, so this remains the join executor for anything still living on
-//! the mutable tree family.
-//!
+//! Native prefix joins for mutable heap, file and compressed backends.
+//! The default immutable FST uses `crate::Join`; alternative FST executors
+//! remain available for comparisons.
+
 //! Compilation reads only the global schedule and domains. Each physical level
 //! has fixed masks for constants, repeated coordinates and prefix compatibility.
 //! Execution traverses surviving child combinations across all atoms before

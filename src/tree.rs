@@ -3,8 +3,8 @@
 //! variants), and [`RadixTreeDfsInterleavedVarSkipUnrolledGeneric`]
 //! itself -- `contains`/`query_two_bound`/`query_one_bound`'s descent,
 //! `insert`/`insert_batch`'s ancestor trail, and serialization.
-//! Generic over [`crate::storage::BlockStorage`]; see [`crate::Heap`],
-//! [`crate::File`], [`crate::Compressed`] for the concrete backends.
+//! Generic over [`crate::storage::BlockStorage`]; see `crate::Heap`,
+//! `crate::File`, `crate::Compressed` for the concrete backends.
 
 use crate::error::{OutOfDomain, Result, TreeError};
 use crate::storage::{BlockStorage, Pos};
@@ -79,7 +79,6 @@ fn push_var(buf: &mut Vec<u8>, width: u8, val: u64) {
 }
 
 #[inline]
-#[cfg(any(feature = "heap", feature = "file", feature = "compressed", feature = "parallel"))]
 pub(crate) fn write_var_at(buf: &mut [u8], pos: usize, width: u8, val: u64) {
     debug_assert!(width == 8 || val < (1u64 << (8 * width as u32)), "value {val} does not fit in {width} bytes");
     match width {
@@ -1409,7 +1408,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// Counts triples matching `bounds` -- same convention as
     /// [`Self::scan`]: `None` is a wildcard in any coordinate -- without
     /// decoding, allocating or even computing the actual coordinates of
-    /// any matching triple, the way [`Self::scan`]/[`Self::query_two_bound`]
+    /// any matching triple, the way [`Self::scan`]/[`Self::restricted_descent`]
     /// must to list them.
     ///
     /// At a last-level (leaf) node, this is `u64::count_ones` on the
@@ -1948,7 +1947,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// `triples`' own order, but shares descent work across queries that
     /// land on the same physical trie node. Internally sorts a *copy* of
     /// the queries into this tree's own DFS-preorder (see
-    /// [`Self::morton_key`] -- the same order [`Self::insert_batch`]/
+    /// `Self::morton_key` -- the same order [`Self::insert_batch`]/
     /// [`Self::remove_batch`] already sort into), then walks once,
     /// keeping the previous query's root-to-leaf path cached: a query
     /// whose key shares its first `k` digits with the previous query's
@@ -1966,7 +1965,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
     /// per-triple loop. When queries cluster -- many triples sharing a
     /// subject, or checking membership of one graph's triples against
     /// another, mostly-overlapping one -- the shared levels, *including*
-    /// their [`Self::advance_past_children`] sibling-hopping (the real
+    /// their `Self::advance_past_children` sibling-hopping (the real
     /// dominant cost on a high-fanout, high-occupancy node), are paid
     /// exactly once for the whole cluster rather than once per query.
     ///
@@ -2081,7 +2080,7 @@ impl<S: BlockStorage> RadixTreeDfsInterleavedVarSkipUnrolledGeneric<S> {
         }
     }
 
-    /// Like [`Self::morton_key`], packing the same per-level digits into a
+    /// Like `Self::morton_key`, packing the same per-level digits into a
     /// `u128` instead of a `[u8; MAX_HEIGHT]` -- one byte per level,
     /// left-aligned so level 0's digit always lands in the top byte
     /// regardless of `height`, the same way `Self::morton_key` zero-pads

@@ -1,3 +1,5 @@
+//! Recursive level-synchronized alternative; use [`crate::Join`] for the default.
+//!
 //! A third join executor for `PathFstDeltaPow2Bfs`: the *same* algorithm
 //! `fst_join::FstJoin` runs -- interleaved by level, every atom advances
 //! together, synchronized through shared bindings rather than a shared
@@ -26,11 +28,11 @@
 //! is faster.
 //!
 //! Compilation is identical to `FstJoin`'s -- literally the same
-//! [`crate::fst_join::compile`] call, same `Stage`/`Check`/`Write`
+//! `crate::fst_join::compile` call, same `Stage`/`Check`/`Write`
 //! plan. Only `visit`'s own walk differs: `step` recurses once per
 //! `(level, atom)` pair, in the same level-major order `FstJoin`'s flat
 //! `stages` array is laid out in, carrying each atom's *next* position
-//! in a small stack-allocated buffer (bounded by [`MAX_ATOMS`]) instead
+//! in a small stack-allocated buffer (bounded by `MAX_ATOMS`) instead
 //! of a shared `Vec<Frame>` indexed by `depth - atoms`. Variable writes
 //! still need the same `clear`-on-backtrack `FstJoin`/`NativeJoin` both
 //! use (not `AutomatonJoin`'s write-once-by-assignment shortcut):

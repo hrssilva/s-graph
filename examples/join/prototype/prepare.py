@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Build a disposable crate containing the prototypes and unchanged baseline executors."""
+"""Benchmark production automata alongside retained experimental alternatives.
+
+Promoted modules are copied from src; historical copies in this directory are
+not injected. No repository source is patched by this script.
+"""
 from pathlib import Path
 import re
 import os
@@ -11,21 +15,32 @@ here = Path(__file__).resolve().parent
 root = here.parents[2]
 snapshot = Path(tempfile.mkdtemp(prefix="sgraph-composition-"))
 shutil.copytree(root / "src", snapshot / "src")
+# The production module is test-only; this lab also exposes its fixtures.
+p = snapshot / "src/lib.rs"
+p.write_text(p.read_text().replace('#[cfg(all(test, feature = "heap"))]\nmod large_bgp_cases;', '#[cfg(feature = "heap")]\npub mod large_bgp_cases;'))
 shutil.copytree(root / "tests", snapshot / "tests")
 shutil.copy2(root / "Cargo.lock", snapshot / "Cargo.lock")
+shutil.copy2(root / "README.md", snapshot / "README.md")
 manifest = re.sub(r"(?ms)^\[\[(?:bench|example)\]\]\n.*?(?=^\[|\Z)", "", (root / "Cargo.toml").read_text())
 manifest += '\n[[example]]\nname = "composition_bench"\npath = "composition_bench.rs"\n'
 manifest += '\n[[example]]\nname = "composition_profile"\npath = "composition_profile.rs"\n'
+manifest += '\n[[example]]\nname = "schedule_stress"\npath = "schedule_stress.rs"\n'
+manifest += '\n[[example]]\nname = "cycle_bench"\npath = "cycle_bench.rs"\n'
+manifest += '\n[[example]]\nname = "layout_bench"\npath = "layout_bench.rs"\n'
 manifest += '\n[[example]]\nname = "join_profile"\npath = "join_profile.rs"\n'
 manifest += '\n[[example]]\nname = "analytics_bench"\npath = "analytics_bench.rs"\n'
 manifest += '\n[[example]]\nname = "large_bgp"\npath = "large_bgp.rs"\n'
 manifest += '\n[[example]]\nname = "query_ops_bench"\npath = "query_ops_bench.rs"\n'
 (snapshot / "Cargo.toml").write_text(manifest)
-for name in ["compiled_filter", "lifted_join", "demand_join", "automata_core", "scheduled_join", "analytics", "large_bgp_cases", "query_ops", "query_ops_tests", "path_ops", "path_ops_tests"]:
+for name in ["compiled_filter", "lifted_join", "demand_join", "layout_source"]:
     shutil.copy2(here / f"{name}.rs", snapshot / "src" / f"{name}.rs")
 diagnostics = os.environ.get("PROTO_DIAGNOSTICS") == "1"
 if diagnostics:
-    subprocess.run(["git", "apply", str(here.parent / "lab/automaton.patch")], cwd=snapshot, check=True)
+    # Prevent repository discovery when TMPDIR puts the disposable crate in
+    # target/: git apply must operate on this snapshot, never on its parent.
+    subprocess.run(["git", "apply", str(here.parent / "lab/automaton.patch")],
+                   cwd=snapshot, check=True,
+                   env={**os.environ, "GIT_CEILING_DIRECTORIES": str(snapshot.parent)})
     path = snapshot / "src/automaton_join.rs"
     src = path.read_text()
     src = src.replace("    pub candidates: u64,", "    pub candidates: u64,\n    pub entries_by_atom: [u64; 16],\n    pub nodes_by_atom: [u64; 16],\n    pub leaves_by_atom: [u64; 16],")
@@ -34,11 +49,9 @@ if diagnostics:
     src = src.replace("        stats.node_visits += nodes;", "        stats.node_visits += nodes;\n        if TRACK { stats.nodes_by_atom[atom_idx] += nodes; }")
     path.write_text(src)
 with (snapshot / "src/lib.rs").open("a") as f:
-    f.write('\n#[cfg(feature="heap")]\npub mod query_ops;\n#[cfg(feature="heap")]\npub mod path_ops;\n')
-    f.write('\n#[cfg(feature="heap")]\npub mod analytics;\n')
-    f.write('\n#[cfg(feature="heap")]\npub mod large_bgp_cases;\n')
+    f.write('\n#[cfg(feature="heap")]\npub mod layout_source;\n')
     f.write(f"\npub const PROTOTYPE_DIAGNOSTICS: bool = {str(diagnostics).lower()};\n")
-    f.write('\n#[cfg(feature="heap")]\npub mod compiled_filter;\n#[cfg(feature="heap")]\npub mod lifted_join;\n#[cfg(feature="heap")]\npub mod demand_join;\n#[cfg(feature="heap")]\npub mod automata_core;\n#[cfg(feature="heap")]\npub mod scheduled_join;\n')
+    f.write('\n#[cfg(feature="heap")]\npub mod compiled_filter;\n#[cfg(feature="heap")]\npub mod lifted_join;\n#[cfg(feature="heap")]\npub mod demand_join;\n')
 # Only add equality/hash derivations for compile-time query-state interning.
 p = snapshot / "src/level_automaton.rs"
 s = p.read_text().replace('#[derive(Clone, Copy, PartialEq, Eq)]', '#[derive(Clone, Copy, PartialEq, Eq, Hash)]')
@@ -81,20 +94,46 @@ shutil.copy2(root / "examples/common/rdf_gen.rs", snapshot / "rdf_gen.rs")
 shutil.copy2(here / "bench.rs", snapshot / "composition_bench.rs")
 shutil.copy2(here / "profile.rs", snapshot / "composition_profile.rs")
 shutil.copy2(here / "join_profile.rs", snapshot / "join_profile.rs")
+shutil.copy2(here / "cycle_bench.rs", snapshot / "cycle_bench.rs")
 shutil.copy2(here / "analytics_bench.rs", snapshot / "analytics_bench.rs")
 shutil.copy2(here / "large_bgp.rs", snapshot / "large_bgp.rs")
 shutil.copy2(here / "query_ops_bench.rs", snapshot / "query_ops_bench.rs")
-# Expose the existing NFA metadata inside the disposable crate only; the
-# shared-language adapter and the specialized runner use one compiled machine.
-with (snapshot / "src/automaton.rs").open("a") as f:
+# The postorder adapter has exactly the BFS adapter's access operations, with
+# subtraction for backward deltas. Only this disposable source copy is extended.
+with (snapshot / "src/path_fst.rs").open("a") as f:
     f.write('''
-impl PathAutomaton {
-    pub(crate) fn prototype_start(&self) -> u32 { self.start }
-    pub(crate) fn prototype_states(&self) -> usize { self.accepting.len() }
-    pub(crate) fn prototype_accepts(&self, state: u32) -> bool { self.accepting[state as usize] }
-    pub(crate) fn prototype_transitions(&self, state: u32) -> &[Transition] {
-        &self.transitions[self.offsets[state as usize]..self.offsets[state as usize + 1]]
+impl PathFstDeltaPow2 {
+    pub(crate) fn layout_root_addr(&self) -> u64 { self.root_virtual_addr }
+    pub(crate) fn layout_domains(&self) -> [u64; 3] { self.dimension_sizes }
+    pub(crate) fn layout_schedule(&self, level: usize) -> ([u8; 3], [u8; 3], [u8; 3]) {
+        (self.level_dim_bits[level], self.level_shifts_cache[level], self.level_child_cell_bits_cache[level])
+    }
+    pub(crate) fn layout_read_word(&self, addr: u64) -> u64 {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        self.storage.read_u64(block, offset)
+    }
+    pub(crate) fn layout_read_delta(&self, addr: u64, real_index: usize) -> u64 {
+        let block = (addr >> self.capacity_bits) as usize;
+        let offset = (addr & self.capacity_mask) as usize;
+        self.storage.read_var(block, offset + WORD_BYTES + real_index * DELTA_BYTES as usize, DELTA_BYTES)
     }
 }
 ''')
+# A diagnostic node budget for otherwise exponential schedule stress cases.
+# It invokes the existing budgeted executor without changing schedule logic.
+with (snapshot / "src/scheduled_join.rs").open("a") as f:
+    f.write('''
+impl<S: TripleSource> ScheduledJoin<S> {
+    pub fn prototype_visit_budget(&self, ws: &mut ScheduleWorkspace<S::Cursor>, stats: &mut ScheduleStats,
+        limit: u64, mut emit: impl FnMut(&[u32])) -> bool {
+        *stats = ScheduleStats::default();
+        matches!(self.run::<true, true, false, ()>(ws, stats, limit, &mut |row| {
+            emit(row); ControlFlow::Continue(())
+        }), ControlFlow::Continue(()))
+    }
+}
+''')
+shutil.copy2(here / "schedule_stress.rs", snapshot / "schedule_stress.rs")
+shutil.copy2(here / "layout_bench.rs", snapshot / "layout_bench.rs")
 print(snapshot)

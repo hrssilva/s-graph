@@ -1,0 +1,432 @@
+[
+  {
+    "case": "uniform-star",
+    "policy": "adaptive",
+    "pow2": {
+      "case": "uniform-star",
+      "layout": "pow2",
+      "policy": "adaptive",
+      "rows": 4950,
+      "prepare_us": 9.692630524257591,
+      "visit_us": 20340.524749999997,
+      "visit_min_us": 20328.9535,
+      "visit_max_us": 20783.484500000002,
+      "total_us": 20312.83025,
+      "build_us": 647463.4895,
+      "graph_bytes": 6178506,
+      "blocks": 1510,
+      "physical_nodes": 178613,
+      "plan_bytes": 3888,
+      "workspace_bytes": 688,
+      "nodes": 1220372,
+      "candidates": 1225321,
+      "mask_updates": 65657,
+      "planning_nodes": 320,
+      "cut": 0,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        20406.022999999997,
+        20275.0265
+      ]
+    },
+    "bfs": {
+      "case": "uniform-star",
+      "layout": "bfs",
+      "policy": "adaptive",
+      "rows": 4950,
+      "prepare_us": 9.721487910871524,
+      "visit_us": 20270.175,
+      "visit_min_us": 20109.4845,
+      "visit_max_us": 20817.217999999997,
+      "total_us": 20292.62975,
+      "build_us": 716391.9235,
+      "graph_bytes": 6178786,
+      "blocks": 1510,
+      "physical_nodes": 178613,
+      "plan_bytes": 3888,
+      "workspace_bytes": 688,
+      "nodes": 1220372,
+      "candidates": 1225321,
+      "mask_updates": 65657,
+      "planning_nodes": 320,
+      "cut": 0,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        20250.806,
+        20289.543999999998
+      ]
+    },
+    "bfs_visit_speedup": 1.0034706039785053
+  },
+  {
+    "case": "uniform-star",
+    "policy": "nested",
+    "pow2": {
+      "case": "uniform-star",
+      "layout": "pow2",
+      "policy": "nested",
+      "rows": 4950,
+      "prepare_us": 1.2034950335364294,
+      "visit_us": 20340.009,
+      "visit_min_us": 20308.4995,
+      "visit_max_us": 21230.536500000002,
+      "total_us": 20482.913500000002,
+      "build_us": 652465.572,
+      "graph_bytes": 6178506,
+      "blocks": 1510,
+      "physical_nodes": 178613,
+      "plan_bytes": 3888,
+      "workspace_bytes": 688,
+      "nodes": 1220372,
+      "candidates": 1225321,
+      "mask_updates": 65657,
+      "planning_nodes": 0,
+      "cut": 0,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        20340.009
+      ]
+    },
+    "bfs": {
+      "case": "uniform-star",
+      "layout": "bfs",
+      "policy": "nested",
+      "rows": 4950,
+      "prepare_us": 1.223370706881479,
+      "visit_us": 20119.919,
+      "visit_min_us": 20086.9725,
+      "visit_max_us": 20165.249499999998,
+      "total_us": 20097.8675,
+      "build_us": 733106.874,
+      "graph_bytes": 6178786,
+      "blocks": 1510,
+      "physical_nodes": 178613,
+      "plan_bytes": 3888,
+      "workspace_bytes": 688,
+      "nodes": 1220372,
+      "candidates": 1225321,
+      "mask_updates": 65657,
+      "planning_nodes": 0,
+      "cut": 0,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        20119.919
+      ]
+    },
+    "bfs_visit_speedup": 1.0109389108375633
+  },
+  {
+    "case": "uniform-star",
+    "policy": "levels",
+    "pow2": {
+      "case": "uniform-star",
+      "layout": "pow2",
+      "policy": "levels",
+      "rows": 4950,
+      "prepare_us": 1.1393708533516358,
+      "visit_us": 29324.9735,
+      "visit_min_us": 29252.4825,
+      "visit_max_us": 29411.7325,
+      "total_us": 29571.508,
+      "build_us": 652465.572,
+      "graph_bytes": 6178506,
+      "blocks": 1510,
+      "physical_nodes": 178613,
+      "plan_bytes": 3504,
+      "workspace_bytes": 688,
+      "nodes": 1700957,
+      "candidates": 1705906,
+      "mask_updates": 1700957,
+      "planning_nodes": 0,
+      "cut": 7,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        29324.9735
+      ]
+    },
+    "bfs": {
+      "case": "uniform-star",
+      "layout": "bfs",
+      "policy": "levels",
+      "rows": 4950,
+      "prepare_us": 1.149222626674432,
+      "visit_us": 29257.176,
+      "visit_min_us": 29147.354,
+      "visit_max_us": 29394.0335,
+      "total_us": 29237.529000000002,
+      "build_us": 733106.874,
+      "graph_bytes": 6178786,
+      "blocks": 1510,
+      "physical_nodes": 178613,
+      "plan_bytes": 3504,
+      "workspace_bytes": 688,
+      "nodes": 1700957,
+      "candidates": 1705906,
+      "mask_updates": 1700957,
+      "planning_nodes": 0,
+      "cut": 7,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        29257.176
+      ]
+    },
+    "bfs_visit_speedup": 1.0023172947382208
+  },
+  {
+    "case": "skew",
+    "policy": "adaptive",
+    "pow2": {
+      "case": "skew",
+      "layout": "pow2",
+      "policy": "adaptive",
+      "rows": 1053,
+      "prepare_us": 9.538939163080308,
+      "visit_us": 4698.917448717949,
+      "visit_min_us": 4449.524538461538,
+      "visit_max_us": 4812.532153846154,
+      "total_us": 4515.727269230769,
+      "build_us": 318445.0765,
+      "graph_bytes": 5458162,
+      "blocks": 1344,
+      "physical_nodes": 109878,
+      "plan_bytes": 3792,
+      "workspace_bytes": 688,
+      "nodes": 216250,
+      "candidates": 217302,
+      "mask_updates": 136156,
+      "planning_nodes": 320,
+      "cut": 0,
+      "order": [
+        1,
+        0
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        4516.418230769231,
+        4881.416666666667
+      ]
+    },
+    "bfs": {
+      "case": "skew",
+      "layout": "bfs",
+      "policy": "adaptive",
+      "rows": 1053,
+      "prepare_us": 9.698458564659575,
+      "visit_us": 4251.044317948717,
+      "visit_min_us": 4021.0710000000004,
+      "visit_max_us": 4256.716266666666,
+      "total_us": 4221.074576923076,
+      "build_us": 331511.679,
+      "graph_bytes": 5458442,
+      "blocks": 1344,
+      "physical_nodes": 109878,
+      "plan_bytes": 3792,
+      "workspace_bytes": 688,
+      "nodes": 216250,
+      "candidates": 217302,
+      "mask_updates": 136156,
+      "planning_nodes": 320,
+      "cut": 0,
+      "order": [
+        1,
+        0
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        4171.750866666666,
+        4330.337769230769
+      ]
+    },
+    "bfs_visit_speedup": 1.105356024842702
+  },
+  {
+    "case": "skew",
+    "policy": "nested",
+    "pow2": {
+      "case": "skew",
+      "layout": "pow2",
+      "policy": "nested",
+      "rows": 1053,
+      "prepare_us": 1.0935191017565422,
+      "visit_us": 107506.607,
+      "visit_min_us": 107399.606,
+      "visit_max_us": 107628.427,
+      "total_us": 107602.62800000001,
+      "build_us": 325598.63100000005,
+      "graph_bytes": 5458162,
+      "blocks": 1344,
+      "physical_nodes": 109878,
+      "plan_bytes": 3888,
+      "workspace_bytes": 688,
+      "nodes": 8192603,
+      "candidates": 8193655,
+      "mask_updates": 554285,
+      "planning_nodes": 0,
+      "cut": 0,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        107506.607
+      ]
+    },
+    "bfs": {
+      "case": "skew",
+      "layout": "bfs",
+      "policy": "nested",
+      "rows": 1053,
+      "prepare_us": 1.1154108508765994,
+      "visit_us": 105720.042,
+      "visit_min_us": 105637.827,
+      "visit_max_us": 105799.432,
+      "total_us": 105604.38399999999,
+      "build_us": 329354.17500000005,
+      "graph_bytes": 5458442,
+      "blocks": 1344,
+      "physical_nodes": 109878,
+      "plan_bytes": 3888,
+      "workspace_bytes": 688,
+      "nodes": 8192603,
+      "candidates": 8193655,
+      "mask_updates": 554285,
+      "planning_nodes": 0,
+      "cut": 0,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        105720.042
+      ]
+    },
+    "bfs_visit_speedup": 1.0168990190147673
+  },
+  {
+    "case": "skew",
+    "policy": "levels",
+    "pow2": {
+      "case": "skew",
+      "layout": "pow2",
+      "policy": "levels",
+      "rows": 1053,
+      "prepare_us": 1.0494594408008284,
+      "visit_us": 10446.7984,
+      "visit_min_us": 10338.238,
+      "visit_max_us": 10807.1012,
+      "total_us": 10498.9586,
+      "build_us": 325598.63100000005,
+      "graph_bytes": 5458162,
+      "blocks": 1344,
+      "physical_nodes": 109878,
+      "plan_bytes": 3504,
+      "workspace_bytes": 688,
+      "nodes": 539301,
+      "candidates": 540353,
+      "mask_updates": 539301,
+      "planning_nodes": 0,
+      "cut": 7,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        10446.7984
+      ]
+    },
+    "bfs": {
+      "case": "skew",
+      "layout": "bfs",
+      "policy": "levels",
+      "rows": 1053,
+      "prepare_us": 1.0674588796552786,
+      "visit_us": 9925.514666666666,
+      "visit_min_us": 9837.7845,
+      "visit_max_us": 9992.355666666666,
+      "total_us": 9871.597,
+      "build_us": 329354.17500000005,
+      "graph_bytes": 5458442,
+      "blocks": 1344,
+      "physical_nodes": 109878,
+      "plan_bytes": 3504,
+      "workspace_bytes": 688,
+      "nodes": 539301,
+      "candidates": 540353,
+      "mask_updates": 539301,
+      "planning_nodes": 0,
+      "cut": 7,
+      "order": [
+        0,
+        1
+      ],
+      "certified_empty": false,
+      "pass_number": 0,
+      "block_capacity": 4096,
+      "trials": 5,
+      "pass_visit_us": [
+        9925.514666666666
+      ]
+    },
+    "bfs_visit_speedup": 1.0525195670793763
+  }
+]

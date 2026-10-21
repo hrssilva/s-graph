@@ -16,7 +16,7 @@ fn atom(s: Term, p: u32, o: Term) -> TriplePattern<Term> {
         object: o,
     }
 }
-fn fixture(name: &str) -> (Vec<s_graph::Triple>, [u64; 3], JoinQuery<Term>) {
+pub(crate) fn fixture(name: &str) -> (Vec<s_graph::Triple>, [u64; 3], JoinQuery<Term>) {
     use Term::{Const as C, Var as V};
     if name == "skew" {
         let n = 2_000_000;
@@ -181,6 +181,34 @@ fn main() {
         ControlFlow::<()>::Continue(())
     };
     match engine {
+        "default" => {
+            let plan = s_graph::Join::new(&query, &tree).unwrap();
+            let mut ws = s_graph::JoinWorkspace::default();
+            let mut actual = Vec::new();
+            let _: ControlFlow<()> = plan.visit(&mut ws, |r| {
+                actual.push(r.to_vec());
+                ControlFlow::Continue(())
+            });
+            actual.sort_unstable();
+            assert_eq!(actual, expected);
+            if phase == "stats" {
+                let mut st = ScheduleStats::default();
+                let _ = plan.visit_with_stats(&mut ws, &mut st, sink);
+                println!(
+                    "{{\"nodes\":{},\"candidates\":{},\"rows\":{},\"planning_nodes\":{},\"cut\":{}}}",
+                    st.nodes,
+                    st.candidates,
+                    st.rows,
+                    plan.planning.nodes,
+                    plan.planning.selected_cut
+                );
+            } else {
+                assert_eq!(phase, "visit");
+                measure(engine, case, repeats, expected.len(), || {
+                    let _ = plan.visit(&mut ws, sink);
+                });
+            }
+        }
         "automaton" | "automaton-rare-first" => {
             let plan = AutomatonJoin::new(&query, &tree).unwrap();
             let mut ws = Vec::new();

@@ -8,7 +8,7 @@
 use std::fmt;
 
 /// A coordinate value outside the domain size established when the tree
-/// was built (or explicitly declared via [`crate::Heap::build_dynamic_empty`]
+/// was built (or explicitly declared via [`crate::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric::build_dynamic_empty`]
 /// and friends).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OutOfDomain {
@@ -28,7 +28,7 @@ impl fmt::Display for OutOfDomain {
 #[derive(Debug)]
 pub enum TreeError {
     /// `insert`/`insert_batch` called with a coordinate outside the domain
-    /// established at build time. Check with [`crate::Heap::in_bounds`]
+    /// established at build time. Check with [`crate::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric::in_bounds`]
     /// (or the `File`/`Compressed` equivalent) up front to avoid
     /// constructing this for input you can filter yourself.
     OutOfDomain(OutOfDomain),
@@ -41,7 +41,7 @@ pub enum TreeError {
     /// The serialized data declares a format version this build doesn't
     /// know how to read.
     UnsupportedVersion(u8),
-    /// A build-time configuration parameter (e.g. [`crate::Heap::build_with_order`]'s
+    /// A build-time configuration parameter (e.g. [`crate::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric::build_with_order`]'s
     /// `split`) is invalid on its own terms -- not a matter of the data.
     InvalidConfig(String),
 }

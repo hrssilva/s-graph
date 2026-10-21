@@ -1,0 +1,54 @@
+[
+  {
+    "case": "skew:adaptive",
+    "layout": "pow2",
+    "visit_us": 4572.3621485148515,
+    "cycles:u": 17929356.237623762,
+    "instructions:u": 48702827.0,
+    "cache-references:u": 286659.2673267327,
+    "cache-misses:u": 95699.74257425743,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  },
+  {
+    "case": "skew:adaptive",
+    "layout": "bfs",
+    "visit_us": 4084.101347107438,
+    "cycles:u": 16126059.132231405,
+    "instructions:u": 48506508.88429752,
+    "cache-references:u": 247673.15702479339,
+    "cache-misses:u": 66439.01652892563,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  },
+  {
+    "case": "functional-triangle:adaptive",
+    "layout": "pow2",
+    "visit_us": 1967.4754661354582,
+    "cycles:u": 7759230.41434263,
+    "instructions:u": 32406074.553784862,
+    "cache-references:u": 335.47011952191235,
+    "cache-misses:u": 102.56175298804781,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  },
+  {
+    "case": "functional-triangle:adaptive",
+    "layout": "bfs",
+    "visit_us": 1962.222171206226,
+    "cycles:u": 7769932.59922179,
+    "instructions:u": 32406073.774319068,
+    "cache-references:u": 303.8988326848249,
+    "cache-misses:u": 75.76653696498055,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  }
+]

@@ -1,0 +1,378 @@
+<!-- Historical guide before FST promotion; see ../../README.md for current defaults. -->
+
+# s-graph
+
+A compact graph representation and algorithm library over integer triples
+`(subject, predicate, object)`: a DFS-preorder, interleaved-skip-pointer radix trie over
+Morton-coded triples, generic over three storage backends (in-RAM,
+real-file, LZ4-compressed in-RAM), with local insertion, native prefix
+conjunctive joins, bounded paths, and regular-path automata. Dictionaries,
+named-graph semantics, query languages and transactions belong to consumers.
+
+It grew out of an exploratory comparison against the k²-tree family
+(Mk²-tree, IK²-tree) and Omnitree, kept in `examples/` along with the
+full survey and literature grounding (see `examples/README.md`). This
+crate (`src/`) is the productionized result: the same structure, with
+`Result`-based error handling, feature-gated backends, and a real public
+API instead of a benchmark harness.
+
+## Why
+
+Compact RDF indexes (k²-tree-family structures especially) are usually
+build-once, query-forever: adding one triple means rebuilding the whole
+structure. `s-graph` inserts locally, with O(height log B + block bytes)
+work for ordinary insertions and O(B) block-directory work on splits,
+where B is the block count, while keeping the same
+DFS-preorder byte layout that makes the structure page/compress
+naturally. Query latency and memory footprint don't degrade on skewed or
+concentrated data the way the k²-tree family's unconditional per-level
+fan-out does (see `examples/README.md` §5 for the measured ~2000x gap
+this design avoids structurally).
+
+If your workload doesn't need that local-insertion property -- build
+once, then query and join a lot -- `PathFstDeltaPow2Bfs` (same `heap`
+feature) measures smaller and at least as fast on every shape tried so
+far; see "The FST layout" below.
+
+## Install
+
+```toml
+[dependencies]
+s-graph = { path = "../s-graph" }  # or a git dependency, once published
+```
+
+Feature flags (`heap` is the only one on by default):
+
+| Feature | Adds | For |
+|---|---|---|
+| `heap` | `Heap` backend *and* `PathFstDeltaPow2Bfs` | In-RAM, fastest, no extra dependencies -- see "The FST layout" below for which one to reach for |
+| `file` | `File` backend | Real backing file, `pread`/`pwrite`, near-zero steady-state RAM |
+| `compressed` | `Compressed` backend | LZ4-compressed in-RAM blocks, for RAM-constrained/no-disk deployments |
+| `parallel` | `rayon`-based bulk-build fan-out | ~4x faster bulk build at large N (measured); off by default so a single-threaded consumer isn't forced to accept the dependency |
+
+## Quick start
+
+```rust
+use s_graph::Heap;
+
+// Build from a batch of (subject, predicate, object) u32 triples.
+// A real application dictionary-encodes its own IRIs/literals to u32s
+// (see "Getting real data in" below) -- this crate indexes ids, it
+// doesn't do term interning itself.
+let triples = vec![(0, 0, 1), (0, 1, 2), (1, 0, 2)];
+let mut tree = Heap::build_dynamic(triples, /* block_capacity */ 4096);
+
+assert!(tree.contains(0, 0, 1));
+assert!(!tree.contains(2, 2, 2));
+
+// Row/column-style restricted queries: a per-dimension restriction
+// (`Exact`, `Range`, `Multi`, or `Free`) plus which dimension to emit.
+use s_graph::tree::DimRestriction;
+let objects_of_0_via_pred_0 = tree.restricted_descent([DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free], 2); // subject=0, predicate=0, object=?
+let predicates_between = tree.predicates_for(0, 1); // subject=0, object=1, predicate=?
+
+// Many point-existence checks at once (filters, graph diff): shares
+// descent work across queries that land on the same trie node instead of
+// re-descending from the root per query -- see "Batched reads" below.
+let hits = tree.contains_batch(&[(0, 0, 1), (9, 9, 9)]); // [true, false]
+
+// Count matches without listing them -- `None` is a wildcard, same
+// convention as `scan`.
+let num_edges_of_0 = tree.count_matching([Some(0), None, None]);
+
+// Insert within the declared coordinate domains.
+assert!(tree.insert(1, 1, 1).unwrap()); // true: newly inserted
+assert!(!tree.insert(0, 0, 1).unwrap()); // false: already present
+
+// An out-of-domain coordinate is rejected, not silently accepted into
+// the wrong bit of an unrelated triple -- subject 2 is out of range
+// here since only subjects 0 and 1 appeared in the triples this tree
+// was built from. Check `tree.in_bounds(s, p, o)` up front if you'd
+// rather filter than handle the error.
+assert!(tree.insert(2, 0, 0).is_err());
+
+// Delete a triple -- full, immediate reclamation: any node left
+// entirely empty by the removal is physically removed too, cascading
+// up to (but never including) the root, not just a bit flip deferred
+// to a separate compaction step. An out-of-domain coordinate here
+// simply can't match anything, so this returns `Ok(false)`, not `Err`.
+assert!(tree.remove(0, 0, 1).unwrap());
+assert!(!tree.contains(0, 0, 1));
+
+// Persist and reload -- the format is backend-agnostic: bytes from a
+// `Heap` deserialize correctly into a `File` or `Compressed` tree too.
+let bytes = tree.serialize();
+let restored = Heap::deserialize(&bytes).unwrap();
+assert!(restored.contains(0, 1, 2));
+assert!(!restored.contains(0, 0, 1)); // the removal above survives the round trip too
+```
+
+Swap `Heap` for `s_graph::File` or `s_graph::Compressed` (behind their
+features) to change *only* the storage backend — every method above is
+identical across all three; see `src/storage_file.rs`/
+`src/storage_compressed.rs` for what each one actually trades off.
+
+### Joins and graph traversal
+
+```rust
+use s_graph::graph::{JoinQuery, Term, TriplePattern, join_run};
+use s_graph::path::bfs_sequential;
+use s_graph::Heap;
+
+let tree = Heap::build_dynamic(vec![(0, 0, 1), (1, 1, 2), (0, 0, 3)], 4096);
+
+// Collect a native prefix-join result: "subject 0 --p0--> ?a . ?a --p1--> ?b"
+let query = JoinQuery {
+    num_vars: 2,
+    patterns: vec![
+        TriplePattern { subject: Term::Const(0), predicate: 0, object: Term::Var(0) },
+        TriplePattern { subject: Term::Var(0), predicate: 1, object: Term::Var(1) },
+    ],
+};
+let bindings = join_run(&query, &tree); // JoinRows: one flat buffer, each row a borrowed &[u32]
+for row in bindings.rows() {
+    // row: &[u32], indexed by variable ID
+}
+
+// BFS / shortest hop-count reachability.
+let dist = bfs_sequential(&tree, /* start */ 0, /* predicate filter */ None);
+```
+
+For joins directly over the S/P/O topology, compile the global prefix schedule
+and stream borrowed bindings. Predicates remain structural, including a predicate
+variable shared across atoms. Compilation does not scan or copy graph relations:
+
+```rust
+use std::ops::ControlFlow;
+use s_graph::graph::{JoinQuery, Term, TriplePattern};
+use s_graph::native_join::{NativeJoin, NativeJoinWorkspace};
+use s_graph::path::{HopRange, Step, PathWorkspace, has_path};
+
+let tree = s_graph::Heap::build_dynamic(vec![(0, 0, 1), (1, 0, 2)], 4096);
+let query = JoinQuery {
+    num_vars: 4,
+    patterns: vec![
+        TriplePattern { subject: Term::Var(0), predicate: Term::Var(1), object: Term::Var(2) },
+        TriplePattern { subject: Term::Var(2), predicate: Term::Var(1), object: Term::Var(3) },
+    ],
+};
+let plan = NativeJoin::new(&query, &tree).unwrap();
+let mut workspace = NativeJoinWorkspace::default();
+let _: ControlFlow<()> = plan.visit(&mut workspace, |binding| {
+    // Consume binding immediately; Break stops enumeration.
+    assert_eq!(binding, &[0, 0, 1, 2]);
+    ControlFlow::Continue(())
+});
+let mut paths = PathWorkspace::default(); // sparse visitation, independent of max ID
+assert!(has_path(&tree, 0, 2, HopRange::new(2, 2).unwrap(), Step::default(), &mut paths));
+```
+
+`NativeJoin` uses O(atoms × tree height + variables) metadata and workspace,
+independent of the number of triples. It supports constants, repeated variables,
+cycles, ground constraints and disconnected patterns. The plan borrows its tree;
+drop it before mutation and compile a new plan afterwards. Output order is
+unspecified. There is no established WCO bound for this native traversal, and
+uneven split schedules can delay pruning. `visit_with_stats` reports node
+openings and surviving child choices. `allocated_bytes` reports retained vector
+capacity for the plan or workspace; backend cache memory is separate.
+
+`graph::join_run` and `graph::try_join_run` compile and collect native joins
+into a `JoinRows`: one flat `Vec<u32>` for the whole result set, each row a
+borrowed `&[u32]` via `.rows()` -- not one `Vec` per row. Call
+`.to_vec_rows()` for owned per-row `Vec<u32>`s if you actually want that.
+The historical names `ltj_run` and `try_ltj_run` are aliases for those helpers;
+they no longer execute Leapfrog Triejoin. Reuse `NativeJoin` and its workspace
+for repeated queries. Native joins accept the tree's `BlockStorage` backends;
+`join::PatternBackend` remains the generic scan interface for path algorithms.
+
+There is no `MINUS`/`FILTER NOT EXISTS` operator in this crate -- two
+in-descent and collect-then-filter designs were tried and both measured
+worse than a consumer composing its own anti-join from `NativeJoin::visit`
+(streamed, borrowed `&[u32]` rows, no per-row allocation) and
+`contains_batch` directly, informed by its own data's actual shape. See
+`DESIGN.md` for the measurements.
+
+The materialized `PreparedJoin`, its `JoinOptions`, `RelationLayout` and
+`JoinWorkspace`, and the boxed `GraphBackend`/sorted-neighbor adapters have been
+removed. Migrate prepared queries to `NativeJoin`/`NativeJoinWorkspace`; plans
+now borrow the tree rather than own snapshots. No proven WCO executor is currently
+provided; proving or improving the native traversal's bound remains open work.
+
+- `tree.scan([s, p, o])`: allocation-free filtered triples in Morton order.
+- `tree.count_matching([s, p, o])`: count of matching triples, same bound/
+  wildcard convention as `scan`, without decoding or collecting any of them.
+- `restricted_descent` / `restricted_descent_into`: one method for every
+  bound/one-bound/range-restricted adjacency query -- a `[DimRestriction; 3]`
+  (`Free`, `Exact(v)`, `Range(lo, hi)`, or `Multi(&[(lo, hi)])` per
+  dimension) plus which dimension to emit, sorted adjacency in reusable
+  buffers. Replaces the old `query_two_bound`/`query_one_bound` method
+  pair -- those restricted to exact values only; this adds real
+  range/set restrictions, pruned at native tree speed instead of a
+  `scan` plus manual filter.
+- `restricted_descent_visit` / `predicates_for_visit`: streamed adjacency
+  with the same pruning as the `_into` forms but no sort, no dedup, and
+  real early exit (`LIMIT`/`ASK`) via a `ControlFlow`-returning callback
+  -- stopping early skips the rest of the traversal entirely, not just
+  the rest of the collecting.
+- `path::reachable`: distinct endpoints reachable by walks within min/max hops.
+- `path::shortest_walk`: shortest qualifying walk with nodes and edges reconstructed.
+- `path::enumerate_paths`: streamed walks, trails or simple paths, with optional target.
+- `automaton::PathAutomaton`: epsilon-free NFA evaluation for label sequences,
+  alternatives and repetition, with hop bounds and distinct endpoint output.
+
+Traversal supports outgoing, incoming or both directions. Identical triples are
+one edge; edge multiplicity must be encoded by the consumer. Supplied start IDs
+are considered valid for zero-hop paths, including externally managed isolated
+vertices. Path enumeration can have exponential output; callbacks can stop early.
+
+All serial algorithms support every storage backend. `bfs_parallel` requires
+a `Sync` backend: `Heap` qualifies, while `File` and
+`Compressed` retain single-threaded interior caches. Native plans borrow the
+backend and inherit its threading constraints; Heap plans can be shared with
+separate workspaces.
+
+See [DESIGN.md](../../DESIGN.md) for complexity, memory, semantics and tradeoffs.
+
+### The FST layout: prefer this for static, query-and-join-heavy workloads
+
+Everything above builds on `Heap`/`File`/`Compressed` -- the mutable
+tree family, needed whenever you insert/remove after the initial
+build, serialize, batch-check existence, or walk graph paths/regular-path
+automata. If your workload is **build once, then query and join a lot**,
+build a `PathFstDeltaPow2Bfs` instead (same `heap` feature, on by
+default) and use its automaton-driven methods specifically:
+
+```rust
+use s_graph::path_fst::PathFstDeltaPow2Bfs;
+use s_graph::tree::DimRestriction;
+use s_graph::automaton_join::AutomatonJoin;
+use s_graph::graph::{JoinQuery, Term, TriplePattern};
+
+let triples = vec![(0, 0, 1), (1, 1, 2), (0, 0, 3)];
+let tree = PathFstDeltaPow2Bfs::build(triples, /* dimension sizes */ [2, 2, 4], /* block_capacity */ 4096);
+
+// Restricted-descent-style pattern queries: Exact/Free/Range/Multi on
+// any position, same `DimRestriction` convention as `Heap::restricted_descent`.
+let objects_of_0_via_pred_0 = tree.restricted_descent_via_composed_automaton(
+    [DimRestriction::Exact(0), DimRestriction::Exact(0), DimRestriction::Free],
+    2, // emit object
+);
+assert_eq!(objects_of_0_via_pred_0, vec![1, 3]);
+
+// Conjunctive joins: "subject 0 --p0--> ?a . ?a --p1--> ?b"
+let query = JoinQuery::<Term> {
+    num_vars: 2,
+    patterns: vec![
+        TriplePattern { subject: Term::Const(0), predicate: Term::Const(0), object: Term::Var(0) },
+        TriplePattern { subject: Term::Var(0), predicate: Term::Const(1), object: Term::Var(1) },
+    ],
+};
+let plan = AutomatonJoin::new(&query, &tree).unwrap();
+let mut bindings = Vec::new();
+let _: std::ops::ControlFlow<()> = plan.visit(&mut bindings, |row| {
+    assert_eq!(row, &[1, 2]); // row: &[u32], indexed by variable ID
+    std::ops::ControlFlow::Continue(())
+});
+```
+
+Every query/join shape measured in `DESIGN.md`'s "wired as default"
+entry runs at parity with or faster than the equivalent `Heap`-based
+path, on a structure that's also smaller on disk/in RAM for the same
+triples (the whole point of its DAG deduplication). **Always reach for
+`restricted_descent_via_composed_automaton` and `AutomatonJoin`
+specifically** -- not `PathFstDeltaPow2Bfs::restricted_descent` (and
+its many other `restricted_descent*` variants), not `FstJoin`, not
+`NativeJoin` on a `PathFstDeltaPow2Bfs`-sized problem. Those are kept
+for debugging and comparison: each has its own doc comment and a
+`DESIGN.md` entry recording what it measured, which is exactly the
+history that makes the automaton-driven ones trustworthy as the
+default instead of an unverified guess.
+
+`PathFstDeltaPow2Bfs` is a query/join index over a structure built
+once -- it has no `insert`/`remove`, `serialize`/`deserialize`,
+`contains_batch`/`count_matching`, and isn't a `join::PatternBackend`
+(so no graph traversal/paths, no regular-path automata). Reach for
+`Heap`/`File`/`Compressed` for any of that; reach for
+`PathFstDeltaPow2Bfs` specifically for the query/join shapes above.
+
+### Batched reads
+
+`contains_batch`/`contains_batch_into` answer many point-existence queries
+(filters, graph diff against another tree's triples) faster than calling
+`contains` once per query: they sort an internal copy into Morton order and
+walk once, reusing the previous query's root-to-leaf path at every level two
+consecutive queries still agree on, instead of re-descending from the root
+each time. Output order always matches the input order, never the internal
+sort order. Measured 7-13x faster than the per-triple loop across scattered,
+subject-clustered and diff-style batches (see DESIGN.md) -- it's never slower,
+since a batch with no shared prefixes at all degenerates to exactly that loop.
+
+### Error handling
+
+`insert`/`insert_batch`, `build`/`build_with_order`, and
+`deserialize*` return `Result<_, TreeError>`. Read methods
+(`contains`, `restricted_descent`, `predicates_for`)
+return false/empty results for out-of-domain coordinates, which cannot match
+anything. `remove`/`remove_batch` also return `Result<_, TreeError>` (for
+signature symmetry with `insert`/`insert_batch`), but behave like a read
+method for an out-of-domain coordinate: `Ok(false)`, never `Err` -- removal
+never changes the domain either way, so there's nothing to misrepresent by
+accepting one. File I/O failures during traversal still panic.
+Snapshot loading validates metadata, topology, record boundaries and skip spans.
+Default limits are 1 GiB of block capacity, 1,000,000 blocks and 16 MiB per block;
+use `deserialize_with_limits` / `deserialize_from_path_with_limits` to change them.
+Configuration-taking infallible builders panic on invalid configuration; `build`
+and `build_with_order` return errors. See crate docs for the remaining panic contract.
+
+## Getting real data in
+
+`s-graph` indexes `(u32, u32, u32)` triples; it doesn't parse RDF syntax
+or intern terms itself. For real IRIs/literals, parse with a real RDF
+parser and dictionary-encode the terms you get back into `u32` ids
+(one shared id space for subjects/objects, since the same IRI can appear
+in both positions; blank nodes scoped per source document, since their
+identity is only meaningful within it).
+
+## Benchmarks
+
+[`s-bench`](https://github.com/hrssilva/s-bench) is a separate repository
+that builds and queries this crate (`Heap`/`File`/`Compressed`, all three)
+against the real [W3C RDF 1.1 test suite](https://github.com/w3c/rdf-tests),
+parsed with [`s-parser`](https://github.com/hrssilva/s-parser) — real
+IRIs/literals dictionary-encoded into triples, not this project's own
+synthetic dataset generator. It's a separate repository specifically so
+neither it nor its private dependencies ever become something
+`cargo build`/`cargo test` on this crate needs to resolve. See its README
+for current numbers (build time, memory, `contains` latency, all three
+backends, at both the real corpus's own small scale and amplified to
+~1.5M triples) and exactly how to reproduce them.
+
+## Project layout
+
+- `src/` — the published library (this crate).
+- `examples/` — the exploratory comparison this design was measured
+  against (Mk²-tree, IK²-tree, Omnitree, and every intermediate
+  RadixTree layout variant), kept for its literature grounding and
+  measured history. Not part of the public API.
+
+## TODO
+
+- **Domain growth.** Coordinate domains are fixed at construction
+  (`build_dynamic_empty`/`build_dynamic`); there is no way to extend
+  them afterward. Not implemented.
+- **Block-to-block rebalancing.** `remove`/`remove_batch` shrink a
+  block as its content dies but never merge a now-underfull block with
+  a neighbor. Heavy, sustained deletion churn can leave many small
+  blocks behind. Not implemented.
+
+## Testing
+
+```sh
+cargo test                 # default features (heap)
+cargo test --all-features  # + file, compressed, parallel
+cargo bench --bench algorithms  # preparation, repeated execution, scans and paths
+```
+
+## License
+
+MIT — see `LICENSE`.

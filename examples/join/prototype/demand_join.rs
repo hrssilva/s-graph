@@ -357,10 +357,9 @@ pub(crate) mod tests {
                 patterns: vec![p([V(0), V(0), V(0)])],
                 num_vars: 1,
             };
-            // The current FST builder discards input for height-zero domains;
-            // it represents both inputs above as an empty graph. Match storage.
-            assert!(!tree.contains(0, 0, 0));
-            check(&tree, &query, &[]);
+            assert_eq!(tree.contains(0, 0, 0), !triples.is_empty());
+            let expected = if triples.is_empty() { vec![] } else { vec![vec![0]] };
+            check(&tree, &query, &expected);
         }
     }
     #[test]

@@ -1,0 +1,1 @@
+{"mode":"full","layout":"pow2","policy":"adaptive","atoms":4096,"finished":true,"rows":16,"expected_rows":16,"prepare_us":18170.27,"visit_us":2997.989,"nodes":0,"candidates":0,"planning_nodes":832,"cut":0,"plan_bytes":2686976,"workspace_bytes":409604}

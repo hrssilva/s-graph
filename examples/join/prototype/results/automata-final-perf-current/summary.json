@@ -1,0 +1,54 @@
+[
+  {
+    "case": "skew:adaptive",
+    "layout": "pow2",
+    "visit_us": 4591.628932692308,
+    "cycles:u": 18196494.442307692,
+    "instructions:u": 48702826.40384615,
+    "cache-references:u": 289060.73076923075,
+    "cache-misses:u": 95774.67307692308,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  },
+  {
+    "case": "skew:adaptive",
+    "layout": "bfs",
+    "visit_us": 3994.8818198198196,
+    "cycles:u": 15729575.378378378,
+    "instructions:u": 48506512.531531535,
+    "cache-references:u": 244732.8108108108,
+    "cache-misses:u": 64358.747747747744,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  },
+  {
+    "case": "functional-triangle:adaptive",
+    "layout": "pow2",
+    "visit_us": 1958.3885843137257,
+    "cycles:u": 7761515.756862745,
+    "instructions:u": 32406074.164705884,
+    "cache-references:u": 354.1921568627451,
+    "cache-misses:u": 70.68627450980392,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  },
+  {
+    "case": "functional-triangle:adaptive",
+    "layout": "bfs",
+    "visit_us": 1966.791717647059,
+    "cycles:u": 7806630.341176471,
+    "instructions:u": 32406074.043137256,
+    "cache-references:u": 370.45882352941175,
+    "cache-misses:u": 97.66666666666667,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u_running_pct": 100.0,
+    "cache-references:u_running_pct": 100.0,
+    "cache-misses:u_running_pct": 100.0
+  }
+]

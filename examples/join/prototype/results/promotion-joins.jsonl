@@ -1,0 +1,16 @@
+{"engine": "default", "case": "uniform-star", "repeats": 50, "rows": 4950, "elapsed_s": 1.01831799, "visit_us": 20366.3598}
+{"engine": "scheduled-adaptive", "case": "uniform-star", "repeats": 50, "rows": 4950, "elapsed_s": 0.99952377, "visit_us": 19990.4754}
+{"engine": "automaton", "case": "uniform-star", "repeats": 50, "rows": 4950, "elapsed_s": 1.052656297, "visit_us": 21053.12594}
+{"engine": "fst", "case": "uniform-star", "repeats": 50, "rows": 4950, "elapsed_s": 1.77620432, "visit_us": 35524.0864}
+{"engine": "default", "case": "skew", "repeats": 20, "rows": 1053, "elapsed_s": 0.08165564, "visit_us": 4082.782}
+{"engine": "scheduled-adaptive", "case": "skew", "repeats": 20, "rows": 1053, "elapsed_s": 0.079930165, "visit_us": 3996.50825}
+{"engine": "automaton", "case": "skew", "repeats": 20, "rows": 1053, "elapsed_s": 2.312675997, "visit_us": 115633.79985}
+{"engine": "fst", "case": "skew", "repeats": 20, "rows": 1053, "elapsed_s": 0.242303003, "visit_us": 12115.15015}
+{"engine": "default", "case": "mixed-triangle", "repeats": 10000, "rows": 64, "elapsed_s": 0.391210895, "visit_us": 39.121089500000004}
+{"engine": "scheduled-adaptive", "case": "mixed-triangle", "repeats": 10000, "rows": 64, "elapsed_s": 0.392504541, "visit_us": 39.2504541}
+{"engine": "automaton", "case": "mixed-triangle", "repeats": 50, "rows": 64, "elapsed_s": 1.831919662, "visit_us": 36638.39324}
+{"engine": "fst", "case": "mixed-triangle", "repeats": 10000, "rows": 64, "elapsed_s": 0.40709205, "visit_us": 40.709205}
+{"engine": "default", "case": "parity-triangle-128", "repeats": 100000, "rows": 0, "elapsed_s": 0.000309432, "visit_us": 0.0030943200000000002}
+{"engine": "scheduled-adaptive", "case": "parity-triangle-128", "repeats": 100000, "rows": 0, "elapsed_s": 0.000224884, "visit_us": 0.00224884}
+{"engine": "automaton", "case": "parity-triangle-128", "repeats": 10, "rows": 0, "elapsed_s": 2.6169480590000003, "visit_us": 261694.80590000004}
+{"engine": "fst", "case": "parity-triangle-128", "repeats": 10000, "rows": 0, "elapsed_s": 0.005503463, "visit_us": 0.5503463}

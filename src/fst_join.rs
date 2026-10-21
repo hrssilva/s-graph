@@ -2,15 +2,9 @@
 //! storage -- see `DESIGN.md`'s "Joins and paths as automatons" entry for
 //! the design discussion this is "Phase 2" of.
 //!
-//! **Debugging/comparison only -- prefer [`crate::automaton_join::AutomatonJoin`]**,
-//! which measures faster on every shape tried so far (`DESIGN.md`'s
-//! "wired as default" entry) despite the design reasoning below arguing
-//! it shouldn't. Kept specifically so that comparison stays possible,
-//! and because it's the one executor here faithful to `NativeJoin`'s
-//! actual algorithm (`AutomatonJoin` explicitly is not, and also
-//! rejects a variable repeated within one atom, which this module
-//! handles correctly via `NativeJoin`'s own `owners` mechanism) -- use
-//! this one for either of those reasons, not as a general default.
+//! Level-synchronized alternative retained for comparison with the default
+//! [`crate::Join`] adaptive automaton. Repeated variables are supported.
+//! The design history below describes this executor's fixed schedule.
 //!
 //! **Not a literal port of `native_join::NativeJoin`, and deliberately not
 //! expressed through `level_automaton::LevelAutomaton` either.** Both were
@@ -271,7 +265,7 @@ impl<'a> FstJoin<'a> {
     /// Compile constants, shared variables (including predicates),
     /// repeated variables, ground atoms and disconnected patterns --
     /// identical contract to `NativeJoin::new`. Variable identifiers must
-    /// cover `0..query.num_vars`. Delegates to [`compile`], shared with
+    /// cover `0..query.num_vars`. Delegates to `compile`, shared with
     /// [`crate::recursive_join::RecursiveJoin`] -- see that function's
     /// own doc comment for why.
     pub fn new<P: Copy + Into<Term>>(query: &JoinQuery<P>, tree: &'a PathFstDeltaPow2Bfs) -> Result<Self> {
