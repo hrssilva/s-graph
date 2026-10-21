@@ -1,0 +1,20 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 5649675633
+#
+# Overhead  Command          Shared Object             Symbol                                                                                                                                       
+# ........  ...............  ........................  .............................................................................................................................................
+#
+    68.23%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::descend::<false, false, (), join_profile::main::{closure#2}>
+    20.38%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+     9.54%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::block::<false, false, (), join_profile::main::{closure#2}>
+     1.85%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+
+
+#
+# (Tip: To only collect call graph on one event use perf record -e cpu/cpu-cycles,callgraph=1/,branches ; perf report --show-ref-call-graph)
+#

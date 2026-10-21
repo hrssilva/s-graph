@@ -1,0 +1,19 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 962  of event 'cycles:u'
+# Event count (approx.): 3709556649
+#
+# Overhead  Command          Shared Object            Symbol                                                                                                                                                   
+# ........  ...............  .......................  .........................................................................................................................................................
+#
+    62.35%  sgraph-analytic  sgraph-analytics-before  [.] <s_graph::analytics::PageRank<s_graph::analytics::ScanWorkspace<u64>>>::run::<s_graph::analytics::CompressedEdges<s_graph::automata_core::FstSource>>
+    23.01%  sgraph-analytic  sgraph-analytics-before  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    14.65%  sgraph-analytic  sgraph-analytics-before  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+
+
+#
+# (Tip: To adjust path to source files to local file system use perf report --prefix=... --prefix-strip=...)
+#

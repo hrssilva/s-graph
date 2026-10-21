@@ -1,0 +1,20 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 8756656523
+#
+# Overhead  Command          Shared Object                 Symbol                                                                                                                               
+# ........  ...............  ............................  .....................................................................................................................................
+#
+    57.58%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::visit::<(), join_profile::main::{closure#2}>
+    14.99%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::open::<false, false>
+    14.52%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    12.86%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+
+
+#
+# (Tip: To trace calls using Processor Trace use perf record -e intel_pt// ... ; perf script --call-trace. Then use perf script --time A-B --insn-trace to look at region of interest.)
+#

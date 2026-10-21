@@ -1,0 +1,21 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 935  of event 'cycles:u'
+# Event count (approx.): 3593029216
+#
+# Overhead  Command          Shared Object    Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+# ........  ...............  ...............  ....................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    58.40%  query_ops_bench  query_ops_bench  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::descend::<false, false, false, (), <s_graph::query_ops::Bgp<s_graph::automata_core::FstSource> as s_graph::query_ops::Plan>::visit<(), <query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>> as s_graph::query_ops::Plan>::visit_matching<(), <s_graph::query_ops::AntiJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>> as s_graph::query_ops::Plan>::visit<(), query_ops_bench::profile<s_graph::query_ops::AntiJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>>>::{closure#0}::{closure#0}>::{closure#0}::{closure#1}>::{closure#0}>::{closure#0}>
+    16.85%  query_ops_bench  query_ops_bench  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    15.38%  query_ops_bench  query_ops_bench  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+     5.30%  query_ops_bench  query_ops_bench  [.] <s_graph::query_ops::Binding>::compatible
+     3.85%  query_ops_bench  query_ops_bench  [.] <s_graph::query_ops::Binding>::overlaps
+
+
+#
+# (Tip: To compare scalability of two workload samples use perf diff -c ratio file1 file2)
+#

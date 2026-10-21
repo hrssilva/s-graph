@@ -1,0 +1,114 @@
+   Compiling s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/sgraph-composition-tg35en67)
+    Finished `profiling` profile [optimized + debuginfo] target(s) in 8.70s
+     Running unittests src/lib.rs (target/automata-prototype/profiling/deps/s_graph-96aaacd93d016738)
+
+running 78 tests
+test analytics::tests::output_composition_and_reduction ... ok
+test analytics::tests::scan_full_width_coordinates_and_empty_vertex_universe ... ok
+test automata_core::tests::language_algebra_and_typed_mapping ... ok
+test automata_core::tests::generic_product_checks_final_acceptance_and_complement ... ok
+test compiled_filter::tests::empty_universal_and_singleton_filters ... ok
+test compiled_filter::tests::state_budget_counts_in_progress_states ... ok
+test analytics::tests::fixtures_and_oscillation ... ok
+test automata_core::tests::graph_acceptance_union_and_mask_step_agree ... ok
+test automata_core::tests::reversible_actions_restore_in_reverse_order ... ok
+test demand_join::tests::empty_ground_duplicate_and_invalid_queries ... ok
+test demand_join::tests::wide_ids_and_high_bits_shared_across_dimensions ... ok
+test demand_join::tests::many_atoms_and_singleton_dimensions ... ok
+test graph::tests::star_pattern_with_bound_center ... ok
+test graph::tests::four_cycle_pattern ... ok
+test graph::tests::triangle_pattern ... ok
+test graph::tests::two_hop_path_pattern ... ok
+test lifted_join::tests::construction_budgets_return_errors ... ok
+test path::tests::chain_distances_are_correct ... ok
+test large_bgp_cases::tests::large_deduplication_and_repeated_variable_incidence ... ok
+test scheduled_join::tests::independent_storage_backend_and_shared_predicates ... ok
+test scheduled_join::tests::multi_level_partial_bindings_and_wide_ids ... ok
+test path::tests::sequential_matches_naive_bfs ... ok
+test tree::tests::build_with_order_rejects_oversized_split ... ok
+test lifted_join::tests::lifted_atoms_and_joins_match_brute_force ... ok
+test lifted_join::tests::wide_ids_cross_dimensions_and_degenerate_domains ... ok
+test scheduled_join::tests::many_atoms_and_deep_asymmetric_domains ... ok
+test lifted_join::tests::sharing_preserves_enumeration_multiplicity ... ok
+test compiled_filter::tests::filters_match_source_and_legacy ... ok
+test tree::tests::contains_batch_empty_input_is_empty_output ... ok
+test tree::tests::bounded_build_unbounded_matches_dynamic_build ... ok
+test tree::tests::contains_batch_into_reuses_buffer_capacity_across_calls ... ok
+test tree::tests::contains_batch_matches_contains_on_a_tree_taller_than_the_packed_path ... ok
+test tree::tests::contains_batch_matches_contains_on_degenerate_height_zero_tree ... ok
+test analytics::tests::deterministic_random_graphs_and_shared_suffixes ... ok
+test tree::tests::count_matching_after_remove_matches_naive ... ok
+test tree::tests::contains_batch_preserves_input_order_handles_duplicates_and_out_of_domain ... ok
+test tree::tests::count_matching_matches_contains_on_degenerate_height_zero_tree ... ok
+test tree::tests::count_matching_all_wildcards_equals_total_distinct_triple_count ... ok
+test tree::tests::count_matching_out_of_domain_bound_is_zero_not_panic ... ok
+test lifted_join::tests::randomized_patterns_and_orders_match_enumeration ... ok
+test tree::tests::count_matching_matches_naive_and_scan_across_all_bound_patterns ... ok
+test tree::tests::deserialize_rejects_bad_magic ... ok
+test tree::tests::deserialize_rejects_truncated_input ... ok
+test tree::tests::deserialize_rejects_unsupported_version ... ok
+test tree::tests::insert_batch_rejects_out_of_domain_atomically ... ok
+test tree::tests::expand_run_matches_naive_reference_at_every_run_and_shift ... ok
+test tree::tests::insert_rejects_out_of_domain_coordinate ... ok
+test tree::tests::insert_root_level_branch_in_a_height_two_tree_does_not_resurrect_a_stale_cache ... ok
+test tree::tests::contains_batch_matches_contains_scattered_and_clustered ... ok
+test tree::tests::remove_absent_triple_is_noop ... ok
+test tree::tests::remove_down_to_a_fully_empty_tree_leaves_root_intact ... ok
+test tree::tests::remove_last_triple_in_a_subtree_cascades_up_and_shrinks_storage ... ok
+test tree::tests::bulk_build_bounded_mixed_fits_and_spills_siblings ... ok
+test tree::tests::remove_one_of_two_triples_in_the_same_node_preserves_the_other ... ok
+test tree::tests::remove_out_of_domain_returns_false_not_err ... ok
+test tree::tests::remove_matches_naive_across_all_backends ... ok
+test tree::tests::remove_then_serialize_roundtrip ... ok
+test tree::tests::restricted_descent_multi_ranges_union_and_overlap ... ok
+test tree::tests::restricted_descent_out_of_domain_range ... ok
+test tree::tests::restricted_descent_range_matches_scan_filtered_oracle ... ok
+test tree::tests::restricted_descent_range_reaches_bulk_fast_path_once_its_dimension_is_resolved ... ok
+test tree::tests::restricted_descent_visit_breaks_early_and_the_count_proves_it ... ok
+test tree::tests::restricted_descent_visit_out_of_domain_and_degenerate_height_zero ... ok
+test tree::tests::insert_one_at_a_time_matches_naive_after_every_insert ... ok
+test tree::tests::serialize_round_trip ... ok
+test tree::tests::streaming_batch_insert_matches_per_triple_insert_and_bulk_build ... ok
+test tree::tests::remove_then_contains_false_matches_naive ... ok
+test tree::tests::streaming_insert_build_matches_bulk_build_and_naive ... ok
+test tree::tests::cross_check_uniform_and_zipfian ... ok
+test tree::tests::shrink_to_fit_changes_capacity_not_content ... ok
+test large_bgp_cases::tests::huge_connected_bgps_flat_stack_cancellation_and_reuse ... ok
+test tree::tests::bounded_build_byte_identical_with_tiny_budget ... ok
+test tree::tests::bulk_build_bounded_path_matches_naive_uniform ... ok
+test tree::tests::bulk_build_parallel_path_matches_naive_uniform ... ok
+test tree::tests::bulk_build_bounded_wide_branching_many_open_buckets ... ok
+test tree::tests::bulk_build_parallel_path_matches_naive_skewed ... ok
+test tree::tests::bulk_build_bounded_path_matches_naive_skewed ... ok
+test tree::tests::interleaved_insert_remove_stress_small_capacity ... ok
+
+test result: ok. 78 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.29s
+
+     Running tests/algorithms.rs (target/automata-prototype/profiling/deps/algorithms-cc39bf8faa34c4d1)
+
+running 9 tests
+test join_regressions_and_validation ... ok
+test regular_paths_preserve_automaton_state_and_hop_bounds ... ok
+test scans_across_backends_and_dimension_orders ... ok
+test native_joins_borrow_the_tree_and_are_shareable ... ok
+test degenerate_insertion_and_snapshot_validation ... ok
+test snapshots_after_block_splits_preserve_scans_and_insertability ... ok
+test sparse_ids_zero_hops_cancellation_and_backends ... ok
+test general_join_matches_exhaustive_assignments ... ok
+test bounded_paths_match_independent_enumeration ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_join.rs (target/automata-prototype/profiling/deps/native_join-d218802c5afa0c80)
+
+running 7 tests
+test empty_ground_degenerate_queries_and_validation ... ok
+test shared_predicates_cycles_diagonals_and_disconnected_patterns ... ok
+test cancellation_reuse_mutation_and_serialized_tree ... ok
+test unequal_domains_full_width_ids_and_all_coordinate_roles ... ok
+test many_variables_do_not_require_exponential_masks ... ok
+test randomized_queries_match_exhaustive_assignments ... ok
+test multilevel_prefixes_match_independent_enumeration_under_skew ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+

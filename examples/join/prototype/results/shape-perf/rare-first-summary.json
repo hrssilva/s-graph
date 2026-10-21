@@ -1,0 +1,42 @@
+[
+  {
+    "case": "skew",
+    "engine": "automaton",
+    "repeats": 20,
+    "rows": 1053,
+    "elapsed_s": 2.338031814,
+    "visit_us": 116901.59069999999,
+    "cycles": 460332627.35,
+    "cycles_running_pct": 83.0,
+    "instructions": 1720650628.1,
+    "instructions_running_pct": 83.0,
+    "branches": 185756735.4,
+    "branches_running_pct": 83.0,
+    "branch_misses": 755048.0,
+    "branch_misses_running_pct": 83.0,
+    "cache_references": 995024.15,
+    "cache_references_running_pct": 83.0,
+    "cache_misses": 122298.95,
+    "cache_misses_running_pct": 83.0
+  },
+  {
+    "case": "skew",
+    "engine": "automaton-rare-first",
+    "repeats": 400,
+    "rows": 1053,
+    "elapsed_s": 2.652269811,
+    "visit_us": 6630.6745275,
+    "cycles": 25921713.9775,
+    "cycles_running_pct": 83.0,
+    "instructions": 74130918.8275,
+    "instructions_running_pct": 83.0,
+    "branches": 7817383.8825,
+    "branches_running_pct": 83.0,
+    "branch_misses": 8190.735,
+    "branch_misses_running_pct": 83.0,
+    "cache_references": 254213.655,
+    "cache_references_running_pct": 83.0,
+    "cache_misses": 70323.9475,
+    "cache_misses_running_pct": 83.0
+  }
+]

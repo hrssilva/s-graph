@@ -1,0 +1,6 @@
+Events disabled
+uniform: 262021 selected / 327549 stored triples; FST build 131.647ms, 2445146 bytes
+Events enabled
+Events disabled
+[ perf record: Woken up 17 times to write data ]
+[ perf record: Captured and wrote 4.161 MB /home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/sgraph-analytics-record-xsmuvq1d/perf.data ]

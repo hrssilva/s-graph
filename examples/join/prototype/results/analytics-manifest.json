@@ -1,0 +1,46 @@
+{
+  "snapshot": "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/sgraph-composition-tg35en67",
+  "base_commit": "0e73c2586cb88232fb71ce1db7d1befdc8e4c94f",
+  "platform": "Linux-7.2.2-1-default-x86_64-with-glibc2.44",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "profile": "profiling (release + debuginfo)",
+  "tests": [
+    78,
+    9,
+    7
+  ],
+  "files": {
+    "examples/join/prototype/analytics.rs": "38f9d3158459c0ac0cda326a513d2e4b970df98fd41d682f21ba772707ac55b5",
+    "examples/join/prototype/automata_core.rs": "14285920a7a299c71e6ec2cf68d7762bc8c4fa358d43d32a5efa41249d118a7a",
+    "examples/join/prototype/scheduled_join.rs": "4c4a3ef000671edc758bc1259388bddb0e0ac7a33367b7d40a4e0fb2ad93c822",
+    "examples/join/prototype/large_bgp_cases.rs": "572fa35ae6b0af9fc9013c23707d8a9e0827f4a46d5275a02103a950813f0390",
+    "examples/join/prototype/analytics_bench.rs": "cd73b22b02273e8f9c4cadc3ea2563d821de910e1357bb1a79da2450d3014d86",
+    "examples/join/prototype/large_bgp.rs": "5a5561f98257043a81a4b304dbd98845c5133464245b89bccb98325c86abcded",
+    "examples/join/prototype/prepare.py": "3fa002cf406a082a66f078f2e82eccba4e16346e543a8d16232f6c51f5bbd1ac",
+    "examples/join/prototype/analytics_perf.py": "60bc0597639274943f547d272048596db1b162399bf39d66f3e9bee6c11de561",
+    "Cargo.toml": "631ba6a1aa26b8907dabe3ccf789f194e8cfb16322e7913511246a5b641f96cd",
+    "Cargo.lock": "7ef7e2c0c411a406e0c4467d39fbd6419622bf965ccb7a08bebe1befd755c821"
+  },
+  "baseline_sources": {
+    "src/error.rs": "623c0e1ce5670c41cb9ade0413b417b55c18fac52cba19b4e9e3759fc80377ab",
+    "src/join.rs": "b970f49118c2b3dd85a4ef7615efe17ea5b582727ba9e1cd408d68c3ca8fa1fa",
+    "src/traversal.rs": "76a928b240ed3630d234fdaee9a0a12648834135a642226999a7f39caf8ac98d",
+    "src/automaton.rs": "291a6fae1ccb049f7c8ec8a53bf1b5b3ae52e97291664e7bc66c879568168578",
+    "src/test_support.rs": "d05b014be347918669343d1a338b3b777396e156a4cb04419b7e99d0db0fe06a",
+    "src/graph.rs": "3be67c80800c3d30138bfa139b6bf85ad63ddd66dce7142fe65fb014169613a1",
+    "src/path.rs": "be18a46b46dcdae96f70b635e40b8c6d3cb7381924fb0eb5a71dc96a58f107f2",
+    "src/block_index.rs": "899cc9c7461056b7980c15b18a6d9dc096626f844a8984c03385bdbb94c6c916",
+    "src/serialize.rs": "e5a155ac7dd6bee12c232c63b30c9857f355380711d221220fd8e61381249f07",
+    "src/storage_compressed.rs": "fabce96f69a891b13fb10bd9181b4d0e668cdc9b61c911a19b963ca22b635fd3",
+    "src/storage_file.rs": "a3bb8e1a7bf36116218df1e7abfbf1f2e3953af472f1d9de57bef0da5c3399ca",
+    "src/tree.rs": "b46ba6130f580984b9338b82515497dba92e4a248b52c8bc85b8783f0ffb4b69",
+    "src/storage.rs": "80b2726d8397728e1923b33a7e097c1c0e7a4d6d813ed048d95dee6bc00ec2b6",
+    "src/level_automaton.rs": "6034b00555beb8537200a31d387e23e3ed2963024e9e1fd37e66706a158e09e7",
+    "src/path_fst.rs": "054db4764967031e37a8a7b88d6b8e269a3e11c731bf20edabfc29fb8f81bf45",
+    "src/automaton_join.rs": "4101521c184c7ae9ec2b9b5d22cfa22f2f511001f3560b944293b9e09f251ed1",
+    "src/native_join.rs": "95ce41acc26a52562ae425012c859e78405aad3b43bc60d9b6bc595b9c134f44",
+    "src/fst_join.rs": "69d629acfb2c489788cbe309e83d9a0697986d1f8875fd660cde5ea1481a75fd",
+    "src/recursive_join.rs": "b82293a51030925f1efc453ff83f2abcb6c980a7952b772026e2d4d5d0feafcb",
+    "src/lib.rs": "89bfd36dc3d789f191fded4175a9b4a4d2c459e169e2baa94f595822efa59bc1"
+  }
+}

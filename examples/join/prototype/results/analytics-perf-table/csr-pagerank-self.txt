@@ -1,0 +1,17 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 854  of event 'cycles:u'
+# Event count (approx.): 3232157959
+#
+# Overhead  Command          Shared Object    Symbol                                                                                                                               
+# ........  ...............  ...............  .....................................................................................................................................
+#
+   100.00%  analytics_bench  analytics_bench  [.] <s_graph::analytics::PageRank<()>>::run::<s_graph::analytics::Csr>
+
+
+#
+# (Tip: To compute metrics for samples use perf record -e '{cycles,instructions}' ... ; perf script -F +metric)
+#

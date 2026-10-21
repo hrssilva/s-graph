@@ -1,0 +1,4 @@
+kind,case,engine,rows,compile_us,visit_us,end_to_end_us,end_to_end_min_us,end_to_end_max_us,plan_heap_bytes,retained_states,source_reads,source_reuses,work,workspace_heap_bytes
+join,uniform-star,fst,4950,0.805675,34838.194000,34832.614000,34818.036000,34975.643000,3024,0,1700957,0,1705906,1136
+join,uniform-star,scheduled-adaptive,4950,8.711734,19899.722000,19909.811000,19856.812000,19941.451000,3888,14,1220372,0,1225321,688
+join,uniform-star,automaton,4950,0.099308,20010.190000,19989.692000,19927.916000,20543.713000,112,0,0,0,0,16

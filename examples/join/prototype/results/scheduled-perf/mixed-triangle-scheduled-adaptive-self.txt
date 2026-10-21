@@ -1,0 +1,22 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 495  of event 'cycles:u'
+# Event count (approx.): 1935192582
+#
+# Overhead  Command          Shared Object             Symbol                                                                                                                                       
+# ........  ...............  ........................  .............................................................................................................................................
+#
+    25.66%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::descend::<false, false, (), join_profile::main::{closure#2}>
+    24.38%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::visit::<(), join_profile::main::{closure#2}>
+    21.01%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    11.44%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::block::<false, false, (), join_profile::main::{closure#2}>
+    10.84%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::open::<false, false, ()>
+     6.67%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+
+
+#
+# (Tip: Order by the overhead of source file name and line number: perf report -s srcline)
+#

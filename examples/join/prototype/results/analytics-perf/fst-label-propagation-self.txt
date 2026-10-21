@@ -1,0 +1,23 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 868  of event 'cycles:u'
+# Event count (approx.): 3342562291
+#
+# Overhead  Command          Shared Object     Symbol                                                                                                                                                           
+# ........  ...............  ................  .................................................................................................................................................................
+#
+    56.49%  analytics_bench  analytics_bench   [.] <s_graph::analytics::LabelPropagation<s_graph::analytics::ScanWorkspace<u64>>>::run::<s_graph::analytics::CompressedEdges<s_graph::automata_core::FstSource>>
+    16.90%  analytics_bench  analytics_bench   [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    11.46%  analytics_bench  analytics_bench   [.] core::slice::sort::shared::smallsort::small_sort_network::<u32, <u32 as core::cmp::PartialOrd>::lt>
+     9.25%  analytics_bench  analytics_bench   [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+     2.95%  analytics_bench  analytics_bench   [.] core::slice::sort::unstable::quicksort::quicksort::<u32, <u32 as core::cmp::PartialOrd>::lt>
+     1.65%  analytics_bench  analytics_bench   [.] core::slice::sort::unstable::ipnsort::<u32, <u32 as core::cmp::PartialOrd>::lt>
+     1.06%  analytics_bench  libc.so.6         [.] __memmove_avx_unaligned_erms
+
+
+#
+# (Tip: For a higher level overview, try: perf report --sort comm,dso)
+#

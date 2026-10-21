@@ -1,0 +1,4 @@
+query hash: fast
+assignment order: shared-first
+join uniform-star: FST=6144522 heap=25997093
+uniform-star scheduled-adaptive: planning=PlanningStats { nodes: 320, candidates: 321, trials: 3, certified_empty: false, selected_cut: 0, selected_order: [0, 1] } visit=ScheduleStats { nodes: 1220372, candidates: 1225321, rows: 4950, atomic_entries: 9908, mask_updates: 65657, outer_rows: 9907, terminal_checks: 9907 }

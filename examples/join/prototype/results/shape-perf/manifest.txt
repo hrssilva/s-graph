@@ -1,0 +1,24 @@
+rustc 1.98.1 (48a229cea 2026-09-01)
+perf version 7.2.5
+profile=profiling; default CPU target; CPU=AMD Ryzen 5 PRO 4650U; single-threaded; sequential runs
+perf stat: 3 runs per engine/case, medians; 6 events multiplexed at ~83% running, perf scales counts
+perf record: cycles:u, 999 Hz, DWARF 4096; full graph build/validation/warmup gated out
+Primary timing/recording binary: /tmp/sgraph-join-profile-baseline, built from /tmp/sgraph-composition-gg2wic5k
+Diagnostic and ordering control: /tmp/sgraph-join-profile-diagnostics, built from /tmp/sgraph-composition-usu42txi
+Diagnostic arrays are bounded to 16 atoms and used only on these 2/3-atom fixtures.
+All complete binding vectors checked against FstJoin outside the measured region.
+Stats and per-node counters execute separately from perf. No raw perf.data retained.
+
+SHA256:
+d31676d2a8c67faff2473bfa9ddc8a768fc026d6c1c9b8157668dfe1af10e1d3  /tmp/sgraph-join-profile-baseline
+e6af1e0fc407509d327367008899e31fd7537f43fccb8c8beff0b864395ee61b  /tmp/sgraph-join-profile-diagnostics
+281de86e6101ca3ea5f384588b0c548f9ebed2ade2e345de21a5419c62e116a4  /tmp/sgraph-composition-gg2wic5k/src/automaton_join.rs
+84dba382aafa39c5676162435db44ab7b9934adcbd9f63e7d98b9d3021f746cf  /tmp/sgraph-composition-gg2wic5k/src/demand_join.rs
+69d629acfb2c489788cbe309e83d9a0697986d1f8875fd660cde5ea1481a75fd  /tmp/sgraph-composition-gg2wic5k/src/fst_join.rs
+054db4764967031e37a8a7b88d6b8e269a3e11c731bf20edabfc29fb8f81bf45  /tmp/sgraph-composition-gg2wic5k/src/path_fst.rs
+8da90245de2c8fc56d1022a49002d9c51e2a06fa4ce6484dfe90acf7808df880  /tmp/sgraph-composition-gg2wic5k/join_profile.rs
+fcc3c6cd69d529eb35588d2f774af666046718ab70193e456ef992a29f63604c  /tmp/sgraph-composition-usu42txi/src/automaton_join.rs
+84dba382aafa39c5676162435db44ab7b9934adcbd9f63e7d98b9d3021f746cf  /tmp/sgraph-composition-usu42txi/src/demand_join.rs
+69d629acfb2c489788cbe309e83d9a0697986d1f8875fd660cde5ea1481a75fd  /tmp/sgraph-composition-usu42txi/src/fst_join.rs
+054db4764967031e37a8a7b88d6b8e269a3e11c731bf20edabfc29fb8f81bf45  /tmp/sgraph-composition-usu42txi/src/path_fst.rs
+8da90245de2c8fc56d1022a49002d9c51e2a06fa4ce6484dfe90acf7808df880  /tmp/sgraph-composition-usu42txi/join_profile.rs

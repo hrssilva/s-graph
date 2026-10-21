@@ -1,0 +1,6 @@
+uniform: 262021 selected / 327549 stored triples; FST build 126.669ms, 2445146 bytes
+uniform: raw scan fst=5.441ms csr=0.133ms, scan workspace=200 bytes
+skew-dangling: 128299 selected / 193442 stored triples; FST build 35.693ms, 849678 bytes
+skew-dangling: raw scan fst=1.982ms csr=0.074ms, scan workspace=200 bytes
+communities: 237133 selected / 301128 stored triples; FST build 30.711ms, 702662 bytes
+communities: raw scan fst=1.669ms csr=0.151ms, scan workspace=200 bytes

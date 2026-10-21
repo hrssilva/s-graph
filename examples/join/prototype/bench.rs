@@ -7,6 +7,7 @@ use s_graph::lifted_join::LiftedJoin;
 use s_graph::native_join::{NativeJoin, NativeJoinWorkspace};
 use s_graph::path_fst::PathFstDeltaPow2Bfs;
 use s_graph::recursive_join::{RecursiveJoin, RecursiveJoinStats};
+use s_graph::scheduled_join::{HybridJoin, Policy, ScheduleStats, ScheduleWorkspace};
 use s_graph::tree::DimRestriction;
 use s_graph::{DEFAULT_BLOCK_CAPACITY, Heap, Triple};
 use std::{hint::black_box, ops::ControlFlow, time::Instant};
@@ -520,6 +521,53 @@ fn join_case(
             ws.allocated_bytes(),
         );
     }
+    for (label, policy) in [
+        ("scheduled-nested", Policy::Nested),
+        ("scheduled-prefix1", Policy::Prefix(1)),
+        ("scheduled-prefix2", Policy::Prefix(2)),
+        ("scheduled-levels", Policy::Levels),
+        ("scheduled-adaptive", Policy::Adaptive),
+    ] {
+        if !engine(label) {
+            continue;
+        }
+        let p = HybridJoin::new(&query, &tree, policy).unwrap();
+        let mut ws = ScheduleWorkspace::default();
+        let mut st = ScheduleStats::default();
+        let mut actual = Vec::new();
+        let _: ControlFlow<()> = p.visit_with_stats(&mut ws, &mut st, |r| {
+            actual.push(r.to_vec());
+            ControlFlow::Continue(())
+        });
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "{label} on {name}");
+        let build = measure(|| {
+            black_box(HybridJoin::new(&query, &tree, policy).unwrap());
+        });
+        let visit = measure(|| {
+            let _ = p.visit(&mut ws, sink);
+        });
+        let e2e = measure(|| {
+            let p = HybridJoin::new(&query, &tree, policy).unwrap();
+            let _ = p.visit(&mut ScheduleWorkspace::default(), sink);
+        });
+        output(
+            "join",
+            name,
+            label,
+            expected.len(),
+            build,
+            visit,
+            e2e,
+            p.allocated_bytes(),
+            p.states(),
+            st.nodes,
+            0,
+            st.candidates,
+            ws.allocated_bytes(),
+        );
+        eprintln!("{name} {label}: planning={:?} visit={st:?}", p.planning);
+    }
     if engine("recursive") {
         let p = RecursiveJoin::new(&query, &tree).unwrap();
         let mut ws = Vec::new();
@@ -779,6 +827,38 @@ fn joins() {
                 ],
             },
             Some(vec![]),
+        );
+    }
+    if selected("mixed-triangle") {
+        let n = 64;
+        let mut triples = Vec::new();
+        for g in 0..2 {
+            for a in 0..n {
+                for b in 0..n {
+                    triples.extend([(g * n + a, 0, g * n + b), (g * n + a, 1, g * n + b)]);
+                }
+            }
+        }
+        for a in 0..n {
+            for b in 0..n {
+                triples.push((a, 2, n + b));
+            }
+        }
+        triples.push((n, 2, n));
+        let oracle = (n..2 * n).map(|y| vec![n, y, n]).collect();
+        join_case(
+            "mixed-triangle",
+            triples,
+            [(2 * n) as u64, 3, (2 * n) as u64],
+            JoinQuery {
+                num_vars: 3,
+                patterns: vec![
+                    atom(Term::Var(0), 0, Term::Var(1)),
+                    atom(Term::Var(1), 1, Term::Var(2)),
+                    atom(Term::Var(2), 2, Term::Var(0)),
+                ],
+            },
+            Some(oracle),
         );
     }
     if selected("dense-star") {

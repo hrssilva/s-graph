@@ -1,0 +1,17 @@
+[
+  {
+    "backend": "fst",
+    "algorithm": "pagerank",
+    "repeats": 7,
+    "elapsed_s": 0.941647747,
+    "cycles:u": 530327128.71428573,
+    "cycles:u_running_pct": 100.0,
+    "instructions:u": 1413753827.857143,
+    "instructions:u_running_pct": 100.0,
+    "branches:u": 185009479.2857143,
+    "branches:u_running_pct": 100.0,
+    "branch-misses:u": 2090281.0,
+    "branch-misses:u_running_pct": 100.0,
+    "run_ms": 134.5211067142857
+  }
+]

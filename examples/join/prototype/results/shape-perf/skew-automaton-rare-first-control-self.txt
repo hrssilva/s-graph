@@ -1,0 +1,23 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 10286093803
+#
+# Overhead  Command          Shared Object                    Symbol                                                                                                                                                                    
+# ........  ...............  ...............................  ..........................................................................................................................................................................
+#
+    30.53%  sgraph-join-pro  sgraph-join-profile-diagnostics  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    28.45%  sgraph-join-pro  sgraph-join-profile-diagnostics  [.] s_graph::automaton_join::walk_leaf_rec::<false, (), <s_graph::automaton_join::AutomatonJoin>::walk_atom<false, (), &mut join_profile::main::{closure#2}>::{closure#0}>
+    18.18%  sgraph-join-pro  sgraph-join-profile-diagnostics  [.] s_graph::tree::restriction_mask
+    11.33%  sgraph-join-pro  sgraph-join-profile-diagnostics  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+     7.56%  sgraph-join-pro  sgraph-join-profile-diagnostics  [.] s_graph::automaton_join::compute_atom_masks
+     2.25%  sgraph-join-pro  libc.so.6                        [.] __memset_avx2_unaligned_erms
+     1.71%  sgraph-join-pro  sgraph-join-profile-diagnostics  [.] <s_graph::automaton_join::AutomatonJoin>::walk_atom::<false, (), &mut join_profile::main::{closure#2}>
+
+
+#
+# (Tip: Show individual samples with: perf script)
+#

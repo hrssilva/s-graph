@@ -1,0 +1,19 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 5854391501
+#
+# Overhead  Command          Shared Object             Symbol                                                                                                                                       
+# ........  ...............  ........................  .............................................................................................................................................
+#
+    55.24%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::descend::<false, false, (), join_profile::main::{closure#2}>
+    31.39%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    12.89%  sgraph-schedule  sgraph-scheduled-profile  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+
+
+#
+# (Tip: See assembly instructions with percentage: perf annotate <symbol>)
+#

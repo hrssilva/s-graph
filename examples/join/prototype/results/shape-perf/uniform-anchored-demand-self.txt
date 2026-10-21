@@ -1,0 +1,20 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 7930437694
+#
+# Overhead  Command          Shared Object                 Symbol                                                                                                                               
+# ........  ...............  ............................  .....................................................................................................................................
+#
+    58.92%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::visit::<(), join_profile::main::{closure#2}>
+    15.86%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+    12.94%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::open::<false, false>
+    12.23%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+
+
+#
+# (Tip: To measure approximate function latency with Processor Trace use perf record -e intel_pt// ... ; perf script --call-ret-trace)
+#

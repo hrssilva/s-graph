@@ -1,0 +1,43 @@
+--- a/src/analytics.rs
++++ b/src/analytics.rs
+@@ -60,9 +60,7 @@
+ }
+ struct ScanStage {
+     mask: u64,
+-    shifts: [u8; 3],
+-    remaining: [u8; 3],
+-    bits: [u32; 3],
++    delta: [[u32; 3]; 64],
+ }
+ #[derive(Clone, Copy, Default)]
+ struct Frame<C: Copy + Default> {
+@@ -124,12 +122,12 @@
+                 }
+                 // This is the same Mask automaton used by the join guards.
+                 let mask = Mask(mask).mask(&(), l, &());
+-                ScanStage {
+-                    mask,
+-                    shifts,
+-                    remaining,
+-                    bits: bits.map(|b| (1u32 << b) - 1),
+-                }
++                let delta = std::array::from_fn(|q| {
++                    std::array::from_fn(|d| {
++                        (((q as u32) >> shifts[d]) & ((1u32 << bits[d]) - 1)) << remaining[d]
++                    })
++                });
++                ScanStage { mask, delta }
+             })
+             .collect();
+         Ok(Self {
+@@ -173,9 +171,7 @@
+             let slot = f.todo.trailing_zeros();
+             f.todo &= f.todo - 1;
+             let stage = &self.stages[depth];
+-            let values = std::array::from_fn(|d| {
+-                f.values[d] | (((slot >> stage.shifts[d]) & stage.bits[d]) << stage.remaining[d])
+-            });
++            let values = std::array::from_fn(|d| f.values[d] | stage.delta[slot as usize][d]);
+             if depth + 1 == height {
+                 emit(Edge {
+                     source: values[0],

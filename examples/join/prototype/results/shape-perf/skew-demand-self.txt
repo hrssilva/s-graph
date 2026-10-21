@@ -1,0 +1,20 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 8563090720
+#
+# Overhead  Command          Shared Object                 Symbol                                                                                                                               
+# ........  ...............  ............................  .....................................................................................................................................
+#
+    48.19%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::visit::<(), join_profile::main::{closure#2}>
+    21.08%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    17.24%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::open::<false, false>
+    13.34%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+
+
+#
+# (Tip: To set sampling period of individual events use perf record -e cpu/cpu-cycles,period=100001/,cpu/branches,period=10001/ ...)
+#

@@ -1,0 +1,5 @@
+Events disabled
+Events enabled
+Events disabled
+[ perf record: Woken up 15 times to write data ]
+[ perf record: Captured and wrote 3.509 MB /home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/sgraph-analytics-record-6e1wm7x3/perf.data ]

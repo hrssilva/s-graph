@@ -1,0 +1,8 @@
+query hash: fast
+assignment order: shared-first
+join mixed-triangle: FST=438 heap=10513
+mixed-triangle scheduled-nested: planning=PlanningStats { nodes: 0, candidates: 0, trials: 0, certified_empty: false, selected_cut: 0, selected_order: [0, 1, 2] } visit=ScheduleStats { nodes: 747017, candidates: 747080, rows: 64, atomic_entries: 532481, mask_updates: 615427, outer_rows: 8192, terminal_checks: 524288 }
+mixed-triangle scheduled-prefix1: planning=PlanningStats { nodes: 0, candidates: 0, trials: 0, certified_empty: false, selected_cut: 1, selected_order: [0, 1, 2] } visit=ScheduleStats { nodes: 85147, candidates: 85210, rows: 64, atomic_entries: 67586, mask_updates: 70685, outer_rows: 2048, terminal_checks: 65536 }
+mixed-triangle scheduled-prefix2: planning=PlanningStats { nodes: 0, candidates: 0, trials: 0, certified_empty: false, selected_cut: 2, selected_order: [0, 1, 2] } visit=ScheduleStats { nodes: 2475, candidates: 2538, rows: 64, atomic_entries: 1296, mask_updates: 2475, outer_rows: 256, terminal_checks: 1024 }
+mixed-triangle scheduled-levels: planning=PlanningStats { nodes: 0, candidates: 0, trials: 0, certified_empty: false, selected_cut: 3, selected_order: [0, 1, 2] } visit=ScheduleStats { nodes: 2475, candidates: 2538, rows: 64, atomic_entries: 0, mask_updates: 2475, outer_rows: 0, terminal_checks: 0 }
+mixed-triangle scheduled-adaptive: planning=PlanningStats { nodes: 3136, candidates: 3140, trials: 7, certified_empty: false, selected_cut: 2, selected_order: [0, 1, 2] } visit=ScheduleStats { nodes: 2475, candidates: 2538, rows: 64, atomic_entries: 1296, mask_updates: 2475, outer_rows: 256, terminal_checks: 1024 }

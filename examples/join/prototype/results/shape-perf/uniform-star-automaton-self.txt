@@ -1,0 +1,21 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 8072651265
+#
+# Overhead  Command          Shared Object                 Symbol                                                                                                                                                      
+# ........  ...............  ............................  ............................................................................................................................................................
+#
+    52.45%  sgraph-join-pro  sgraph-join-profile-baseline  [.] s_graph::automaton_join::walk_leaf_rec::<(), <s_graph::automaton_join::AutomatonJoin>::walk_atom<(), &mut join_profile::main::{closure#2}>::{closure#0}>
+    28.03%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    14.56%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+     3.14%  sgraph-join-pro  sgraph-join-profile-baseline  [.] s_graph::tree::restriction_mask
+     1.00%  sgraph-join-pro  sgraph-join-profile-baseline  [.] s_graph::automaton_join::compute_atom_masks
+
+
+#
+# (Tip: If call chains don't work try perf record --call-graph dwarf or --call-graph lbr)
+#

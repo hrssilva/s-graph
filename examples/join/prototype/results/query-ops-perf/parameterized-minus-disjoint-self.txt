@@ -1,0 +1,20 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 440  of event 'cycles:u'
+# Event count (approx.): 1666469226
+#
+# Overhead  Command          Shared Object     Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+# ........  ...............  ................  ...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    53.14%  query_ops_bench  query_ops_bench   [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::descend::<false, false, false, (), <s_graph::query_ops::Bgp<s_graph::automata_core::FstSource> as s_graph::query_ops::Plan>::visit<(), <s_graph::query_ops::AntiJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>> as s_graph::query_ops::Plan>::visit<(), query_ops_bench::profile<s_graph::query_ops::AntiJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>>::{closure#0}::{closure#0}>::{closure#0}>::{closure#0}>
+    21.99%  query_ops_bench  query_ops_bench   [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    17.22%  query_ops_bench  query_ops_bench   [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+     7.65%  query_ops_bench  query_ops_bench   [.] <s_graph::query_ops::Bgp<s_graph::automata_core::FstSource> as s_graph::query_ops::Plan>::visit::<(), <s_graph::query_ops::AntiJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>> as s_graph::query_ops::Plan>::visit<(), query_ops_bench::profile<s_graph::query_ops::AntiJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>>::{closure#0}::{closure#0}>::{closure#0}>::{closure#0}
+
+
+#
+# (Tip: To see list of saved events and attributes: perf evlist -v)
+#

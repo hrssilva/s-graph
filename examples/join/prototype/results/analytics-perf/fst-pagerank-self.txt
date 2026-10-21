@@ -1,0 +1,19 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 939  of event 'cycles:u'
+# Event count (approx.): 3687410405
+#
+# Overhead  Command          Shared Object    Symbol                                                                                                                                                   
+# ........  ...............  ...............  .........................................................................................................................................................
+#
+    62.20%  analytics_bench  analytics_bench  [.] <s_graph::analytics::PageRank<s_graph::analytics::ScanWorkspace<u64>>>::run::<s_graph::analytics::CompressedEdges<s_graph::automata_core::FstSource>>
+    23.97%  analytics_bench  analytics_bench  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    13.72%  analytics_bench  analytics_bench  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+
+
+#
+# (Tip: Print event counts in machine readable CSV format with: perf stat -x\;)
+#

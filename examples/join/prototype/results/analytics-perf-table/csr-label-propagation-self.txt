@@ -1,0 +1,21 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 3897281396
+#
+# Overhead  Command          Shared Object     Symbol                                                                                                                               
+# ........  ...............  ................  .....................................................................................................................................
+#
+    48.67%  analytics_bench  analytics_bench   [.] <s_graph::analytics::LabelPropagation<()>>::run::<s_graph::analytics::Csr>
+    34.54%  analytics_bench  analytics_bench   [.] core::slice::sort::shared::smallsort::small_sort_network::<u32, <u32 as core::cmp::PartialOrd>::lt>
+     8.78%  analytics_bench  analytics_bench   [.] core::slice::sort::unstable::quicksort::quicksort::<u32, <u32 as core::cmp::PartialOrd>::lt>
+     5.79%  analytics_bench  analytics_bench   [.] core::slice::sort::unstable::ipnsort::<u32, <u32 as core::cmp::PartialOrd>::lt>
+     1.92%  analytics_bench  libc.so.6         [.] __memmove_avx_unaligned_erms
+
+
+#
+# (Tip: To adjust path to source files to local file system use perf report --prefix=... --prefix-strip=...)
+#

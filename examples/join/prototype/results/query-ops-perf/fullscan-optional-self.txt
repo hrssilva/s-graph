@@ -1,0 +1,21 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 847  of event 'cycles:u'
+# Event count (approx.): 3272421252
+#
+# Overhead  Command          Shared Object    Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+# ........  ...............  ...............  ....................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    55.69%  query_ops_bench  query_ops_bench  [.] <s_graph::scheduled_join::ScheduledJoin<s_graph::automata_core::FstSource>>::descend::<false, false, false, (), <s_graph::query_ops::Bgp<s_graph::automata_core::FstSource> as s_graph::query_ops::Plan>::visit<(), <query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>> as s_graph::query_ops::Plan>::visit_matching<(), <s_graph::query_ops::LeftJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>> as s_graph::query_ops::Plan>::visit<(), query_ops_bench::profile<s_graph::query_ops::LeftJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>>>::{closure#0}::{closure#0}>::{closure#0}::{closure#0}>::{closure#0}>::{closure#0}>
+    17.08%  query_ops_bench  query_ops_bench  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+    14.28%  query_ops_bench  query_ops_bench  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+     7.74%  query_ops_bench  query_ops_bench  [.] <s_graph::query_ops::Binding>::compatible
+     5.21%  query_ops_bench  query_ops_bench  [.] <s_graph::query_ops::Bgp<s_graph::automata_core::FstSource> as s_graph::query_ops::Plan>::visit::<(), <query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>> as s_graph::query_ops::Plan>::visit_matching<(), <s_graph::query_ops::LeftJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>> as s_graph::query_ops::Plan>::visit<(), query_ops_bench::bench<s_graph::query_ops::LeftJoin<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>, query_ops_bench::FullScan<s_graph::query_ops::Bgp<s_graph::automata_core::FstSource>>>, query_ops_bench::main::{closure#8}>::{closure#2}::{closure#0}>::{closure#0}::{closure#0}>::{closure#0}>::{closure#0}
+
+
+#
+# (Tip: Treat branches as callchains: perf record -b ... ; perf report --branch-history)
+#

@@ -1,0 +1,5 @@
+Events disabled
+Events enabled
+Events disabled
+[ perf record: Woken up 26 times to write data ]
+[ perf record: Captured and wrote 6.167 MB /tmp/sgraph-paired-record-1nsyaj64/perf.data ]

@@ -1,0 +1,20 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 8694723906
+#
+# Overhead  Command          Shared Object                 Symbol                                                                                                                               
+# ........  ...............  ............................  .....................................................................................................................................
+#
+    49.69%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::visit::<(), join_profile::main::{closure#2}>
+    23.62%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::demand_join::DemandJoin>::open::<false, false>
+    13.39%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_delta
+    12.89%  sgraph-join-pro  sgraph-join-profile-baseline  [.] <s_graph::path_fst::PathFstDeltaPow2Bfs>::read_word
+
+
+#
+# (Tip: To show assembler sample context control flow use perf record -b / perf report --samples 10 and then browse context)
+#

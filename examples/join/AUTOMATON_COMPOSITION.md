@@ -1,5 +1,8 @@
 # Automaton composition over the graph FST
 
+Implemented follow-up: [scheduled compositional automata](SCHEDULED_AUTOMATA.md)
+combines whole-atom and prefix execution, bounded planning, and lazy compiled masks.
+
 An implemented follow-up, [On-demand automaton product](ON_DEMAND_JOIN.md), keeps
 relations in the source FST and expands their constrained product during traversal.
 

@@ -1,5 +1,11 @@
 # On-demand automaton product
 
+Implemented follow-up: [scheduled compositional automata](SCHEDULED_AUTOMATA.md)
+combines whole-atom and prefix execution, bounded planning, and lazy compiled masks.
+
+Follow-up: [paired perf profiles against AutomatonJoin](PERF_SHAPES.md) explain
+where each traversal wins and loses, including per-atom work counts.
+
 [`prototype/demand_join.rs`](prototype/demand_join.rs) implements an on-demand,
 factored product of the graph FST and a query binding automaton. It keeps
 FstJoin's level-by-level pruning, compiles only query metadata, and expands graph

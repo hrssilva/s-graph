@@ -1,0 +1,22 @@
+rustc 1.98.1 (48a229cea 2026-09-01)
+perf version 7.2.5
+CPU: AMD Ryzen 5 PRO 4650U; single-threaded; sequential warm-process synthetic data.
+Benchmark: /tmp/sgraph-composition-c9byiciv; profiling profile; PROTO_SUITE=joins; PROTO_REPS=5.
+PROTO_ENGINE=fst,demand,automaton,scheduled-nested,scheduled-prefix1,scheduled-prefix2,scheduled-levels,scheduled-adaptive
+Perf binary: /tmp/sgraph-scheduled-profile, copied from this snapshot; target 1.5 s after calibration.
+Perf stat: three runs, six user-space events multiplexed at ~83%; perf record: cycles:u 999 Hz DWARF.
+Final tests: /tmp/sgraph-composition-2n37rgn1; 88 tests pass; adds an asymmetric/72-atom test and core comments only.
+Final sources differ from the benchmark snapshot only by tests/comments; executable algorithms are unchanged.
+
+SHA256 benchmark sources:
+48966b3fc426a4a69361f4fc351d0188a9e0ef6cfd771c9c0029bcdc384d00b1  src/automata_core.rs
+e94e3c41b4d24e3bd534083ca4e2a6613436bfe411223ff2ad58e05c161f5905  src/scheduled_join.rs
+281de86e6101ca3ea5f384588b0c548f9ebed2ade2e345de21a5419c62e116a4  src/automaton_join.rs
+69d629acfb2c489788cbe309e83d9a0697986d1f8875fd660cde5ea1481a75fd  src/fst_join.rs
+84dba382aafa39c5676162435db44ab7b9934adcbd9f63e7d98b9d3021f746cf  src/demand_join.rs
+054db4764967031e37a8a7b88d6b8e269a3e11c731bf20edabfc29fb8f81bf45  src/path_fst.rs
+700922931ccc8072848aa2708a66a0f45f2aa37f6f59c2e7696eca8a944a6ca5  composition_bench.rs
+efe2b21b6ba9977217143c5f4d3930ce21d9699725f94454ef7bde6d6be6a049  join_profile.rs
+
+SHA256 profiled binary:
+6a5666659e2d92be07142f1381bb5fc342b055f5cd1631a9d4dca012f87f34f6  /tmp/sgraph-scheduled-profile
