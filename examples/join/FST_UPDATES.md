@@ -101,9 +101,13 @@ in addition to checking links, domains, counts and reachability.
 Duplicate insertions and absent removals avoid both state allocation and index
 preparation. An effective first edit scans the packed **physical** records and
 builds a sorted `(fingerprint, cursor)` index per level. `prepare_updates()` lets
-callers pay this cost explicitly before a burst. The index retains 16 bytes per
-packed state plus vector metadata. Fingerprints filter candidates; full
-structural comparison resolves collisions. A forced-collision test covers this.
+callers pay this cost explicitly before a burst. The default Sampled(1) register
+retains one 32-bit fingerprint prefix per state and a 16/32/64-bit offset from
+its level's minimum address. This is 6/8/12 bytes per state plus level metadata;
+Sampled(rate) retains only every rate-th prefix. Full structural comparison
+resolves prefix collisions. Forced-collision tests cover this. Scan-based modes
+retain only an 8-byte starting address per level, discovered lazily in one pass;
+there are no occupancy/degree filters. See [the current compact index guide](FST_COMPACT_INDEX.md).
 
 After preparation, a single edit walks at most 64 levels, copies at most 64
 outgoing transitions per changed level, performs binary searches in relevant
@@ -240,4 +244,14 @@ tables. It separates becoming immutable from the full compaction described here.
 The explicit `UpdateLookup::Sampled(rate)` prototype retains every packed-state
 address and every `rate`th sorted fingerprint. See [sampling and depth-start
 measurements](FST_SAMPLED_INDEX.md) for usage, memory/latency tradeoffs and the
-updated scan-based lookup behavior. The default remains Indexed.
+updated scan-based lookup behavior. The default is now Sampled(1).
+
+The subsequent [compact-index/per-level-summary experiment](FST_LEVEL_METADATA.md)
+reduces Sampled addresses to per-level relative offsets and sampled fingerprints
+to 32-bit prefixes. Scan-based strategies also use exact per-level summaries;
+all metadata remains excluded from snapshots and included in retained RAM accounting.
+
+The default is Sampled(1), using the compact representation. The redundant
+Indexed variant was removed.
+The occupancy/degree summary experiment was removed; historical measurements
+remain in FST_LEVEL_METADATA.md. Depth-start caching remains for scan modes.

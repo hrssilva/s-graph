@@ -41,8 +41,14 @@ The old README is preserved as
 [LEGACY_BACKENDS.md](examples/join/LEGACY_BACKENDS.md).
 
 Packed FSTs now support all three block backends. `into_mutable` enables local
-path-copying edits with a RAM arena; `compact`/`freeze` re-minimize physical DAG
-states and pack them into the selected backend. Shared suffixes are never
+path-copying edits with a RAM arena. Updates preserve live minimality; consuming
+`freeze` streams live physical states into BFS blocks using the rank-free compactor.
+Borrowed `compact`/snapshot paths still rebuild physical states. The default
+Sampled(1) suffix register now uses narrow per-level offsets and 32-bit fingerprint
+prefixes. Sampled(rate) retains fewer prefixes; Memoized retains a working set of
+exact signatures. Scan modes keep only depth starts; the occupancy/degree filters
+were removed. [FST_COMPACT_INDEX.md](examples/join/FST_COMPACT_INDEX.md) documents
+the current representation and comparisons. Shared suffixes are never
 mutated in place. This preserves the packed read kernel and avoids rebuilding
 on each update. [FST_UPDATES.md](examples/join/FST_UPDATES.md) records invariants,
 complexity, storage/persistence costs and validation. Direct pattern scans integrate it with the existing

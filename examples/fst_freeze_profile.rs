@@ -75,7 +75,7 @@ fn run<S: ReclaimingBlockStorage>(
             graph.insert_batch(&mut input(triples, shape))?;
             graph.freeze_in_place()?.into_mutable()
         };
-        // Indexed preparation keeps cold lookup scans out of setup cost at
+        // Default Sampled(1) preparation keeps cold lookup scans out of setup cost at
         // scale. Index destruction is part of consuming freeze and is profiled.
         graph.prepare_updates();
         let edits = 1024usize.min(vertices as usize);

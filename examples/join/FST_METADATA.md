@@ -1,5 +1,8 @@
 # Replacing maintenance indexes with runtime work
 
+The `Indexed` label in historical results refers to the former variant. The
+current default is `Sampled(1)`; the redundant `Indexed` API was removed.
+
 The quick experiment keeps the update algorithm and minimality invariant, and
 changes exact suffix lookup:
 

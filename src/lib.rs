@@ -73,6 +73,8 @@ pub mod fst;
 #[cfg(feature = "heap")]
 pub mod mutable_fst;
 #[cfg(feature = "heap")]
+mod fst_update_index;
+#[cfg(feature = "heap")]
 pub mod tree_source;
 #[cfg(feature = "heap")]
 pub use mutable_fst::MutableFst as EditableFst;

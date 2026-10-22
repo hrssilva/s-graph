@@ -9,8 +9,8 @@ temporary operation workspaces are outside this estimate. File-backed graph
 bytes are reported separately by `disk_bytes()`; serialized snapshots contain
 graph data without update indexes or edit history.
 
-The existing `Indexed` strategy and its 16-byte entries remain the default.
-Select the prototype explicitly:
+The default is now `Sampled(1)`, using [compact offsets/prefixes](FST_COMPACT_INDEX.md).
+The 16-byte index comparisons below are historical. Memoized remains explicit:
 
 ```rust
 use s_graph::{Fst, mutable_fst::UpdateLookup};
@@ -29,6 +29,11 @@ The subsequent [sampled-index and depth-start experiment](FST_SAMPLED_INDEX.md)
 adds `UpdateLookup::Sampled(rate)` and makes packed scan misses jump directly
 to the requested depth after a one-time depth-start preparation. The results
 below predate that scan improvement.
+
+The further [per-level metadata experiment](FST_LEVEL_METADATA.md) measured exact
+occupancy/degree summaries. Those filters were subsequently removed; depth starts
+remain. The compact representation is the default Sampled(1); the redundant Indexed
+variant has been removed.
 
 ## Algorithm and invariants
 

@@ -1,5 +1,16 @@
 # Sampled fingerprints and direct depth starts
 
+The `Indexed` label in historical results refers to the former variant. The
+current default is `Sampled(1)`; the redundant `Indexed` API was removed.
+
+This records the initial prototype and its historical measurements. The current
+`Sampled(rate)` representation uses narrow relative addresses and 32-bit sampled
+fingerprints. They are now also used by default Indexed at rate 1. Scan-based
+updates retain depth starts; the exact word summaries were removed. See
+[the subsequent per-level metadata experiment](FST_LEVEL_METADATA.md) for the
+historical experiment; [FST_COMPACT_INDEX.md](FST_COMPACT_INDEX.md) describes the
+current defaults. The construction API is unchanged.
+
 `UpdateLookup::Indexed` remains the default. The sampled prototype is selected
 when opening an editable graph; the interval is any nonzero `usize`:
 

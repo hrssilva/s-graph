@@ -89,7 +89,9 @@ fn main() -> s_graph::Result<()> {
     graph.prepare_updates();
     let prepare_s = prepare.elapsed().as_secs_f64();
     let after = graph.memory_usage();
-    assert_eq!(after.base_register_bytes, nodes as usize * 16 + height * 24);
+    // Each entry has at most an 8-byte offset and a 4-byte prefix. Include
+    // a conservative bound for per-level representation/vector metadata.
+    assert!(after.base_register_bytes <= nodes as usize * 12 + height * 128);
     assert_eq!(after.edit_payload_bytes, 0);
     emit(&format!(
         "{{\"phase\":\"indexed\",\"triples\":{triples},\"shape\":\"{shape}\",\"physical_states\":{nodes},\"height\":{height},\"states_per_level\":{levels:?},\"packed_ram_bytes\":{packed},\"before_ram_bytes\":{},\"indexed_ram_bytes\":{},\"index_bytes\":{},\"prepare_s\":{prepare_s}}}",

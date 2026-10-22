@@ -1,0 +1,193 @@
+{
+  "recorded_utc": "2026-10-22T17:39:49.017668+00:00",
+  "binary_sha256": {
+    "before": "eb7a663ed7b428a58e9a77571be32672df01845f4c22c88ce05c5ed2e6ad53a2",
+    "after": "50a7a23c345efc8ba408108a2ce27bb70a6a0a46eaa703f88d99db9769ff0b91"
+  },
+  "source_sha256": {
+    "src/fst_update_index.rs": "52afa8f0eb1c40e69349b88675bcc7a64fa5d009d850dcc59f8ff842fde8e8f1",
+    "src/mutable_fst.rs": "e56621b99f46bb39d71de06bc7c0ccc80be7c574eb72816fcbd284fbbdf5446b",
+    "src/path_fst.rs": "b443832dc7a3102df99fc40061ae28f385fdd43cdc041fe0f5171721b211f83d",
+    "src/fst_snapshot.rs": "0696bf698d1de63d6c35ec998e6fca35489e288a168c663b62c8518dbd54742d",
+    "examples/fst_lazy_perf.rs": "dfcf97ccd71265308f83ab44c8b49eda01b1ac1e2ea270bdfcc25c2a6d1a1a07",
+    "examples/join/prototype/fst_level_metadata.py": "053cb0c31754c876059dc1dfff5dc5a5b5d27f23aa8ce29389e5f043284462a1"
+  },
+  "notes": [
+    "Before: saved pre-change binary; see binary hash and per-mode results.",
+    "After: current binary; see source hashes and per-mode results.",
+    "Wall times are sequential and unpinned; two reversed passes per invocation.",
+    "Index/RAM bytes count retained capacity, not RSS or peak preparation workspace.",
+    "Large cases use systemd verified RLIMIT_AS; CPUQuota=100% from the shared runner.",
+    "Promotion timing matrix precedes the final API cleanup removing Indexed. After-column Indexed uses the same compact representation as Sampled(1), now the sole default spelling.",
+    "Final API cleanup source hashes are recorded separately; they are not claimed to match the promotion timing binary.",
+    "Initial outlying large run is archived under initial-large-outlier; final aggregate large groups use three fresh invocations."
+  ],
+  "commands": [
+    {
+      "stem": "small-before-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "4096",
+        "32",
+        "3",
+        "all"
+      ]
+    },
+    {
+      "stem": "small-after-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "4096",
+        "32",
+        "3",
+        "all"
+      ]
+    },
+    {
+      "stem": "medium-before-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-after-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-after-1",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-before-1",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-before-2",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-after-2",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-before-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-after-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-before-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-after-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-after-1",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-before-1",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-before-2",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-default-index",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-after-2",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    }
+  ],
+  "final_api_source_sha256": {
+    "src/mutable_fst.rs": "c6a360f6bc430d5c0cff3a810063a3672724afc532c1f07fbc4176cc58ebc68b",
+    "src/fst_update_index.rs": "52afa8f0eb1c40e69349b88675bcc7a64fa5d009d850dcc59f8ff842fde8e8f1",
+    "src/path_fst.rs": "b443832dc7a3102df99fc40061ae28f385fdd43cdc041fe0f5171721b211f83d",
+    "examples/fst_lazy_perf.rs": "dcb8457e59e923620bdfc813f399d585c9ab6ba8d2ae96e6aae0b3740824be83"
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "recorded_utc": "2026-10-22T17:22:14.131369+00:00",
+  "binary_sha256": {
+    "before": "e8c289afab8fafcab594ee0b5a7fe70e8cccfe1aaf6156bd6e39320c12013a68",
+    "after": "eb7a663ed7b428a58e9a77571be32672df01845f4c22c88ce05c5ed2e6ad53a2"
+  },
+  "source_sha256": {
+    "src/fst_update_index.rs": "8150443739d3f316a6e4b20600c41e8e961cbd06f81c1eec69f0e734fe2a60a4",
+    "src/mutable_fst.rs": "00476945a10041acc68b1fcc3298be933520ca04ef80ddc7b9e855e59867c855",
+    "src/path_fst.rs": "02a63c8d6119138b725ff88afe0adfff1b8b09ff85bd188962901f4af5e0ea26",
+    "src/fst_snapshot.rs": "0696bf698d1de63d6c35ec998e6fca35489e288a168c663b62c8518dbd54742d",
+    "examples/fst_lazy_perf.rs": "d7c242c26a1d932c38585f25747ca4949d752b782be14580e0ba526172321bda",
+    "examples/join/prototype/fst_level_metadata.py": "ec751b56ba81ffd8fd0c0a1eb14df4534b759360b60257f96ea5eb6ae1a56299"
+  },
+  "notes": [
+    "Before: per-depth starts, 64-bit addresses and sampled fingerprints.",
+    "After: relative 16/32/64-bit addresses, 32-bit sampled prefixes, exact summaries.",
+    "Wall times are sequential and unpinned; two reversed passes per invocation.",
+    "Index/RAM bytes count retained capacity, not RSS or peak preparation workspace.",
+    "Large cases use systemd verified RLIMIT_AS; CPUQuota=100% from the shared runner."
+  ],
+  "commands": [
+    {
+      "stem": "small-before-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-level-metadata",
+        "4096",
+        "32",
+        "3",
+        "all"
+      ]
+    },
+    {
+      "stem": "small-after-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "4096",
+        "32",
+        "3",
+        "all"
+      ]
+    },
+    {
+      "stem": "medium-before-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-level-metadata",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-after-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-after-1",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-before-1",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-level-metadata",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-before-2",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-level-metadata",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "medium-after-2",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-before-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-tmp/fst-lazy-before-level-metadata",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    },
+    {
+      "stem": "large-after-0",
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "524288",
+        "64",
+        "3",
+        "heap"
+      ]
+    }
+  ]
+}

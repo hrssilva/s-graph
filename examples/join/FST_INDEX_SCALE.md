@@ -1,5 +1,13 @@
 # Suffix-index scaling: 1M, 10M and 100M triples
 
+The `Indexed` label in historical results refers to the former variant. The
+current default is `Sampled(1)`; the redundant `Indexed` API was removed.
+
+These are historical measurements of the 16-byte index. The current default
+uses narrow offsets and 32-bit prefixes; see [FST_COMPACT_INDEX.md](FST_COMPACT_INDEX.md).
+The example now checks the compact representation bound instead of the historical
+16-byte formula.
+
 Measured on the current machine on 21 October 2026 using exact **distinct**
 triple counts, the heap packed FST and indexed mutable preparation. Both
 synthetic fixtures have two predicates per subject; two more predicate IDs

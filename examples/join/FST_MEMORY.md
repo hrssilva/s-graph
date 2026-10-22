@@ -1,5 +1,10 @@
 # FST memory across updates
 
+The checkpoint measurements below predate the compact default index. Current
+Indexed uses narrow relative addresses and 32-bit prefixes; see
+[FST_COMPACT_INDEX.md](FST_COMPACT_INDEX.md). The measurement example reports
+the current representation through the same memory accounting API.
+
 Run the measurement with assertions:
 
 ```sh
@@ -16,8 +21,8 @@ edit payload; compaction must discard the base index and edit arena.
 `graph.memory_usage()` separates these retained allocations:
 
 - **Packed base:** original graph blocks and their layout/cache allocations.
-- **Base register:** `(fingerprint, packed cursor)` pairs used to find an
-  existing equivalent suffix. This enables minimality after edits; it is
+- **Base register:** fingerprint prefixes and relative packed cursors used to
+  find an existing equivalent suffix. This enables minimality after edits; it is
   constructed on the first effective edit, or by `prepare_updates()`.
 - **Edit payload:** actual new graph states—occupancy words and outgoing edges.
 - **Edit arena:** state slots, reference counts, level tags and spare capacity.

@@ -43,10 +43,7 @@ fn phase<S: BlockStorage>(
     let after = graph.update_lookup_stats();
     let memory = graph.memory_usage();
     assert_eq!(memory.total_ram_bytes(), graph.mem_size_bytes());
-    if !matches!(
-        context.mode,
-        UpdateLookup::Indexed | UpdateLookup::Sampled(_)
-    ) {
+    if !matches!(context.mode, UpdateLookup::Sampled(_)) {
         assert_eq!(memory.base_register_bytes, 0);
     }
     if context.mode != UpdateLookup::Memoized {
@@ -88,7 +85,6 @@ fn run<S: BlockStorage>(
         .flat_map(|s| (0..2).map(move |p| (s, p, object(s, p, n, shape))))
         .collect();
     let modes = [
-        UpdateLookup::Indexed,
         UpdateLookup::Sampled(1),
         UpdateLookup::Sampled(4),
         UpdateLookup::Sampled(8),
@@ -107,7 +103,7 @@ fn run<S: BlockStorage>(
             let mut graph =
                 PackedFst::<S>::try_build(initial.clone(), [n as u64, 4, n as u64], 4096)?
                     .into_mutable_with_lookup(mode);
-            if matches!(mode, UpdateLookup::Indexed | UpdateLookup::Sampled(_)) {
+            if matches!(mode, UpdateLookup::Sampled(_)) {
                 let mut probe =
                     PackedFst::<S>::try_build(initial.clone(), [n as u64, 4, n as u64], 4096)?
                         .into_mutable_with_lookup(mode);

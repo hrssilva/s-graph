@@ -1978,13 +1978,11 @@ impl<S: BlockStorage> PackedFst<S> {
                     block += 1; offset = 0;
                 }
                 starts.push(((block as u64) << self.capacity_bits) | offset as u64);
-                if level + 1 == self.height { break; } // no later start needs leaf decoding
+                if level + 1 == self.height { break; }
                 for _ in 0..count {
                     if offset == self.storage.block_len(block) { block += 1; offset = 0; }
                     let word = self.storage.read_u64(block, offset);
-                    offset += WORD_BYTES + if level + 1 < self.height {
-                        DELTA_BYTES as usize * word.count_ones() as usize
-                    } else { 0 };
+                    offset += WORD_BYTES + DELTA_BYTES as usize * word.count_ones() as usize;
                 }
             }
             starts

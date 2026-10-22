@@ -2,6 +2,7 @@
 //! path; the packed base is never rewritten. Compact freeze repacks physical
 //! states; experimental in-place freeze seals edited states in blocked storage.
 use crate::automata_core::{BitmapSource, TripleSource};
+use crate::fst_update_index::SuffixIndexLevel;
 use crate::path_fst::{BfsNodeMeta, PackedFst};
 use crate::{BlockStorage, OutOfDomain, Result, TreeError, Triple};
 use std::collections::HashMap;
@@ -102,14 +103,14 @@ impl<S: BlockStorage> SealedStorage<S> {
     }
 }
 
-/// Experimental time/space alternatives for exact suffix canonicalization.
-/// Scanning preserves minimality but trades retained indexes for repeated work.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Suffix canonicalization strategies. The default is `Sampled(1)`;
+/// larger intervals and memoization trade lookup latency against retained memory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UpdateLookup {
-    #[default]
-    Indexed,
-    /// Keep every packed-state address, but only every `rate`th sorted fingerprint.
-    /// Rate must be nonzero. Candidate intervals are checked structurally.
+    /// Keep every packed-state address, but only every `rate`th 32-bit prefix.
+    /// The default rate 1 keeps a prefix for every state. Addresses use the
+    /// smallest supported width per level. Rate must be nonzero; candidates
+    /// are checked structurally.
     Sampled(usize),
     /// Scan packed records; retain the edited-state lookup table.
     ScanBase,
@@ -121,44 +122,9 @@ pub enum UpdateLookup {
     /// The edited-state lookup table is retained. Compaction clears the memo.
     Memoized,
 }
-
-struct SampledLevel {
-    addresses: Vec<u64>,
-    fingerprints: Vec<u64>,
-}
-impl SampledLevel {
-    fn from_sorted(states: Vec<(u64, u64)>, rate: usize) -> Self {
-        let fingerprints = states.iter().step_by(rate).map(|&(h, _)| h).collect();
-        let mut addresses: Vec<u64> = states.into_iter().map(|(_, address)| address).collect();
-        // In-place Vec collection may reuse the 16-byte pair allocation.
-        // Release its excess capacity before reporting the sampled index size.
-        addresses.shrink_to_fit();
-        Self {
-            addresses,
-            fingerprints,
-        }
-    }
-    fn candidates(&self, hash: u64, rate: usize) -> std::ops::Range<usize> {
-        // Include the interval preceding the first equal sample: a collision
-        // range can start between samples and extend across several of them.
-        let lower = self.fingerprints.partition_point(|&h| h < hash);
-        let upper = if self.fingerprints.get(lower) == Some(&hash) {
-            lower + 1 + self.fingerprints[lower + 1..].partition_point(|&h| h == hash)
-        } else {
-            lower
-        };
-        // A preceding sample is strictly smaller than hash, so skip that
-        // known nonmatch. With rate 1 this becomes the exact collision range.
-        let start = if lower == 0 {
-            0
-        } else {
-            (lower - 1).saturating_mul(rate).saturating_add(1)
-        };
-        let end = upper.saturating_mul(rate).min(self.addresses.len());
-        start..end
-    }
-    fn bytes(&self) -> usize {
-        crate::vec_bytes(&self.addresses) + crate::vec_bytes(&self.fingerprints)
+impl Default for UpdateLookup {
+    fn default() -> Self {
+        Self::Sampled(1)
     }
 }
 
@@ -254,7 +220,7 @@ impl<S: BlockStorage> std::ops::Deref for FrozenFst<S> {
 impl<S: BlockStorage> FrozenFst<S> {
     /// Resume local edits without copying or scanning retained storage.
     pub fn into_mutable(self) -> MutableFst<S> {
-        self.into_mutable_with_lookup(UpdateLookup::Indexed)
+        self.into_mutable_with_lookup(UpdateLookup::default())
     }
     pub fn into_mutable_with_lookup(self, lookup: UpdateLookup) -> MutableFst<S> {
         assert!(
@@ -346,8 +312,7 @@ pub struct MutableFst<S: BlockStorage = crate::storage::HeapStorage> {
     nodes: Vec<Option<Node>>,
     free: Vec<usize>,
     register: Vec<HashMap<Arc<Signature>, usize>>,
-    base_register: Option<Vec<Vec<(u64, u64)>>>,
-    sampled_register: Option<Vec<SampledLevel>>,
+    base_register: Option<Vec<SuffixIndexLevel>>,
     // Keys contain only packed child identities. Packed bytes and addresses
     // remain immutable until compaction, so both hits and absences stay valid.
     memo: Vec<HashMap<Signature, Option<u64>>>,
@@ -419,7 +384,7 @@ impl<S: BlockStorage> PackedFst<S> {
     /// Enable local updates without copying packed graph bytes or compiling a
     /// graph-sized directory. Read-only FST searches retain their original path.
     pub fn into_mutable(self) -> MutableFst<S> {
-        self.into_mutable_with_lookup(UpdateLookup::Indexed)
+        self.into_mutable_with_lookup(UpdateLookup::default())
     }
     /// Choose an experimental suffix lookup strategy without changing the
     /// represented language, update semantics or reclamation algorithm.
@@ -441,7 +406,6 @@ impl<S: BlockStorage> PackedFst<S> {
                 (0..self.height()).map(|_| HashMap::new()).collect()
             },
             base_register: None,
-            sampled_register: None,
             memo: if lookup == UpdateLookup::Memoized {
                 (0..self.height()).map(|_| HashMap::new()).collect()
             } else {
@@ -545,9 +509,7 @@ impl<S: BlockStorage> MutableFst<S> {
                     .as_ref()
                     .map_or(0, SealedStorage::mem_size_bytes),
             base_register_bytes: self.base_register.as_ref().map_or(0, |levels| {
-                crate::vec_bytes(levels) + levels.iter().map(crate::vec_bytes).sum::<usize>()
-            }) + self.sampled_register.as_ref().map_or(0, |levels| {
-                crate::vec_bytes(levels) + levels.iter().map(SampledLevel::bytes).sum::<usize>()
+                crate::vec_bytes(levels) + levels.iter().map(SuffixIndexLevel::bytes).sum::<usize>()
             }),
             memo_register_bytes: crate::vec_bytes(&self.memo)
                 + self
@@ -778,16 +740,15 @@ impl<S: BlockStorage> MutableFst<S> {
     /// Build the exact base-state register before a write burst. Otherwise it
     /// is built lazily on the first effective edit (no-op writes do not pay).
     /// The scan-based and memoized strategies skip this preparation.
-    /// Indexed retains 16 bytes per packed state; Sampled(rate) retains roughly
-    /// 8 + 8/rate bytes per state. Both add O(height) vector metadata. Scans
+    /// Sampled(rate) retains 2/4/8 bytes per address plus 4/rate fingerprint
+    /// bytes per state, depending on each depth's address span. The default
+    /// rate is 1. Adds O(height) vector metadata. Scans
     /// physical records, not triples. Hash collisions are checked structurally.
     pub fn prepare_updates(&mut self) {
-        if !matches!(
-            self.lookup,
-            UpdateLookup::Indexed | UpdateLookup::Sampled(_)
-        ) || self.base_register.is_some()
-            || self.sampled_register.is_some()
-        {
+        let UpdateLookup::Sampled(rate) = self.lookup else {
+            return;
+        };
+        if self.base_register.is_some() {
             return;
         }
         let mut levels: Vec<Vec<(u64, u64)>> = self
@@ -814,17 +775,14 @@ impl<S: BlockStorage> MutableFst<S> {
         for states in &mut levels {
             states.sort_unstable();
         }
-        if let UpdateLookup::Sampled(rate) = self.lookup {
-            self.sampled_register = Some(
-                levels
-                    .into_iter()
-                    .map(|states| SampledLevel::from_sorted(states, rate))
-                    .collect(),
-            );
-        } else {
-            self.base_register = Some(levels);
-        }
+        self.base_register = Some(
+            levels
+                .into_iter()
+                .map(|states| SuffixIndexLevel::from_sorted(states, rate))
+                .collect(),
+        );
     }
+
     fn find_base(&mut self, level: usize, signature: &Signature) -> Option<u64> {
         let word = signature.word;
         let children = &signature.children;
@@ -836,70 +794,48 @@ impl<S: BlockStorage> MutableFst<S> {
         }
         if let UpdateLookup::Sampled(rate) = self.lookup {
             let states = &self
-                .sampled_register
+                .base_register
                 .as_ref()
-                .expect("prepared sampled register")[level];
+                .expect("prepared update register")[level];
             let hash = fingerprint(word, children.iter().copied());
-            return states.addresses[states.candidates(hash, rate)]
-                .iter()
-                .copied()
-                .find(|&cursor| {
-                    self.base_word(cursor) == word
-                        && children
-                            .iter()
-                            .enumerate()
-                            .all(|(i, &c)| self.base_child(cursor, i) == c)
-                });
-        }
-        if self.lookup != UpdateLookup::Indexed {
-            self.base_scans += 1;
-            let mut found = self.base.find_physical_state(level, |cursor, stored_word| {
-                stored_word == word
-                    && children
-                        .iter()
-                        .enumerate()
-                        .all(|(i, &child)| cursor + self.base.read_delta(cursor, i) == child)
-            });
-            if found.is_none()
-                && let Some(sealed) = &self.sealed
-            {
-                sealed.visit(|stored_level, cursor, stored_word| {
-                    if stored_level == level
-                        && stored_word == word
-                        && children
-                            .iter()
-                            .enumerate()
-                            .all(|(i, &child)| sealed.child(cursor, i) == child)
-                    {
-                        found = Some(cursor);
-                        false
-                    } else {
-                        true
-                    }
-                });
-            }
-            if self.lookup == UpdateLookup::Memoized {
-                self.memo[level].insert(signature.clone(), found);
-            }
-            return found;
-        }
-        let states = &self
-            .base_register
-            .as_ref()
-            .expect("prepared update register")[level];
-        let hash = fingerprint(word, children.iter().copied());
-        let start = states.partition_point(|&(h, _)| h < hash);
-        states[start..]
-            .iter()
-            .take_while(|&&(h, _)| h == hash)
-            .map(|&(_, cursor)| cursor)
-            .find(|&cursor| {
+            return states.find(hash, rate, |cursor| {
                 self.base_word(cursor) == word
                     && children
                         .iter()
                         .enumerate()
                         .all(|(i, &c)| self.base_child(cursor, i) == c)
-            })
+            });
+        }
+        self.base_scans += 1;
+        let mut found = self.base.find_physical_state(level, |cursor, stored_word| {
+            stored_word == word
+                && children
+                    .iter()
+                    .enumerate()
+                    .all(|(i, &child)| cursor + self.base.read_delta(cursor, i) == child)
+        });
+        if found.is_none()
+            && let Some(sealed) = &self.sealed
+        {
+            sealed.visit(|stored_level, cursor, stored_word| {
+                if stored_level == level
+                    && stored_word == word
+                    && children
+                        .iter()
+                        .enumerate()
+                        .all(|(i, &child)| sealed.child(cursor, i) == child)
+                {
+                    found = Some(cursor);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        if self.lookup == UpdateLookup::Memoized {
+            self.memo[level].insert(signature.clone(), found);
+        }
+        found
     }
 
     fn update(&mut self, coords: [u32; 3], insert: bool) -> bool {
@@ -1097,7 +1033,6 @@ impl<S: BlockStorage> MutableFst<S> {
         self.register = Vec::new();
         self.memo = Vec::new();
         self.base_register = None;
-        self.sampled_register = None;
         self.free = Vec::new();
         if self.live_nodes != 0 {
             if self.sealed.is_none() {
@@ -1460,6 +1395,20 @@ mod tests {
         assert_eq!(graph.update_lookup_stats(), UpdateLookupStats::default());
         assert_eq!(graph.mem_size_bytes(), before);
 
+        // Same occupancy as the sole physical root, but a different child
+        // ordering: exact lookup must prove and cache absence.
+        let word = graph.base.read_word(original);
+        let mut children: Vec<_> = (0..word.count_ones() as usize)
+            .map(|i| original + graph.base.read_delta(original, i))
+            .collect();
+        let other = children.iter().position(|&c| c != children[0]).unwrap();
+        children.swap(0, other);
+        let absent = Signature { word, children };
+        assert_eq!(graph.find_base(0, &absent), None);
+        let scanned = graph.update_lookup_stats().base_scans;
+        assert_eq!(graph.find_base(0, &absent), None);
+        assert_eq!(graph.update_lookup_stats().base_scans, scanned);
+
         assert!(graph.insert(9, 2, 13).unwrap());
         assert!(graph.remove(9, 2, 13).unwrap());
         let warm = graph.update_lookup_stats();
@@ -1494,7 +1443,6 @@ mod tests {
     fn lookup_strategies_preserve_live_minimality_and_inverse_updates() {
         use std::collections::HashSet;
         for lookup in [
-            UpdateLookup::Indexed,
             UpdateLookup::Sampled(1),
             UpdateLookup::Sampled(4),
             UpdateLookup::Sampled(8),
@@ -1535,7 +1483,7 @@ mod tests {
                 assert!(graph.remove(i, 2, (i * 7) % 64).unwrap());
                 assert!(graph.insert(i, 0, i ^ 1).unwrap());
                 assert_eq!(graph.edited_node_count(), 0);
-                if !matches!(lookup, UpdateLookup::Indexed | UpdateLookup::Sampled(_)) {
+                if !matches!(lookup, UpdateLookup::Sampled(_)) {
                     assert_eq!(graph.memory_usage().base_register_bytes, 0);
                 }
                 if lookup == UpdateLookup::ScanAll {
@@ -1553,8 +1501,8 @@ mod tests {
                 .enumerate()
                 .map(|(i, &h)| (h, i as u64))
                 .collect();
-            let index = SampledLevel::from_sorted(states, rate);
-            assert_eq!(index.addresses.capacity(), hashes.len());
+            let index = SuffixIndexLevel::from_sorted(states, rate);
+
             for h in [0, 1, 2, 3, 4, 5, 8, 9, 10, u64::MAX] {
                 let range = index.candidates(h, rate);
                 for (i, &stored) in hashes.iter().enumerate() {
@@ -1565,7 +1513,7 @@ mod tests {
                 assert!(range.end <= hashes.len());
             }
             assert!(
-                SampledLevel::from_sorted(Vec::new(), rate)
+                SuffixIndexLevel::from_sorted(Vec::new(), rate)
                     .candidates(0, rate)
                     .is_empty()
             );
@@ -1607,6 +1555,43 @@ mod tests {
     }
 
     #[test]
+    fn default_index_is_compact_rate_one_and_preparation_is_idempotent() {
+        assert_eq!(UpdateLookup::default(), UpdateLookup::Sampled(1));
+        let initial = (0..4096u32)
+            .flat_map(|s| (0..2).map(move |p| (s, p, (s * 197 + p * 73) % 4096)))
+            .collect();
+        let base = crate::Fst::build(initial, [4096, 4, 4096], 512);
+        let nodes = base.node_count() as usize;
+        let old_bytes = nodes * 16 + base.height() * 24;
+        let bytes = base.serialize();
+        let mut default_graph = base.into_mutable();
+        let mut sampled = crate::Fst::deserialize(&bytes)
+            .unwrap()
+            .into_mutable_with_lookup(UpdateLookup::Sampled(1));
+        assert_eq!(default_graph.memory_usage().base_register_bytes, 0);
+        default_graph.prepare_updates();
+        sampled.prepare_updates();
+        let memory = default_graph.memory_usage();
+        assert_eq!(
+            memory.base_register_bytes,
+            sampled.memory_usage().base_register_bytes
+        );
+        assert!(memory.base_register_bytes < old_bytes);
+        assert_eq!(memory.total_ram_bytes(), default_graph.mem_size_bytes());
+        default_graph.prepare_updates();
+        assert_eq!(default_graph.mem_size_bytes(), memory.total_ram_bytes());
+        for graph in [&mut default_graph, &mut sampled] {
+            assert!(graph.insert(7, 3, 19).unwrap());
+            assert!(graph.remove(7, 3, 19).unwrap());
+            assert_eq!(graph.edited_node_count(), 0);
+        }
+        assert_eq!(
+            default_graph.freeze().unwrap().serialize(),
+            sampled.freeze().unwrap().serialize()
+        );
+    }
+
+    #[test]
     fn packed_register_collisions_require_exact_structural_equality() {
         let mut graph = crate::Fst::build(
             vec![(0, 0, 0), (0, 0, 1), (8, 0, 0), (8, 0, 2)],
@@ -1616,12 +1601,19 @@ mod tests {
         .into_mutable();
         graph.prepare_updates();
         let level = graph.height() - 1;
-        let states = &mut graph.base_register.as_mut().unwrap()[level];
-        assert_eq!(states.len(), 2);
-        states.sort_unstable_by_key(|&(_, address)| address);
-        let desired = states[1];
-        states[0].0 = desired.0; // forced collision, wrong candidate first
-        let word = graph.base.read_word(desired.1);
+        let mut addresses = Vec::new();
+        graph.base.for_each_physical_state(|depth, cursor, _| {
+            if depth == level {
+                addresses.push(cursor);
+            }
+        });
+        assert_eq!(addresses.len(), 2);
+        let desired = addresses[1];
+        let word = graph.base.read_word(desired);
+        let hash = fingerprint(word, std::iter::empty());
+        // Force the wrong candidate to share the desired prefix and come first.
+        graph.base_register.as_mut().unwrap()[level] =
+            SuffixIndexLevel::from_sorted(vec![(hash, addresses[0]), (hash, desired)], 1);
         assert_eq!(
             graph.find_base(
                 level,
@@ -1630,9 +1622,10 @@ mod tests {
                     children: vec![]
                 }
             ),
-            Some(desired.1)
+            Some(desired)
         );
     }
+
     #[test]
     fn inverse_edits_reuse_base_identity_and_bound_the_arena() {
         let mut graph =

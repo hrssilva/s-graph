@@ -128,9 +128,10 @@ backing file; use `serialize_to_path` for persistence. `disk_bytes` reports its
 backing-file size.
 
 Edits copy the affected path and merge suffixes against both packed and edited
-states, preserving minimality of the reachable machine. A lazy packed-state
-index costs 16 bytes per physical base state plus metadata; the first effective
-edit prepares it. Call `prepare_updates()` before a burst to pay that cost
+states, preserving minimality of the reachable machine. The default `Sampled(1)`
+lookup stores a 32-bit fingerprint prefix and a 16/32/64-bit relative address
+per physical state, choosing address width per level. The first effective edit
+prepares this index. Call `prepare_updates()` before a burst to pay that cost
 explicitly. Duplicate/absent updates skip preparation. The edit arena lives in RAM in all modes; its obsolete nodes are
 reclaimed immediately. Packed base bytes stay intact until `compact()` or
 `freeze()`. Call `compact()` between write bursts to reclaim dead base bytes
@@ -143,11 +144,11 @@ packing succeeds and currently use the separate physical-state rebuild path.
 See [compaction details and measurements](examples/join/FST_RANK_FREE_COMPACTION.md).
 For a smaller update index, select
 `packed.into_mutable_with_lookup(UpdateLookup::Sampled(8))` (import
-`s_graph::mutable_fst::UpdateLookup`). It keeps every state address and one
-fingerprint per eight states, trading extra candidate reads for roughly 44%
-less index memory. The rate must be nonzero. `prepare_updates()` builds it
+`s_graph::mutable_fst::UpdateLookup`). It keeps every state address as a
+per-level 16/32/64-bit relative offset, and one 32-bit fingerprint per eight
+states. This trades extra candidate reads for a smaller resident index. The rate must be nonzero. `prepare_updates()` builds it
 before the first edit; otherwise the first effective edit pays that cost.
-See [sampled indexes and depth-scoped scans](examples/join/FST_SAMPLED_INDEX.md).
+See [compact update indexes](examples/join/FST_COMPACT_INDEX.md).
 There is no automatic compaction
 or background I/O. `memory_usage()` reports base storage, suffix indexes,
 live edits and reusable arena/table capacity separately; see the

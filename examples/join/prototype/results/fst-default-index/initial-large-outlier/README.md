@@ -1,0 +1,1 @@
+Initial one-invocation large comparison, retained because Indexed pass 0 showed an outlying 3.8–3.9 µs/edit while the reverse pass was about 1.7 µs/edit. Final aggregate results use three fresh invocations instead. The binaries are unchanged; the runner only gained --large-trials.

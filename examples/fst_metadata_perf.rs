@@ -55,7 +55,7 @@ fn run<S: BlockStorage>(
         .map(|s| (s, 0, object(s, 0, n, shape)))
         .collect();
     let modes = [
-        UpdateLookup::Indexed,
+        UpdateLookup::Sampled(1),
         UpdateLookup::ScanBase,
         UpdateLookup::ScanAll,
     ];
@@ -86,7 +86,7 @@ fn run<S: BlockStorage>(
                 r.base_index = memory.base_register_bytes;
                 r.edit_index = memory.edit_register_bytes;
                 r.bookkeeping = memory.edit_arena_bytes + memory.free_list_bytes;
-                if modes[i] != UpdateLookup::Indexed {
+                if modes[i] != UpdateLookup::Sampled(1) {
                     assert_eq!(memory.base_register_bytes, 0);
                 }
                 if modes[i] == UpdateLookup::ScanAll {
@@ -117,7 +117,7 @@ fn run<S: BlockStorage>(
             graph.insert_batch(&mut updates)?; // selected mode survives compaction
             assert_eq!(
                 graph.memory_usage().base_register_bytes == 0,
-                modes[i] != UpdateLookup::Indexed
+                modes[i] != UpdateLookup::Sampled(1)
             );
         }
     }
