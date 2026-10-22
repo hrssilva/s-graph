@@ -204,6 +204,7 @@ impl crate::storage::ReclaimingBlockStorage for CompressedStorage {
     }
 }
 
+#[cfg(any(test, feature = "experimental"))]
 impl crate::storage::ReservedBlockStorage for CompressedStorage {
     fn reserve_compaction_blocks(&mut self, count: usize, capacity: usize) -> usize {
         let first = self.blocks.len();

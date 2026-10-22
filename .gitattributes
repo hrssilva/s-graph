@@ -1,0 +1,11 @@
+# Preserve raw benchmark evidence exactly; collapse generated records in reviews.
+examples/join/prototype/results/** linguist-generated=true -whitespace
+examples/join/lab/*.csv linguist-generated=true -whitespace
+examples/join/lab/*.log linguist-generated=true -whitespace
+examples/join/lab/*.txt linguist-generated=true -whitespace
+# Whitespace in patch context is data, not source formatting.
+examples/join/lab/*.patch -whitespace
+examples/join/prototype/*.patch -whitespace
+
+# Keep the hand-written navigation visible and whitespace-checked.
+examples/join/prototype/results/README.md -linguist-generated !whitespace

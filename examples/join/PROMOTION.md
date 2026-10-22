@@ -27,8 +27,20 @@ The default API accepts both constant and variable predicates. Raw joins use a
 dense set of declared variables; composable BGP leaves allow unmentioned global
 variables to remain unbound. Plans borrow immutable graph views; workspaces can
 be reused after cancellation and shared plans use separate workspaces per
-thread. FST remains static: rebuilding applies updates; mutable trees support
-local insertion/removal. RPQs return distinct endpoint pairs.
+thread. Packed `Fst` is immutable; `into_mutable()` enables local path-copying
+insertions/removals while preserving suffix minimality, on heap, file and
+compressed storage. Default updates use `Sampled(1)` with narrow relative
+addresses and 32-bit prefixes. Consuming `freeze()` uses rank-free BFS packing;
+borrowed snapshots and mutable `compact()` retain their rebuilding path.
+RPQs return distinct endpoint pairs. See [FST_UPDATES.md](FST_UPDATES.md) and
+[FST_COMPACT_INDEX.md](FST_COMPACT_INDEX.md) for current update behavior.
+
+Comparison-only `compact_blocks()`, `compact_depths()` and `compact_recursive()`
+are behind the opt-in `experimental` feature. The default compactor, its
+`compact_streaming()` diagnostics and ordinary storage backends remain available
+without it. Measurements below describe the original query promotion; subsequent
+update/compaction experiments are indexed in
+[the results guide](RESULTS.md).
 
 ## Persistence and integration
 

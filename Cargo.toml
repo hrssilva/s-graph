@@ -2,6 +2,10 @@
 name = "s-graph"
 version = "0.1.0"
 edition = "2024"
+description = "Compact graph storage with composable automata and minimality-preserving updates"
+license = "MIT"
+# Keep original measurements in the repository, outside distributable crates.
+exclude = ["/examples/join/prototype/results/**", "/examples/join/lab/**"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -23,6 +27,9 @@ default = ["heap"]
 # Packed/editable FST, composable automata/queries/analytics, and mutable Heap
 # backend. Zero extra runtime dependencies.
 heap = []
+# Comparison-only compaction algorithms and reserved-block builder interfaces.
+# The default rank-free freeze and its diagnostics do not require this feature.
+experimental = ["heap"]
 # Real-file backend (pread/pwrite + a page-chunked stack cache). Near-zero
 # steady-state RAM at the cost of I/O latency; see `storage_file` module docs.
 file = ["heap"]
@@ -111,9 +118,34 @@ required-features = ["heap"]
 [[example]]
 name = "fst_freeze_perf"
 path = "examples/fst_freeze_perf.rs"
-required-features = ["heap"]
+required-features = ["experimental"]
 
 [[example]]
 name = "fst_freeze_profile"
 path = "examples/fst_freeze_profile.rs"
+required-features = ["experimental"]
+
+[[example]]
+name = "path_fst_proto"
+path = "examples/path_fst_proto.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "path_fst_perf"
+path = "examples/path_fst_perf.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "path_fst_bgp_proto"
+path = "examples/path_fst_bgp_proto.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "path_fst_bgp_perf"
+path = "examples/path_fst_bgp_perf.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "subtree_dedup_proto"
+path = "examples/subtree_dedup_proto.rs"
 required-features = ["heap"]

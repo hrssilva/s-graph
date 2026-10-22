@@ -20,9 +20,10 @@ SGF1 snapshots. The consuming method does not provide rollback if a format
 limit fails during copying. Existing `freeze`, `to_fst` and `compact` remain
 unchanged. All three built-in backends implement `ReclaimingBlockStorage`.
 
-This is an opt-in prototype exposed through the public library API, not the
-default freezing implementation. No separate experimental feature flag is
-required; the usual backend features apply.
+This comparison prototype requires the opt-in `experimental` feature, alongside
+any desired backend features. It is excluded from normal library builds.
+`--all-features` enables it for the recorded reproduction commands. The default
+rank-free `freeze()` and `compact_streaming()` diagnostics do not require it.
 
 | API | Current implementation |
 |---|---|

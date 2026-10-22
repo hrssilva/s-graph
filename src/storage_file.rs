@@ -186,6 +186,7 @@ impl crate::storage::ReclaimingBlockStorage for FileStorage {
     }
 }
 
+#[cfg(any(test, feature = "experimental"))]
 impl crate::storage::ReservedBlockStorage for FileStorage {
     fn reserve_compaction_blocks(&mut self, count: usize, capacity: usize) -> usize {
         let first = self.blocks.len();

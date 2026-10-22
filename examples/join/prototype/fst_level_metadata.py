@@ -56,7 +56,7 @@ def main():
         raise ValueError('trials must be positive')
     args.output.mkdir(parents=True, exist_ok=True)
     binaries = {'before': args.before.resolve(), 'after': args.after.resolve()}
-    sources = ['src/fst_update_index.rs', 'src/mutable_fst.rs', 'src/path_fst.rs',
+    sources = ['Cargo.toml', 'src/fst_compaction_stats.rs', 'src/fst_update_index.rs', 'src/mutable_fst.rs', 'src/path_fst.rs',
                'src/fst_snapshot.rs', 'examples/fst_lazy_perf.rs',
                'examples/join/prototype/fst_level_metadata.py']
     manifest = dict(recorded_utc=datetime.now(timezone.utc).isoformat(),

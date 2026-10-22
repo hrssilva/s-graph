@@ -3,7 +3,7 @@
 This is the default algorithm for consuming `MutableFst::freeze()` and
 `FrozenFst::compact()`, on heap, file and compressed storage.
 `compact_streaming()` exposes the same implementation with diagnostics.
-The other compaction algorithms remain comparison APIs; none is selected by
+The other compaction algorithms require the `experimental` feature; none is selected by
 `freeze()`. `compact_depths()` is the reference comparator below. Both preserve
 root-to-leaf BFS storage, shared suffixes, minimality and SGF1 snapshots.
 

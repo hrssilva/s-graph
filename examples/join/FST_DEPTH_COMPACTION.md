@@ -1,5 +1,9 @@
 # Depth-scoped compaction with fused liveness
 
+This comparison API requires `--features experimental` (also enabled by
+`--all-features`). Ordinary freeze and streaming diagnostics are available
+without it.
+
 The benchmark runner now selects packed inputs only. BFS-sealed measurements
 below are historical results from the completed comparison; that fixture is
 excluded from subsequent benchmark matrices.

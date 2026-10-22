@@ -1,1 +1,4 @@
 /target
+
+# Python benchmark runner bytecode caches.
+__pycache__/

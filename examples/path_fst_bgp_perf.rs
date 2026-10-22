@@ -46,9 +46,13 @@ fn main() {
     let shape = args.get(2).map(String::as_str).unwrap_or("one");
     let domain = args.get(3).map(String::as_str).unwrap_or("sym");
     let iters: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(50_000);
+    #[cfg(feature = "parallel")]
     let parallel_depth: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(1);
+    #[cfg(feature = "parallel")]
     let min_parallel_size: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(8);
+    #[cfg(feature = "parallel")]
     let max_branch: usize = args.get(6).and_then(|s| s.parse().ok()).unwrap_or(8);
+    #[cfg(feature = "parallel")]
     let prefer_shallow: bool = args.get(5).map(String::as_str).unwrap_or("shallow") != "deep";
 
     let (num_s, num_p, num_o, num_triples): (u32, u32, u32, usize) = match domain {

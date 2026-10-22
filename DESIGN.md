@@ -48,7 +48,9 @@ Sampled(1) suffix register now uses narrow per-level offsets and 32-bit fingerpr
 prefixes. Sampled(rate) retains fewer prefixes; Memoized retains a working set of
 exact signatures. Scan modes keep only depth starts; the occupancy/degree filters
 were removed. [FST_COMPACT_INDEX.md](examples/join/FST_COMPACT_INDEX.md) documents
-the current representation and comparisons. Shared suffixes are never
+the current representation and comparisons. The alternative block/depth/recursive
+compactors and reserved-block interface require the `experimental` feature;
+only the selected rank-free compactor is built into the normal library. Shared suffixes are never
 mutated in place. This preserves the packed read kernel and avoids rebuilding
 on each update. [FST_UPDATES.md](examples/join/FST_UPDATES.md) records invariants,
 complexity, storage/persistence costs and validation. Direct pattern scans integrate it with the existing

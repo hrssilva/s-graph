@@ -145,7 +145,7 @@ def main():
     cases = [(n, b, "packed", m) for n in a.sizes for b in a.backends for m in a.methods]
     if a.default_control:
         cases.append((min(a.sizes), "heap", "packed", "freeze"))
-    sources = ["examples/fst_freeze_profile.rs", "examples/join/prototype/fst_freeze_profile.py",
+    sources = ["Cargo.toml", "src/fst_compaction_stats.rs", "examples/fst_freeze_profile.rs", "examples/join/prototype/fst_freeze_profile.py",
                "src/fst_block_compact.rs", "src/fst_depth_compact.rs", "src/fst_stream_compact.rs", "src/mutable_fst.rs", "src/path_fst.rs",
                "src/storage.rs", "src/storage_file.rs", "src/storage_compressed.rs"]
     manifest = dict(recorded_utc=datetime.now(timezone.utc).isoformat(),

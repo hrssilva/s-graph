@@ -9,9 +9,12 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+#[cfg(any(test, feature = "experimental"))]
 #[path = "fst_block_compact.rs"]
 mod block_compact;
-pub use block_compact::BlockCompactionStats;
+#[path = "fst_compaction_stats.rs"]
+mod compaction_stats;
+pub use compaction_stats::BlockCompactionStats;
 
 #[path = "fst_stream_compact.rs"]
 mod streaming;
@@ -255,18 +258,21 @@ impl<S: BlockStorage> FrozenFst<S> {
     {
         self.graph.freeze()
     }
+    #[cfg(any(test, feature = "experimental"))]
     pub fn compact_blocks(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
     where
         S: crate::storage::ReclaimingBlockStorage,
     {
         self.graph.compact_blocks()
     }
+    #[cfg(any(test, feature = "experimental"))]
     pub fn compact_recursive(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
     where
         S: crate::storage::ReservedBlockStorage,
     {
         self.graph.compact_recursive()
     }
+    #[cfg(any(test, feature = "experimental"))]
     pub fn compact_depths(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
     where
         S: crate::storage::ReclaimingBlockStorage,
@@ -989,6 +995,7 @@ impl<S: BlockStorage> MutableFst<S> {
     /// Consume the graph, repack its already minimal live states, and release
     /// source blocks as soon as their last live record has been copied.
     /// Uses RAM rank bitmaps and 32/64-bit relocations; does not spill to files.
+    #[cfg(any(test, feature = "experimental"))]
     pub fn compact_blocks(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
     where
         S: crate::storage::ReclaimingBlockStorage,
@@ -998,6 +1005,7 @@ impl<S: BlockStorage> MutableFst<S> {
     /// Experimental depth-scoped compaction. Discovers liveness while copying
     /// source records, then resolves the preceding output depth block by block.
     /// Reuses frontier, rank, relocation and block-scratch allocations.
+    #[cfg(any(test, feature = "experimental"))]
     pub fn compact_depths(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
     where
         S: crate::storage::ReclaimingBlockStorage,
@@ -1015,6 +1023,7 @@ impl<S: BlockStorage> MutableFst<S> {
     }
     /// Experimental child-first compaction into reserved BFS block slots.
     /// Preserves minimality; retains a dense relocation map for live states.
+    #[cfg(any(test, feature = "experimental"))]
     pub fn compact_recursive(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
     where
         S: crate::storage::ReservedBlockStorage,

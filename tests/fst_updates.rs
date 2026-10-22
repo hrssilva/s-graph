@@ -256,10 +256,20 @@ fn compressed_fst_updates_and_queries() {
     exercise::<s_graph::storage_compressed::CompressedStorage>();
 }
 
-fn in_place<S: s_graph::storage::ReservedBlockStorage>() {
+#[cfg(not(feature = "experimental"))]
+use s_graph::storage::ReclaimingBlockStorage as CompactionStorage;
+#[cfg(feature = "experimental")]
+use s_graph::storage::ReservedBlockStorage as CompactionStorage;
+
+fn in_place<S: CompactionStorage>() {
     use s_graph::FreezeOrder;
     use s_graph::mutable_fst::UpdateLookup;
-    for method in [0, 1, 2, 3] {
+    let methods: &[u8] = if cfg!(feature = "experimental") {
+        &[0, 1, 2, 3]
+    } else {
+        &[3]
+    };
+    for &method in methods {
         for order in [FreezeOrder::Dfs, FreezeOrder::Levels] {
             for lookup in [
                 UpdateLookup::Sampled(1),
@@ -311,8 +321,11 @@ fn in_place<S: s_graph::storage::ReservedBlockStorage>() {
                 let frozen = graph.freeze_in_place().unwrap();
                 let oracle = frozen.to_fst::<s_graph::storage::HeapStorage>().unwrap();
                 let (packed, stats) = match method {
+                    #[cfg(feature = "experimental")]
                     0 => frozen.compact_blocks().unwrap(),
+                    #[cfg(feature = "experimental")]
                     1 => frozen.compact_recursive().unwrap(),
+                    #[cfg(feature = "experimental")]
                     2 => frozen.compact_depths().unwrap(),
                     _ => frozen.compact_streaming().unwrap(),
                 };
@@ -332,14 +345,14 @@ fn in_place<S: s_graph::storage::ReservedBlockStorage>() {
     }
     for domains in [[1, 1, 1], [1 << 32, 1, 1 << 32]] {
         let graph = PackedFst::<S>::build(Vec::new(), domains, 512).into_mutable();
-        let (packed, stats) = graph.compact_recursive().unwrap();
+        let (packed, stats) = graph.compact_streaming().unwrap();
         assert_eq!(packed.node_count(), 1);
         assert_eq!(packed.count_matching([None; 3]), 0);
         assert_eq!(stats.released_blocks, stats.source_blocks);
         let t = ((domains[0] - 1) as u32, 0, (domains[2] - 1) as u32);
         let mut graph = packed.into_mutable();
         graph.insert(t.0, t.1, t.2).unwrap();
-        let (packed, stats) = graph.compact_recursive().unwrap();
+        let (packed, stats) = graph.compact_streaming().unwrap();
         assert_eq!(stats.released_blocks, stats.source_blocks);
         assert_eq!(packed.scan([None; 3]).collect::<Vec<_>>(), vec![t]);
         let loaded = s_graph::Fst::deserialize(&packed.serialize()).unwrap();
@@ -348,7 +361,7 @@ fn in_place<S: s_graph::storage::ReservedBlockStorage>() {
         graph.remove(t.0, t.1, t.2).unwrap();
         assert_eq!(
             graph
-                .compact_recursive()
+                .compact_streaming()
                 .unwrap()
                 .0
                 .count_matching([None; 3]),

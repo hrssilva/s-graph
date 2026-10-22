@@ -21,8 +21,10 @@ s-graph = { path = "../s-graph" }
 
 The default `heap` feature enables FST storage and the composed query/analytics
 modules, without additional runtime dependencies. `file` and `compressed` add
-mutable tree backends; `parallel` adds Rayon bulk building and parallel BFS for
-compatible backends. Enable `heap` alongside these features to retain FST APIs.
+FST and mutable-tree storage backends and include `heap` automatically. `parallel`
+adds Rayon bulk building and parallel BFS for compatible backends. The optional
+`experimental` feature enables comparison-only compaction algorithms; ordinary
+updates, snapshots and rank-free `freeze()` do not require it.
 
 ## Build, read and persist an FST
 
@@ -168,7 +170,10 @@ and BFS edit blocks. The experimental
 [block compactor](examples/join/FST_BLOCK_COMPACTION.md) releases old blocks
 as their live records are copied.
 The [recursive variant](examples/join/FST_RECURSIVE_COMPACTION.md),
-`compact_recursive()`, reserves BFS positions and builds child first.
+`compact_recursive()`, reserves BFS positions and builds child first. Comparison
+methods `compact_blocks()`, `compact_depths()` and `compact_recursive()` require
+`--features experimental`; `compact_streaming()` provides default freeze
+diagnostics without that feature.
 
 Insertions outside declared domains fail; `insert_batch` validates the whole
 batch before changing the graph. Duplicate updates are no-ops. Removal outside
@@ -429,3 +434,7 @@ all graph algorithms finite-state or remove their algorithm-specific state.
 - [Comparison harness](examples/join/prototype/prepare.py): reproducible alternatives; promoted modules come from `src/`.
 
 README Rust examples are compiled and executed by `cargo test --doc`.
+
+Build/test and packaging checks are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
+Benchmark reports link to a [results index](examples/join/RESULTS.md);
+raw measurements remain in repository checkouts and are excluded from Cargo packages.

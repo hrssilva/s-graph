@@ -1,5 +1,9 @@
 # Recursive compaction: reserve BFS levels, fill them child first
 
+This comparison API requires `--features experimental` (also enabled by
+`--all-features`). Ordinary freeze and streaming diagnostics are available
+without it.
+
 Status: implemented opt-in prototype. Mutable and frozen graphs expose
 `compact_recursive()`, returning `(PackedFst<S>, BlockCompactionStats)` on all
 three built-in backends. `compact_blocks()` retains

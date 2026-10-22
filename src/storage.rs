@@ -193,6 +193,7 @@ pub trait ReclaimingBlockStorage: BlockStorage {
 /// Builder support for child-first compaction into a root-first logical layout.
 /// Reserved blocks have no readable payload until installed. Each slot must be
 /// installed exactly once, before exposing the resulting graph to readers.
+#[cfg(any(test, feature = "experimental"))]
 pub trait ReservedBlockStorage: ReclaimingBlockStorage {
     /// Reserve metadata only; return the first new logical block number.
     fn reserve_compaction_blocks(&mut self, count: usize, capacity: usize) -> usize;
@@ -221,7 +222,7 @@ impl ReclaimingBlockStorage for HeapStorage {
     }
 }
 
-#[cfg(feature = "heap")]
+#[cfg(all(feature = "heap", any(test, feature = "experimental")))]
 impl ReservedBlockStorage for HeapStorage {
     fn reserve_compaction_blocks(&mut self, count: usize, _capacity: usize) -> usize {
         let first = self.blocks.len();

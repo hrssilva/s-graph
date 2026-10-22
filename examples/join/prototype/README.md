@@ -55,3 +55,10 @@ The [current automaton/frontier design](../AUTOMATA_FRONTIERS.md) uses
 Use separate Cargo target directories for the two source snapshots; verify
 the executables before running the matrix. `frontier` is also an explicit
 policy accepted by `layout_bench`, `cycle_bench` and `schedule_stress`.
+
+The comparison-only compaction APIs and reserved-block storage trait require the
+`experimental` feature. Use `--all-features` for compaction comparisons. Normal
+rank-free freeze and its diagnostics remain part of the default library. Raw
+records are listed in [the results index](../RESULTS.md), marked generated
+for review and excluded from Cargo packages. Run this harness from a repository
+checkout when reproducing experiments; packaged crates omit the raw lab records.
