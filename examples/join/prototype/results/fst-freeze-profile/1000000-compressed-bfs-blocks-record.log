@@ -1,0 +1,12 @@
+Running as unit: sgraph-freeze-1000000-compressed-bfs-blocks-record-2457643.service
+Events disabled
+Events enabled
+Events disabled
+Events enabled
+Events disabled
+[ perf record: Woken up 29 times to write data ]
+[ perf record: Captured and wrote 12.134 MB /home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/results/fst-freeze-profile/1000000-compressed-bfs-blocks.data ]
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 10.171s
+             CPU time consumed: 10.169s

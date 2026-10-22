@@ -84,7 +84,18 @@ fn check<S: BlockStorage>(graph: &EditableFst<S>, expected: &BTreeSet<Triple>) {
     );
 }
 
-fn exercise<S: BlockStorage>() {
+fn exercise<S: s_graph::storage::ReclaimingBlockStorage>() {
+    for lookup in [
+        s_graph::mutable_fst::UpdateLookup::Indexed,
+        s_graph::mutable_fst::UpdateLookup::Memoized,
+    ] {
+        exercise_lookup::<S>(lookup);
+    }
+}
+
+fn exercise_lookup<S: s_graph::storage::ReclaimingBlockStorage>(
+    lookup: s_graph::mutable_fst::UpdateLookup,
+) {
     let initial: Vec<_> = (0..32)
         .flat_map(|s| (0..32).map(move |o| (s, 0, o)))
         .collect();
@@ -104,7 +115,7 @@ fn exercise<S: BlockStorage>() {
         rows(cross_loaded.search(&packed_machine).unwrap()).len(),
         1024
     );
-    let mut graph = packed.into_mutable();
+    let mut graph = packed.into_mutable_with_lookup(lookup);
     let mut expected: BTreeSet<_> = initial.into_iter().collect();
     assert_eq!(graph.edited_node_count(), 0);
     assert!(graph.remove(0, 0, 0).unwrap());
@@ -217,6 +228,7 @@ fn exercise<S: BlockStorage>() {
     );
     graph.compact().unwrap();
     assert_eq!(graph.edited_node_count(), 0);
+    assert_eq!(graph.update_lookup_stats(), Default::default());
     check(&graph, &expected);
     let mut all: Vec<_> = expected.iter().copied().collect();
     assert_eq!(graph.remove_batch(&mut all).unwrap(), expected.len() as u64);
@@ -241,6 +253,135 @@ fn file_fst_updates_and_queries() {
 #[test]
 fn compressed_fst_updates_and_queries() {
     exercise::<s_graph::storage_compressed::CompressedStorage>();
+}
+
+fn in_place<S: s_graph::storage::ReservedBlockStorage>() {
+    use s_graph::FreezeOrder;
+    use s_graph::mutable_fst::UpdateLookup;
+    for method in [0, 1, 2, 3] {
+        for order in [FreezeOrder::Dfs, FreezeOrder::Levels] {
+            for lookup in [
+                UpdateLookup::Indexed,
+                UpdateLookup::ScanBase,
+                UpdateLookup::ScanAll,
+                UpdateLookup::Memoized,
+            ] {
+                let initial: Vec<_> = (0..32)
+                    .flat_map(|s| (0..32).map(move |o| (s, 0, o)))
+                    .collect();
+                let mut expected: BTreeSet<_> = initial.iter().copied().collect();
+                let mut graph = PackedFst::<S>::build(initial, [32, 4, 32], 512)
+                    .into_mutable_with_lookup(lookup);
+                for cycle in 0..4 {
+                    for i in 0..32 {
+                        let added = (i, 1 + cycle % 3, (i * 7 + cycle) % 32);
+                        assert_eq!(
+                            graph.insert(added.0, added.1, added.2).unwrap(),
+                            expected.insert(added)
+                        );
+                        let removed = (i, cycle % 4, (i * 11 + cycle) % 32);
+                        assert_eq!(
+                            graph.remove(removed.0, removed.1, removed.2).unwrap(),
+                            expected.remove(&removed)
+                        );
+                    }
+                    check(&graph, &expected);
+                    let frozen = graph.freeze_in_place_with_order(order).unwrap();
+                    check(&frozen, &expected);
+                    let memory = frozen.memory_usage();
+                    assert_eq!(
+                        memory.edit_arena_bytes
+                            + memory.edit_payload_bytes
+                            + memory.edit_register_bytes
+                            + memory.base_register_bytes
+                            + memory.memo_register_bytes
+                            + memory.free_list_bytes,
+                        0
+                    );
+                    assert_eq!(frozen.mem_size_bytes(), memory.packed_base_bytes);
+                    assert!(frozen.sealed_node_count() > 0);
+                    let snapshot = frozen.serialize().unwrap();
+                    let loaded = s_graph::Fst::deserialize(&snapshot).unwrap();
+                    assert_eq!(loaded.scan([None; 3]).collect::<BTreeSet<_>>(), expected);
+                    graph = frozen.into_mutable_with_lookup(lookup);
+                    assert_eq!(graph.update_lookup_stats(), Default::default());
+                }
+                let frozen = graph.freeze_in_place().unwrap();
+                let oracle = frozen.to_fst::<s_graph::storage::HeapStorage>().unwrap();
+                let (packed, stats) = match method {
+                    0 => frozen.compact_blocks().unwrap(),
+                    1 => frozen.compact_recursive().unwrap(),
+                    2 => frozen.compact_depths().unwrap(),
+                    _ => frozen.compact_streaming().unwrap(),
+                };
+                assert_eq!(packed.scan([None; 3]).collect::<BTreeSet<_>>(), expected);
+                assert_eq!(packed.visited_count(), oracle.visited_count());
+                assert_eq!(packed.node_count(), oracle.node_count());
+                assert_eq!(stats.released_blocks, stats.source_blocks);
+                assert_eq!(stats.reachable_states as u64, packed.node_count());
+                let snapshot = packed.serialize();
+                let loaded = s_graph::Fst::deserialize(&snapshot).unwrap();
+                assert_eq!(loaded.scan([None; 3]).collect::<BTreeSet<_>>(), expected);
+                if method != 0 {
+                    check(&packed.into_mutable(), &expected);
+                }
+            }
+        }
+    }
+    for domains in [[1, 1, 1], [1 << 32, 1, 1 << 32]] {
+        let graph = PackedFst::<S>::build(Vec::new(), domains, 512).into_mutable();
+        let (packed, stats) = graph.compact_recursive().unwrap();
+        assert_eq!(packed.node_count(), 1);
+        assert_eq!(packed.count_matching([None; 3]), 0);
+        assert_eq!(stats.released_blocks, stats.source_blocks);
+        let t = ((domains[0] - 1) as u32, 0, (domains[2] - 1) as u32);
+        let mut graph = packed.into_mutable();
+        graph.insert(t.0, t.1, t.2).unwrap();
+        let (packed, stats) = graph.compact_recursive().unwrap();
+        assert_eq!(stats.released_blocks, stats.source_blocks);
+        assert_eq!(packed.scan([None; 3]).collect::<Vec<_>>(), vec![t]);
+        let loaded = s_graph::Fst::deserialize(&packed.serialize()).unwrap();
+        assert!(loaded.contains(t.0, t.1, t.2));
+        let mut graph = packed.into_mutable();
+        graph.remove(t.0, t.1, t.2).unwrap();
+        assert_eq!(
+            graph
+                .compact_recursive()
+                .unwrap()
+                .0
+                .count_matching([None; 3]),
+            0
+        );
+    }
+    // A full 64-child edited root has a 521-byte absolute-link record. Its
+    // sealed block budget must accommodate this even with 512-byte base blocks.
+    let initial: Vec<_> = (0..4)
+        .flat_map(|s| (0..4).flat_map(move |p| (0..4).map(move |o| (s * 4, p * 4, o * 4))))
+        .collect();
+    let mut expected: BTreeSet<_> = initial.iter().copied().collect();
+    let mut graph = PackedFst::<S>::build(initial, [16, 16, 16], 512).into_mutable();
+    graph.insert(1, 1, 1).unwrap();
+    expected.insert((1, 1, 1));
+    let frozen = graph.freeze_in_place().unwrap();
+    assert_eq!(frozen.scan([None; 3]).collect::<BTreeSet<_>>(), expected);
+    let mut graph = frozen.into_mutable();
+    graph.remove(1, 1, 1).unwrap();
+    assert_eq!(
+        graph.edited_node_count(),
+        0,
+        "inverse edit must reuse original packed root"
+    );
+    let frozen = graph.freeze_in_place().unwrap();
+    assert!(!frozen.contains(1, 1, 1));
+}
+
+#[test]
+fn freeze_in_place_across_storage_modes_and_repeated_batches() {
+    in_place::<s_graph::storage::HeapStorage>();
+    #[cfg(feature = "file")]
+    in_place::<s_graph::storage_file::FileStorage>();
+    #[cfg(feature = "compressed")]
+    in_place::<s_graph::storage_compressed::CompressedStorage>();
 }
 
 #[test]

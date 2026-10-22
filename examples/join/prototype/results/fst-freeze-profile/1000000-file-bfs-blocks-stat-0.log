@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-file-bfs-blocks-stat-0-2457643.service
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 4.289s
+             CPU time consumed: 4.280s

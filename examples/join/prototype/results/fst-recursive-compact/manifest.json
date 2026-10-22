@@ -1,0 +1,95 @@
+{
+  "timestamp": "2026-10-22T11:54:29.491863+00:00",
+  "build_command": "cargo rustc --offline --all-features --profile profiling --jobs 1 --example fst_freeze_perf -- -C link-arg=-Wl,--threads=1",
+  "binary_sha256": "3b94302ccaea0f08ee1ce72c979f215deb19b809a4d0672706434c162d8a970b",
+  "source_sha256": {
+    "src/fst_recursive_compact.rs": "2e8aa2d6ac1c1bd472bb9c959286e4f3379f89dcfdaac733394d4c4e00366bf5",
+    "src/fst_block_compact.rs": "262426cf5477003f40d3fd3383cc3c7c387a3c0fdf14aec859ca6c798928794f",
+    "src/mutable_fst.rs": "9b6ad90be591a62dba30336f7c30cf3bb6fb29c5e1604050cb160039b36261b9",
+    "src/path_fst.rs": "5489c9acef2f42d219f127419cdab2be2daa98526dd54bd2be27cac8acd05c32",
+    "src/storage.rs": "f9eaad722d15bde8d56edf4549213fa57fa7f94869c5e075debff4db2dec9d1c",
+    "src/storage_file.rs": "13591057cb0a31c59fdd66888c4cbce146ca1fb99e3a77806baf98a41854621b",
+    "src/storage_compressed.rs": "4054f01956ee2a51514316175c2b9f101443d998e6a249ef63504ccb96794dd6",
+    "examples/fst_freeze_perf.rs": "29ed4289a461ab41ebcdca36ce3a21f5e3ebcde59593b261e390c1085335660e"
+  },
+  "runs": [
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "4096",
+        "32",
+        "3",
+        "all",
+        "packed"
+      ],
+      "elapsed_s": 3.013142627896741,
+      "file": "4096-32-3-all-packed.jsonl",
+      "rows": 90
+    },
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "65536",
+        "256",
+        "3",
+        "all",
+        "packed"
+      ],
+      "elapsed_s": 80.13126610312611,
+      "file": "65536-256-3-all-packed.jsonl",
+      "rows": 90
+    },
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "4096",
+        "32",
+        "3",
+        "all",
+        "dfs"
+      ],
+      "elapsed_s": 3.805027767084539,
+      "file": "4096-32-3-all-dfs.jsonl",
+      "rows": 90
+    },
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "4096",
+        "32",
+        "3",
+        "all",
+        "bfs"
+      ],
+      "elapsed_s": 3.8830516000743955,
+      "file": "4096-32-3-all-bfs.jsonl",
+      "rows": 90
+    },
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "65536",
+        "256",
+        "3",
+        "heap",
+        "dfs"
+      ],
+      "elapsed_s": 10.515161122893915,
+      "file": "65536-256-3-heap-dfs.jsonl",
+      "rows": 30
+    },
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "65536",
+        "256",
+        "3",
+        "heap",
+        "bfs"
+      ],
+      "elapsed_s": 11.824747052974999,
+      "file": "65536-256-3-heap-bfs.jsonl",
+      "rows": 30
+    }
+  ]
+}

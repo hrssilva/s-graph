@@ -102,3 +102,18 @@ required-features = ["heap"]
 name = "fst_index_scale"
 path = "examples/fst_index_scale.rs"
 required-features = ["heap"]
+
+[[example]]
+name = "fst_lazy_perf"
+path = "examples/fst_lazy_perf.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "fst_freeze_perf"
+path = "examples/fst_freeze_perf.rs"
+required-features = ["heap"]
+
+[[example]]
+name = "fst_freeze_profile"
+path = "examples/fst_freeze_profile.rs"
+required-features = ["heap"]

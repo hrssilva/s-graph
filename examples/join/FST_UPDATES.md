@@ -139,9 +139,17 @@ All three storage modes read and write SGF1 v1. A snapshot contains the compact
 current language, not edit history, registers or arena addresses. Editable
 `serialize` returns `Result<Vec<u8>>` because packing can fail on representational
 limits; stream/path variants are also available, as are all limited loaders.
-`freeze()` returns the packed form, and `to_fst::<OtherStorage>()` allows an
-explicit backend change without materializing triples. `compact()` preserves
-the editable form and does not replace it until packing succeeds.
+`freeze()` consumes the graph using the default rank-free BFS compactor: it
+reuses edit-arena metadata and retires source blocks incrementally. Updates
+already preserve minimality, so freezing only packs live states and rewrites
+addresses. All three built-in storage backends support this operation through
+`ReclaimingBlockStorage`. `compact_streaming()` uses exactly the same algorithm
+and also returns diagnostics; see [the algorithm and measurements](FST_RANK_FREE_COMPACTION.md).
+
+`to_fst::<OtherStorage>()` allows an explicit backend change without materializing
+triples. This borrowed snapshot path, serialization and mutable `compact()`
+retain the existing rebuilding implementation. They preserve the source until
+packing succeeds; `compact()` then replaces the editable graph.
 
 File graphs use temporary backing files. `serialize_to_path` makes a persistent
 snapshot; loading a file-backed graph copies validated blocks into its live
@@ -224,3 +232,7 @@ warnings and no new warnings in this implementation.
 
 The [memory lifecycle experiment](FST_MEMORY.md) breaks out maintenance metadata
 across insertion, undo, deletion, reuse and compaction on all three modes.
+
+The experimental [in-place freeze](FST_FREEZE_IN_PLACE.md) seals only live edit
+states into blocked storage, retaining the packed base and releasing update
+tables. It separates becoming immutable from the full compaction described here.

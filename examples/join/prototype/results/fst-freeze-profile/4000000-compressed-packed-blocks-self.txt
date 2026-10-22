@@ -1,0 +1,29 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 7K of event 'cycles:u'
+# Event count (approx.): 15242095174
+#
+# Overhead  Command          Shared Object       Symbol                                                                                                                               
+# ........  ...............  ..................  .....................................................................................................................................
+#
+    81.20%  fst_freeze_prof  fst_freeze_profile  [.] lz4_flex::block::decompress_safe::decompress_internal::<false, lz4_flex::sink::SliceSink>
+     3.33%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+     3.30%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_compressed::CompressedStorage>::{closure#9}
+     2.30%  fst_freeze_prof  fst_freeze_profile  [.] lz4_flex::block::compress::compress_internal::<lz4_flex::block::hashtable::HashTable4KU16, false, lz4_flex::sink::SliceSink>
+     1.90%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage>::ensure_stack_entry
+     1.55%  fst_freeze_prof  libc.so.6           [.] __memset_avx2_unaligned_erms
+     1.10%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::mark::<s_graph::storage_compressed::CompressedStorage>
+     1.05%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage as s_graph::storage::BlockStorage>::read_var
+     0.90%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     0.80%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_compressed::CompressedStorage>
+     0.78%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned_erms
+     0.62%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage as s_graph::storage::BlockStorage>::read_u64
+     0.61%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned
+
+
+#
+# (Tip: To set sample time separation other than 100ms with --sort time use --time-quantum)
+#

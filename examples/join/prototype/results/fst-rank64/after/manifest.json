@@ -1,0 +1,73 @@
+{
+  "recorded_utc": "2026-10-22T13:08:06.644291+00:00",
+  "binary_sha256": "1af53c955ebabccf7219e0106ae3fc31ec7d74d31db7c6645a7f6dbfe3f86e42",
+  "source_sha256": {
+    "examples/fst_freeze_profile.rs": "920a1cf9273d46daa22742f22f032d4df241a51120cb8bae273130ac1caf8fce",
+    "examples/join/prototype/fst_freeze_profile.py": "856c0a94075614d9286f4b4164e717eb6f0e7d0cb0b6c55c709e27cb2a2ed649",
+    "src/fst_block_compact.rs": "934202a54fdf1ed994de523b47a03955502972f45e043f4cdd4ca83375c3788f",
+    "src/mutable_fst.rs": "9b6ad90be591a62dba30336f7c30cf3bb6fb29c5e1604050cb160039b36261b9",
+    "src/path_fst.rs": "5489c9acef2f42d219f127419cdab2be2daa98526dd54bd2be27cac8acd05c32",
+    "src/storage.rs": "f9eaad722d15bde8d56edf4549213fa57fa7f94869c5e075debff4db2dec9d1c",
+    "src/storage_file.rs": "13591057cb0a31c59fdd66888c4cbce146ca1fb99e3a77806baf98a41854621b",
+    "src/storage_compressed.rs": "4054f01956ee2a51514316175c2b9f101443d998e6a249ef63504ccb96794dd6"
+  },
+  "cases": [
+    [
+      1000000,
+      "heap",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "file",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "compressed",
+      "packed",
+      "blocks"
+    ],
+    [
+      4000000,
+      "heap",
+      "packed",
+      "blocks"
+    ],
+    [
+      4000000,
+      "file",
+      "packed",
+      "blocks"
+    ],
+    [
+      4000000,
+      "compressed",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "heap",
+      "bfs",
+      "blocks"
+    ],
+    [
+      1000000,
+      "file",
+      "bfs",
+      "blocks"
+    ],
+    [
+      1000000,
+      "compressed",
+      "bfs",
+      "blocks"
+    ]
+  ],
+  "trials": 3,
+  "stat_only": true,
+  "perf_version": "perf version 7.2.5"
+}

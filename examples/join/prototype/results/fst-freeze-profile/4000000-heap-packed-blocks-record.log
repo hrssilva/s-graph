@@ -1,0 +1,14 @@
+Running as unit: sgraph-freeze-4000000-heap-packed-blocks-record-2457643.service
+Events disabled
+Events enabled
+Events disabled
+Events enabled
+Events disabled
+Events enabled
+Events disabled
+[ perf record: Woken up 25 times to write data ]
+[ perf record: Captured and wrote 9.235 MB /home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/results/fst-freeze-profile/4000000-heap-packed-blocks.data ]
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 16.409s
+             CPU time consumed: 16.399s

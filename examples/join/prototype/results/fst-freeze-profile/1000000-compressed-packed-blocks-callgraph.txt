@@ -1,0 +1,249 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 4248196510
+#
+# Children      Self  Command          Shared Object       Symbol                                                                                                                                     
+# ........  ........  ...............  ..................  ...........................................................................................................................................
+#
+    68.88%    68.88%  fst_freeze_prof  fst_freeze_profile  [.] lz4_flex::block::decompress_safe::decompress_internal::<false, lz4_flex::sink::SliceSink>
+            |          
+             --15.14%--decompress_internal<false, lz4_flex::sink::SliceSink> (inlined)
+                       |          
+                       |--6.90%--extend_from_within (inlined)
+                       |          |          
+                       |           --5.97%--copy_within<u8, core::ops::range::Range<usize>> (inlined)
+                       |                     |          
+                       |                     |--5.00%--copy<u8> (inlined)
+                       |                     |          
+                       |                      --0.65%--range<core::ops::range::Range<usize>> (inlined)
+                       |                                into_slice_range (inlined)
+                       |          
+                       |--1.72%--extend_from_slice_wild (inlined)
+                       |          |          
+                       |           --0.91%--slice_copy (inlined)
+                       |                     double_copy_trick<8> (inlined)
+                       |                     copy_from_slice<u8> (inlined)
+                       |                     copy_from_slice_impl<u8> (inlined)
+                       |                     copy_nonoverlapping<u8> (inlined)
+                       |          
+                       |--1.57%--extend_from_within_overlapping (inlined)
+                       |          
+                        --1.11%--read_match_offset (inlined)
+                                  |          
+                                   --1.06%--try_into<&[u8], [u8; 2]> (inlined)
+                                             try_from<u8, 2> (inlined)
+                                             copied<[u8; 2], core::array::TryFromSliceError> (inlined)
+
+    16.53%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] decompress_internal<false, lz4_flex::sink::SliceSink> (inlined)
+            |
+            ---decompress_internal<false, lz4_flex::sink::SliceSink> (inlined)
+               |          
+               |--7.18%--extend_from_within (inlined)
+               |          |          
+               |           --6.22%--copy_within<u8, core::ops::range::Range<usize>> (inlined)
+               |                     |          
+               |                     |--5.20%--copy<u8> (inlined)
+               |                     |          
+               |                      --0.70%--range<core::ops::range::Range<usize>> (inlined)
+               |                                into_slice_range (inlined)
+               |          
+               |--1.77%--extend_from_slice_wild (inlined)
+               |          |          
+               |           --0.96%--slice_copy (inlined)
+               |                     double_copy_trick<8> (inlined)
+               |                     copy_from_slice<u8> (inlined)
+               |                     copy_from_slice_impl<u8> (inlined)
+               |                     copy_nonoverlapping<u8> (inlined)
+               |          
+               |--1.71%--extend_from_within_overlapping (inlined)
+               |          
+               |--1.11%--read_match_offset (inlined)
+               |          |          
+               |           --1.06%--try_into<&[u8], [u8; 2]> (inlined)
+               |                     try_from<u8, 2> (inlined)
+               |                     copied<[u8; 2], core::array::TryFromSliceError> (inlined)
+               |          
+                --0.68%--extend_from_slice (inlined)
+                          extend_from_slice_wild (inlined)
+                          |          
+                           --0.64%--slice_copy (inlined)
+
+     7.41%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] extend_from_within (inlined)
+            |
+            ---extend_from_within (inlined)
+               |          
+                --6.45%--copy_within<u8, core::ops::range::Range<usize>> (inlined)
+                          |          
+                          |--5.38%--copy<u8> (inlined)
+                          |          
+                           --0.74%--range<core::ops::range::Range<usize>> (inlined)
+                                     into_slice_range (inlined)
+
+     7.00%     7.00%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+     6.45%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] copy_within<u8, core::ops::range::Range<usize>> (inlined)
+            |
+            ---copy_within<u8, core::ops::range::Range<usize>> (inlined)
+               |          
+               |--5.38%--copy<u8> (inlined)
+               |          
+                --0.74%--range<core::ops::range::Range<usize>> (inlined)
+                          into_slice_range (inlined)
+
+     5.38%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] copy<u8> (inlined)
+            |
+            ---copy<u8> (inlined)
+
+     3.38%     3.38%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage as s_graph::storage::BlockStorage>::read_var
+     3.21%     3.21%  fst_freeze_prof  libc.so.6           [.] __memset_avx2_unaligned_erms
+            |          
+            |--2.65%--__memset_avx2_unaligned_erms
+            |          
+             --0.56%--ensure_stack_entry (inlined)
+                       resize<u8, alloc::alloc::Global> (inlined)
+                       extend_with<u8, alloc::alloc::Global> (inlined)
+                       write<u8> (inlined)
+                       __memset_avx2_unaligned_erms
+
+     2.78%     2.78%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_compressed::CompressedStorage>::{closure#9}
+     2.61%     2.61%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned_erms
+            |          
+             --2.32%--__memmove_avx_unaligned_erms
+
+     2.60%     2.60%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage>::ensure_stack_entry
+     2.50%     2.50%  fst_freeze_prof  fst_freeze_profile  [.] lz4_flex::block::compress::compress_internal::<lz4_flex::block::hashtable::HashTable4KU16, false, lz4_flex::sink::SliceSink>
+     2.45%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] extend_from_slice_wild (inlined)
+            |
+            ---extend_from_slice_wild (inlined)
+               |          
+                --1.60%--slice_copy (inlined)
+                          |          
+                           --0.96%--double_copy_trick<8> (inlined)
+                                     copy_from_slice<u8> (inlined)
+                                     copy_from_slice_impl<u8> (inlined)
+                                     copy_nonoverlapping<u8> (inlined)
+
+     1.78%     1.78%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::mark::<s_graph::storage_compressed::CompressedStorage>
+     1.71%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] extend_from_within_overlapping (inlined)
+            |
+            ---extend_from_within_overlapping (inlined)
+
+     1.60%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] slice_copy (inlined)
+            |
+            ---slice_copy (inlined)
+               |          
+                --0.96%--double_copy_trick<8> (inlined)
+                          copy_from_slice<u8> (inlined)
+                          copy_from_slice_impl<u8> (inlined)
+                          copy_nonoverlapping<u8> (inlined)
+
+     1.50%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] copy_from_slice<u8> (inlined)
+            |
+            ---copy_from_slice<u8> (inlined)
+               copy_from_slice_impl<u8> (inlined)
+               copy_nonoverlapping<u8> (inlined)
+
+     1.50%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] copy_from_slice_impl<u8> (inlined)
+            |
+            ---copy_from_slice_impl<u8> (inlined)
+               copy_nonoverlapping<u8> (inlined)
+
+     1.50%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] copy_nonoverlapping<u8> (inlined)
+            |
+            ---copy_nonoverlapping<u8> (inlined)
+
+     1.46%     1.46%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage as s_graph::storage::BlockStorage>::read_u64
+     1.16%     1.16%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned
+            |          
+             --0.97%--__memmove_avx_unaligned
+
+     1.11%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] read_match_offset (inlined)
+            |
+            ---read_match_offset (inlined)
+               |          
+                --1.06%--try_into<&[u8], [u8; 2]> (inlined)
+                          try_from<u8, 2> (inlined)
+                          copied<[u8; 2], core::array::TryFromSliceError> (inlined)
+
+     1.06%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] try_into<&[u8], [u8; 2]> (inlined)
+            |
+            ---try_into<&[u8], [u8; 2]> (inlined)
+               try_from<u8, 2> (inlined)
+               copied<[u8; 2], core::array::TryFromSliceError> (inlined)
+
+     1.06%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] try_from<u8, 2> (inlined)
+            |
+            ---try_from<u8, 2> (inlined)
+               copied<[u8; 2], core::array::TryFromSliceError> (inlined)
+
+     1.06%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] copied<[u8; 2], core::array::TryFromSliceError> (inlined)
+            |
+            ---copied<[u8; 2], core::array::TryFromSliceError> (inlined)
+
+     0.96%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] double_copy_trick<8> (inlined)
+            |
+            ---double_copy_trick<8> (inlined)
+               copy_from_slice<u8> (inlined)
+               copy_from_slice_impl<u8> (inlined)
+               copy_nonoverlapping<u8> (inlined)
+
+     0.89%     0.89%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     0.88%     0.88%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_compressed::CompressedStorage>
+     0.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] range<core::ops::range::Range<usize>> (inlined)
+            |
+            ---range<core::ops::range::Range<usize>> (inlined)
+               into_slice_range (inlined)
+
+     0.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] into_slice_range (inlined)
+            |
+            ---into_slice_range (inlined)
+
+     0.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] ensure_stack_entry (inlined)
+            |
+            ---ensure_stack_entry (inlined)
+               |          
+                --0.60%--resize<u8, alloc::alloc::Global> (inlined)
+                          |          
+                           --0.56%--extend_with<u8, alloc::alloc::Global> (inlined)
+                                     write<u8> (inlined)
+                                     __memset_avx2_unaligned_erms
+
+     0.68%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] extend_from_slice (inlined)
+            |
+            ---extend_from_slice (inlined)
+               extend_from_slice_wild (inlined)
+               |          
+                --0.64%--slice_copy (inlined)
+
+     0.68%     0.00%  fst_freeze_prof  [unknown]           [.] 0x0486f31cffffffff
+            |
+            ---0x486f31cffffffff
+               decompress_internal<false, lz4_flex::sink::SliceSink> (inlined)
+
+     0.60%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] resize<u8, alloc::alloc::Global> (inlined)
+            |
+            ---resize<u8, alloc::alloc::Global> (inlined)
+               |          
+                --0.56%--extend_with<u8, alloc::alloc::Global> (inlined)
+                          write<u8> (inlined)
+                          __memset_avx2_unaligned_erms
+
+     0.56%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] extend_with<u8, alloc::alloc::Global> (inlined)
+            |
+            ---extend_with<u8, alloc::alloc::Global> (inlined)
+               write<u8> (inlined)
+               __memset_avx2_unaligned_erms
+
+     0.56%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] write<u8> (inlined)
+            |
+            ---write<u8> (inlined)
+               __memset_avx2_unaligned_erms
+
+
+
+#
+# (Tip: To count events every 1000 msec: perf stat -I 1000)
+#

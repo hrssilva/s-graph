@@ -1,0 +1,1992 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 1751127652
+#
+# Children      Self  Command          Shared Object       Symbol                                                                                                                                                                                                                                                                                                                                                              
+# ........  ........  ...............  ..................  ....................................................................................................................................................................................................................................................................................................................................................................
+#
+    48.03%     0.00%  fst_freeze_prof  libc.so.6           [.] __internal_syscall_cancel
+            |          
+             --48.03%--__internal_syscall_cancel
+                       |          
+                        --46.75%--0xffffffff8760012f
+                                  |          
+                                   --45.75%--0xffffffff8882fb21
+                                             |          
+                                              --44.16%--0xffffffff87dbeeca
+                                                        |          
+                                                        |--35.11%--0xffffffff87dbecca
+                                                        |          |          
+                                                        |          |--17.27%--0xffffffff87c616d6
+                                                        |          |          |          
+                                                        |          |          |--14.23%--0xffffffff87c60ee3
+                                                        |          |          |          |          
+                                                        |          |          |          |--5.10%--0xffffffff87c5d115
+                                                        |          |          |          |          |          
+                                                        |          |          |          |          |--1.31%--0xffffffff888270ad
+                                                        |          |          |          |          |          |          
+                                                        |          |          |          |          |           --0.57%--0xffffffff88826ffa
+                                                        |          |          |          |          |          
+                                                        |          |          |          |          |--0.99%--0xffffffff888270e5
+                                                        |          |          |          |          |          
+                                                        |          |          |          |           --0.67%--0xffffffff888270a5
+                                                        |          |          |          |          
+                                                        |          |          |          |--1.16%--0xffffffff87c5d110
+                                                        |          |          |          |          
+                                                        |          |          |          |--0.92%--0xffffffff87c5d176
+                                                        |          |          |          |          
+                                                        |          |          |          |--0.77%--0xffffffff87c5d199
+                                                        |          |          |          |          
+                                                        |          |          |          |--0.68%--0xffffffff87c5d1df
+                                                        |          |          |          |          
+                                                        |          |          |          |--0.64%--0xffffffff87c5d118
+                                                        |          |          |          |          
+                                                        |          |          |           --0.62%--0xffffffff87c5d162
+                                                        |          |          |          
+                                                        |          |          |--1.00%--0xffffffff87c60ee7
+                                                        |          |          |          
+                                                        |          |           --0.71%--0xffffffff87c610a3
+                                                        |          |          
+                                                        |          |--8.73%--0xffffffff87c617a7
+                                                        |          |          |          
+                                                        |          |           --7.97%--0xffffffff8806e754
+                                                        |          |                     |          
+                                                        |          |                     |--5.59%--0xffffffff8806def6
+                                                        |          |                     |          |          
+                                                        |          |                     |           --5.13%--0xffffffff8882adc5
+                                                        |          |                     |          
+                                                        |          |                      --1.67%--0xffffffff8806deeb
+                                                        |          |          
+                                                        |          |--1.38%--0xffffffff87c616da
+                                                        |          |          
+                                                        |          |--1.30%--0xffffffff87c61734
+                                                        |          |          
+                                                        |          |--1.06%--0xffffffff87c61738
+                                                        |          |          
+                                                        |          |--0.79%--0xffffffff87c61632
+                                                        |          |          
+                                                        |          |--0.66%--0xffffffffc0673e84
+                                                        |          |          
+                                                        |           --0.63%--0xffffffffc0673e80
+                                                        |          
+                                                        |--6.43%--0xffffffff87dbea7b
+                                                        |          |          
+                                                        |          |--4.65%--0xffffffff87dbb8e1
+                                                        |          |          |          
+                                                        |          |          |--1.83%--0xffffffff87f0aa4b
+                                                        |          |          |          |          
+                                                        |          |          |           --0.62%--0xffffffff87f1f91a
+                                                        |          |          |          
+                                                        |          |          |--0.84%--0xffffffff87f0aa60
+                                                        |          |          |          
+                                                        |          |          |--0.72%--0xffffffff87f0aa62
+                                                        |          |          |          
+                                                        |          |           --0.57%--0xffffffff87f0aa4d
+                                                        |          |          
+                                                        |          |--0.58%--0xffffffff87dbb904
+                                                        |          |          
+                                                        |           --0.54%--0xffffffff87dbb8e3
+                                                        |          
+                                                         --0.81%--0xffffffff87dbea7e
+
+    47.97%     0.00%  fst_freeze_prof  libc.so.6           [.] __syscall_cancel
+            |          
+             --47.97%--__syscall_cancel
+                       |          
+                        --47.85%--__internal_syscall_cancel
+                                  |          
+                                   --46.75%--0xffffffff8760012f
+                                             |          
+                                              --45.75%--0xffffffff8882fb21
+                                                        |          
+                                                         --44.16%--0xffffffff87dbeeca
+                                                                   |          
+                                                                   |--35.11%--0xffffffff87dbecca
+                                                                   |          |          
+                                                                   |          |--17.27%--0xffffffff87c616d6
+                                                                   |          |          |          
+                                                                   |          |          |--14.23%--0xffffffff87c60ee3
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--5.10%--0xffffffff87c5d115
+                                                                   |          |          |          |          |          
+                                                                   |          |          |          |          |--1.31%--0xffffffff888270ad
+                                                                   |          |          |          |          |          |          
+                                                                   |          |          |          |          |           --0.57%--0xffffffff88826ffa
+                                                                   |          |          |          |          |          
+                                                                   |          |          |          |          |--0.99%--0xffffffff888270e5
+                                                                   |          |          |          |          |          
+                                                                   |          |          |          |           --0.67%--0xffffffff888270a5
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--1.16%--0xffffffff87c5d110
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.92%--0xffffffff87c5d176
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.77%--0xffffffff87c5d199
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.68%--0xffffffff87c5d1df
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.64%--0xffffffff87c5d118
+                                                                   |          |          |          |          
+                                                                   |          |          |           --0.62%--0xffffffff87c5d162
+                                                                   |          |          |          
+                                                                   |          |          |--1.00%--0xffffffff87c60ee7
+                                                                   |          |          |          
+                                                                   |          |           --0.71%--0xffffffff87c610a3
+                                                                   |          |          
+                                                                   |          |--8.73%--0xffffffff87c617a7
+                                                                   |          |          |          
+                                                                   |          |           --7.97%--0xffffffff8806e754
+                                                                   |          |                     |          
+                                                                   |          |                     |--5.59%--0xffffffff8806def6
+                                                                   |          |                     |          |          
+                                                                   |          |                     |           --5.13%--0xffffffff8882adc5
+                                                                   |          |                     |          
+                                                                   |          |                      --1.67%--0xffffffff8806deeb
+                                                                   |          |          
+                                                                   |          |--1.38%--0xffffffff87c616da
+                                                                   |          |          
+                                                                   |          |--1.30%--0xffffffff87c61734
+                                                                   |          |          
+                                                                   |          |--1.06%--0xffffffff87c61738
+                                                                   |          |          
+                                                                   |          |--0.79%--0xffffffff87c61632
+                                                                   |          |          
+                                                                   |          |--0.66%--0xffffffffc0673e84
+                                                                   |          |          
+                                                                   |           --0.63%--0xffffffffc0673e80
+                                                                   |          
+                                                                   |--6.43%--0xffffffff87dbea7b
+                                                                   |          |          
+                                                                   |          |--4.65%--0xffffffff87dbb8e1
+                                                                   |          |          |          
+                                                                   |          |          |--1.83%--0xffffffff87f0aa4b
+                                                                   |          |          |          |          
+                                                                   |          |          |           --0.62%--0xffffffff87f1f91a
+                                                                   |          |          |          
+                                                                   |          |          |--0.84%--0xffffffff87f0aa60
+                                                                   |          |          |          
+                                                                   |          |          |--0.72%--0xffffffff87f0aa62
+                                                                   |          |          |          
+                                                                   |          |           --0.57%--0xffffffff87f0aa4d
+                                                                   |          |          
+                                                                   |          |--0.58%--0xffffffff87dbb904
+                                                                   |          |          
+                                                                   |           --0.54%--0xffffffff87dbb8e3
+                                                                   |          
+                                                                    --0.81%--0xffffffff87dbea7e
+
+    47.82%     0.00%  fst_freeze_prof  libc.so.6           [.] __libc_pread
+            |          
+             --47.82%--__libc_pread
+                       __syscall_cancel
+                       |          
+                        --47.70%--__internal_syscall_cancel
+                                  |          
+                                   --46.61%--0xffffffff8760012f
+                                             |          
+                                              --45.60%--0xffffffff8882fb21
+                                                        |          
+                                                         --44.16%--0xffffffff87dbeeca
+                                                                   |          
+                                                                   |--35.11%--0xffffffff87dbecca
+                                                                   |          |          
+                                                                   |          |--17.27%--0xffffffff87c616d6
+                                                                   |          |          |          
+                                                                   |          |          |--14.23%--0xffffffff87c60ee3
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--5.10%--0xffffffff87c5d115
+                                                                   |          |          |          |          |          
+                                                                   |          |          |          |          |--1.31%--0xffffffff888270ad
+                                                                   |          |          |          |          |          |          
+                                                                   |          |          |          |          |           --0.57%--0xffffffff88826ffa
+                                                                   |          |          |          |          |          
+                                                                   |          |          |          |          |--0.99%--0xffffffff888270e5
+                                                                   |          |          |          |          |          
+                                                                   |          |          |          |           --0.67%--0xffffffff888270a5
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--1.16%--0xffffffff87c5d110
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.92%--0xffffffff87c5d176
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.77%--0xffffffff87c5d199
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.68%--0xffffffff87c5d1df
+                                                                   |          |          |          |          
+                                                                   |          |          |          |--0.64%--0xffffffff87c5d118
+                                                                   |          |          |          |          
+                                                                   |          |          |           --0.62%--0xffffffff87c5d162
+                                                                   |          |          |          
+                                                                   |          |          |--1.00%--0xffffffff87c60ee7
+                                                                   |          |          |          
+                                                                   |          |           --0.71%--0xffffffff87c610a3
+                                                                   |          |          
+                                                                   |          |--8.73%--0xffffffff87c617a7
+                                                                   |          |          |          
+                                                                   |          |           --7.97%--0xffffffff8806e754
+                                                                   |          |                     |          
+                                                                   |          |                     |--5.59%--0xffffffff8806def6
+                                                                   |          |                     |          |          
+                                                                   |          |                     |           --5.13%--0xffffffff8882adc5
+                                                                   |          |                     |          
+                                                                   |          |                      --1.67%--0xffffffff8806deeb
+                                                                   |          |          
+                                                                   |          |--1.38%--0xffffffff87c616da
+                                                                   |          |          
+                                                                   |          |--1.30%--0xffffffff87c61734
+                                                                   |          |          
+                                                                   |          |--1.06%--0xffffffff87c61738
+                                                                   |          |          
+                                                                   |          |--0.79%--0xffffffff87c61632
+                                                                   |          |          
+                                                                   |          |--0.66%--0xffffffffc0673e84
+                                                                   |          |          
+                                                                   |           --0.63%--0xffffffffc0673e80
+                                                                   |          
+                                                                   |--6.43%--0xffffffff87dbea7b
+                                                                   |          |          
+                                                                   |          |--4.65%--0xffffffff87dbb8e1
+                                                                   |          |          |          
+                                                                   |          |          |--1.83%--0xffffffff87f0aa4b
+                                                                   |          |          |          |          
+                                                                   |          |          |           --0.62%--0xffffffff87f1f91a
+                                                                   |          |          |          
+                                                                   |          |          |--0.84%--0xffffffff87f0aa60
+                                                                   |          |          |          
+                                                                   |          |          |--0.72%--0xffffffff87f0aa62
+                                                                   |          |          |          
+                                                                   |          |           --0.57%--0xffffffff87f0aa4d
+                                                                   |          |          
+                                                                   |          |--0.58%--0xffffffff87dbb904
+                                                                   |          |          
+                                                                   |           --0.54%--0xffffffff87dbb8e3
+                                                                   |          
+                                                                    --0.81%--0xffffffff87dbea7e
+
+    47.75%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] read_at (inlined)
+            |
+            ---read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               |          
+                --47.75%--__libc_pread
+                          |          
+                           --47.75%--__syscall_cancel
+                                     |          
+                                      --47.63%--__internal_syscall_cancel
+                                                |          
+                                                 --46.61%--0xffffffff8760012f
+                                                           |          
+                                                            --45.60%--0xffffffff8882fb21
+                                                                      |          
+                                                                       --44.16%--0xffffffff87dbeeca
+                                                                                 |          
+                                                                                 |--35.11%--0xffffffff87dbecca
+                                                                                 |          |          
+                                                                                 |          |--17.27%--0xffffffff87c616d6
+                                                                                 |          |          |          
+                                                                                 |          |          |--14.23%--0xffffffff87c60ee3
+                                                                                 |          |          |          |          
+                                                                                 |          |          |          |--5.10%--0xffffffff87c5d115
+                                                                                 |          |          |          |          |          
+                                                                                 |          |          |          |          |--1.31%--0xffffffff888270ad
+                                                                                 |          |          |          |          |          |          
+                                                                                 |          |          |          |          |           --0.57%--0xffffffff88826ffa
+                                                                                 |          |          |          |          |          
+                                                                                 |          |          |          |          |--0.99%--0xffffffff888270e5
+                                                                                 |          |          |          |          |          
+                                                                                 |          |          |          |           --0.67%--0xffffffff888270a5
+                                                                                 |          |          |          |          
+                                                                                 |          |          |          |--1.16%--0xffffffff87c5d110
+                                                                                 |          |          |          |          
+                                                                                 |          |          |          |--0.92%--0xffffffff87c5d176
+                                                                                 |          |          |          |          
+                                                                                 |          |          |          |--0.77%--0xffffffff87c5d199
+                                                                                 |          |          |          |          
+                                                                                 |          |          |          |--0.68%--0xffffffff87c5d1df
+                                                                                 |          |          |          |          
+                                                                                 |          |          |          |--0.64%--0xffffffff87c5d118
+                                                                                 |          |          |          |          
+                                                                                 |          |          |           --0.62%--0xffffffff87c5d162
+                                                                                 |          |          |          
+                                                                                 |          |          |--1.00%--0xffffffff87c60ee7
+                                                                                 |          |          |          
+                                                                                 |          |           --0.71%--0xffffffff87c610a3
+                                                                                 |          |          
+                                                                                 |          |--8.73%--0xffffffff87c617a7
+                                                                                 |          |          |          
+                                                                                 |          |           --7.97%--0xffffffff8806e754
+                                                                                 |          |                     |          
+                                                                                 |          |                     |--5.59%--0xffffffff8806def6
+                                                                                 |          |                     |          |          
+                                                                                 |          |                     |           --5.13%--0xffffffff8882adc5
+                                                                                 |          |                     |          
+                                                                                 |          |                      --1.67%--0xffffffff8806deeb
+                                                                                 |          |          
+                                                                                 |          |--1.38%--0xffffffff87c616da
+                                                                                 |          |          
+                                                                                 |          |--1.30%--0xffffffff87c61734
+                                                                                 |          |          
+                                                                                 |          |--1.06%--0xffffffff87c61738
+                                                                                 |          |          
+                                                                                 |          |--0.79%--0xffffffff87c61632
+                                                                                 |          |          
+                                                                                 |          |--0.66%--0xffffffffc0673e84
+                                                                                 |          |          
+                                                                                 |           --0.63%--0xffffffffc0673e80
+                                                                                 |          
+                                                                                 |--6.43%--0xffffffff87dbea7b
+                                                                                 |          |          
+                                                                                 |          |--4.65%--0xffffffff87dbb8e1
+                                                                                 |          |          |          
+                                                                                 |          |          |--1.83%--0xffffffff87f0aa4b
+                                                                                 |          |          |          |          
+                                                                                 |          |          |           --0.62%--0xffffffff87f1f91a
+                                                                                 |          |          |          
+                                                                                 |          |          |--0.84%--0xffffffff87f0aa60
+                                                                                 |          |          |          
+                                                                                 |          |          |--0.72%--0xffffffff87f0aa62
+                                                                                 |          |          |          
+                                                                                 |          |           --0.57%--0xffffffff87f0aa4d
+                                                                                 |          |          
+                                                                                 |          |--0.58%--0xffffffff87dbb904
+                                                                                 |          |          
+                                                                                 |           --0.54%--0xffffffff87dbb8e3
+                                                                                 |          
+                                                                                  --0.81%--0xffffffff87dbea7e
+
+    47.69%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] read_exact_at<std::fs::File> (inlined)
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               |          
+                --47.63%--read_at (inlined)
+                          read_at (inlined)
+                          read_at (inlined)
+                          |          
+                           --47.63%--__libc_pread
+                                     |          
+                                      --47.63%--__syscall_cancel
+                                                |          
+                                                 --47.63%--__internal_syscall_cancel
+                                                           |          
+                                                            --46.61%--0xffffffff8760012f
+                                                                      |          
+                                                                       --45.60%--0xffffffff8882fb21
+                                                                                 |          
+                                                                                  --44.16%--0xffffffff87dbeeca
+                                                                                            |          
+                                                                                            |--35.11%--0xffffffff87dbecca
+                                                                                            |          |          
+                                                                                            |          |--17.27%--0xffffffff87c616d6
+                                                                                            |          |          |          
+                                                                                            |          |          |--14.23%--0xffffffff87c60ee3
+                                                                                            |          |          |          |          
+                                                                                            |          |          |          |--5.10%--0xffffffff87c5d115
+                                                                                            |          |          |          |          |          
+                                                                                            |          |          |          |          |--1.31%--0xffffffff888270ad
+                                                                                            |          |          |          |          |          |          
+                                                                                            |          |          |          |          |           --0.57%--0xffffffff88826ffa
+                                                                                            |          |          |          |          |          
+                                                                                            |          |          |          |          |--0.99%--0xffffffff888270e5
+                                                                                            |          |          |          |          |          
+                                                                                            |          |          |          |           --0.67%--0xffffffff888270a5
+                                                                                            |          |          |          |          
+                                                                                            |          |          |          |--1.16%--0xffffffff87c5d110
+                                                                                            |          |          |          |          
+                                                                                            |          |          |          |--0.92%--0xffffffff87c5d176
+                                                                                            |          |          |          |          
+                                                                                            |          |          |          |--0.77%--0xffffffff87c5d199
+                                                                                            |          |          |          |          
+                                                                                            |          |          |          |--0.68%--0xffffffff87c5d1df
+                                                                                            |          |          |          |          
+                                                                                            |          |          |          |--0.64%--0xffffffff87c5d118
+                                                                                            |          |          |          |          
+                                                                                            |          |          |           --0.62%--0xffffffff87c5d162
+                                                                                            |          |          |          
+                                                                                            |          |          |--1.00%--0xffffffff87c60ee7
+                                                                                            |          |          |          
+                                                                                            |          |           --0.71%--0xffffffff87c610a3
+                                                                                            |          |          
+                                                                                            |          |--8.73%--0xffffffff87c617a7
+                                                                                            |          |          |          
+                                                                                            |          |           --7.97%--0xffffffff8806e754
+                                                                                            |          |                     |          
+                                                                                            |          |                     |--5.59%--0xffffffff8806def6
+                                                                                            |          |                     |          |          
+                                                                                            |          |                     |           --5.13%--0xffffffff8882adc5
+                                                                                            |          |                     |          
+                                                                                            |          |                      --1.67%--0xffffffff8806deeb
+                                                                                            |          |          
+                                                                                            |          |--1.38%--0xffffffff87c616da
+                                                                                            |          |          
+                                                                                            |          |--1.30%--0xffffffff87c61734
+                                                                                            |          |          
+                                                                                            |          |--1.06%--0xffffffff87c61738
+                                                                                            |          |          
+                                                                                            |          |--0.79%--0xffffffff87c61632
+                                                                                            |          |          
+                                                                                            |          |--0.66%--0xffffffffc0673e84
+                                                                                            |          |          
+                                                                                            |           --0.63%--0xffffffffc0673e80
+                                                                                            |          
+                                                                                            |--6.43%--0xffffffff87dbea7b
+                                                                                            |          |          
+                                                                                            |          |--4.65%--0xffffffff87dbb8e1
+                                                                                            |          |          |          
+                                                                                            |          |          |--1.83%--0xffffffff87f0aa4b
+                                                                                            |          |          |          |          
+                                                                                            |          |          |           --0.62%--0xffffffff87f1f91a
+                                                                                            |          |          |          
+                                                                                            |          |          |--0.84%--0xffffffff87f0aa60
+                                                                                            |          |          |          
+                                                                                            |          |          |--0.72%--0xffffffff87f0aa62
+                                                                                            |          |          |          
+                                                                                            |          |           --0.57%--0xffffffff87f0aa4d
+                                                                                            |          |          
+                                                                                            |          |--0.58%--0xffffffff87dbb904
+                                                                                            |          |          
+                                                                                            |           --0.54%--0xffffffff87dbb8e3
+                                                                                            |          
+                                                                                             --0.81%--0xffffffff87dbea7e
+
+    47.34%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff8760012f
+            |
+            ---0xffffffff8760012f
+               |          
+                --46.19%--0xffffffff8882fb21
+                          |          
+                           --44.16%--0xffffffff87dbeeca
+                                     |          
+                                     |--35.11%--0xffffffff87dbecca
+                                     |          |          
+                                     |          |--17.27%--0xffffffff87c616d6
+                                     |          |          |          
+                                     |          |          |--14.23%--0xffffffff87c60ee3
+                                     |          |          |          |          
+                                     |          |          |          |--5.10%--0xffffffff87c5d115
+                                     |          |          |          |          |          
+                                     |          |          |          |          |--1.31%--0xffffffff888270ad
+                                     |          |          |          |          |          |          
+                                     |          |          |          |          |           --0.57%--0xffffffff88826ffa
+                                     |          |          |          |          |          
+                                     |          |          |          |          |--0.99%--0xffffffff888270e5
+                                     |          |          |          |          |          
+                                     |          |          |          |           --0.67%--0xffffffff888270a5
+                                     |          |          |          |          
+                                     |          |          |          |--1.16%--0xffffffff87c5d110
+                                     |          |          |          |          
+                                     |          |          |          |--0.92%--0xffffffff87c5d176
+                                     |          |          |          |          
+                                     |          |          |          |--0.77%--0xffffffff87c5d199
+                                     |          |          |          |          
+                                     |          |          |          |--0.68%--0xffffffff87c5d1df
+                                     |          |          |          |          
+                                     |          |          |          |--0.64%--0xffffffff87c5d118
+                                     |          |          |          |          
+                                     |          |          |           --0.62%--0xffffffff87c5d162
+                                     |          |          |          
+                                     |          |          |--1.00%--0xffffffff87c60ee7
+                                     |          |          |          
+                                     |          |           --0.71%--0xffffffff87c610a3
+                                     |          |          
+                                     |          |--8.73%--0xffffffff87c617a7
+                                     |          |          |          
+                                     |          |           --7.97%--0xffffffff8806e754
+                                     |          |                     |          
+                                     |          |                     |--5.59%--0xffffffff8806def6
+                                     |          |                     |          |          
+                                     |          |                     |           --5.13%--0xffffffff8882adc5
+                                     |          |                     |          
+                                     |          |                      --1.67%--0xffffffff8806deeb
+                                     |          |          
+                                     |          |--1.38%--0xffffffff87c616da
+                                     |          |          
+                                     |          |--1.30%--0xffffffff87c61734
+                                     |          |          
+                                     |          |--1.06%--0xffffffff87c61738
+                                     |          |          
+                                     |          |--0.79%--0xffffffff87c61632
+                                     |          |          
+                                     |          |--0.66%--0xffffffffc0673e84
+                                     |          |          
+                                     |           --0.63%--0xffffffffc0673e80
+                                     |          
+                                     |--6.43%--0xffffffff87dbea7b
+                                     |          |          
+                                     |          |--4.65%--0xffffffff87dbb8e1
+                                     |          |          |          
+                                     |          |          |--1.83%--0xffffffff87f0aa4b
+                                     |          |          |          |          
+                                     |          |          |           --0.62%--0xffffffff87f1f91a
+                                     |          |          |          
+                                     |          |          |--0.84%--0xffffffff87f0aa60
+                                     |          |          |          
+                                     |          |          |--0.72%--0xffffffff87f0aa62
+                                     |          |          |          
+                                     |          |           --0.57%--0xffffffff87f0aa4d
+                                     |          |          
+                                     |          |--0.58%--0xffffffff87dbb904
+                                     |          |          
+                                     |           --0.54%--0xffffffff87dbb8e3
+                                     |          
+                                      --0.81%--0xffffffff87dbea7e
+
+    46.19%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff8882fb21
+            |
+            ---0xffffffff8882fb21
+               |          
+                --44.16%--0xffffffff87dbeeca
+                          |          
+                          |--35.11%--0xffffffff87dbecca
+                          |          |          
+                          |          |--17.27%--0xffffffff87c616d6
+                          |          |          |          
+                          |          |          |--14.23%--0xffffffff87c60ee3
+                          |          |          |          |          
+                          |          |          |          |--5.10%--0xffffffff87c5d115
+                          |          |          |          |          |          
+                          |          |          |          |          |--1.31%--0xffffffff888270ad
+                          |          |          |          |          |          |          
+                          |          |          |          |          |           --0.57%--0xffffffff88826ffa
+                          |          |          |          |          |          
+                          |          |          |          |          |--0.99%--0xffffffff888270e5
+                          |          |          |          |          |          
+                          |          |          |          |           --0.67%--0xffffffff888270a5
+                          |          |          |          |          
+                          |          |          |          |--1.16%--0xffffffff87c5d110
+                          |          |          |          |          
+                          |          |          |          |--0.92%--0xffffffff87c5d176
+                          |          |          |          |          
+                          |          |          |          |--0.77%--0xffffffff87c5d199
+                          |          |          |          |          
+                          |          |          |          |--0.68%--0xffffffff87c5d1df
+                          |          |          |          |          
+                          |          |          |          |--0.64%--0xffffffff87c5d118
+                          |          |          |          |          
+                          |          |          |           --0.62%--0xffffffff87c5d162
+                          |          |          |          
+                          |          |          |--1.00%--0xffffffff87c60ee7
+                          |          |          |          
+                          |          |           --0.71%--0xffffffff87c610a3
+                          |          |          
+                          |          |--8.73%--0xffffffff87c617a7
+                          |          |          |          
+                          |          |           --7.97%--0xffffffff8806e754
+                          |          |                     |          
+                          |          |                     |--5.59%--0xffffffff8806def6
+                          |          |                     |          |          
+                          |          |                     |           --5.13%--0xffffffff8882adc5
+                          |          |                     |          
+                          |          |                      --1.67%--0xffffffff8806deeb
+                          |          |          
+                          |          |--1.38%--0xffffffff87c616da
+                          |          |          
+                          |          |--1.30%--0xffffffff87c61734
+                          |          |          
+                          |          |--1.06%--0xffffffff87c61738
+                          |          |          
+                          |          |--0.79%--0xffffffff87c61632
+                          |          |          
+                          |          |--0.66%--0xffffffffc0673e84
+                          |          |          
+                          |           --0.63%--0xffffffffc0673e80
+                          |          
+                          |--6.43%--0xffffffff87dbea7b
+                          |          |          
+                          |          |--4.65%--0xffffffff87dbb8e1
+                          |          |          |          
+                          |          |          |--1.83%--0xffffffff87f0aa4b
+                          |          |          |          |          
+                          |          |          |           --0.62%--0xffffffff87f1f91a
+                          |          |          |          
+                          |          |          |--0.84%--0xffffffff87f0aa60
+                          |          |          |          
+                          |          |          |--0.72%--0xffffffff87f0aa62
+                          |          |          |          
+                          |          |           --0.57%--0xffffffff87f0aa4d
+                          |          |          
+                          |          |--0.58%--0xffffffff87dbb904
+                          |          |          
+                          |           --0.54%--0xffffffff87dbb8e3
+                          |          
+                           --0.81%--0xffffffff87dbea7e
+
+    44.16%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbeeca
+            |
+            ---0xffffffff87dbeeca
+               |          
+               |--35.11%--0xffffffff87dbecca
+               |          |          
+               |          |--17.27%--0xffffffff87c616d6
+               |          |          |          
+               |          |          |--14.23%--0xffffffff87c60ee3
+               |          |          |          |          
+               |          |          |          |--5.10%--0xffffffff87c5d115
+               |          |          |          |          |          
+               |          |          |          |          |--1.31%--0xffffffff888270ad
+               |          |          |          |          |          |          
+               |          |          |          |          |           --0.57%--0xffffffff88826ffa
+               |          |          |          |          |          
+               |          |          |          |          |--0.99%--0xffffffff888270e5
+               |          |          |          |          |          
+               |          |          |          |           --0.67%--0xffffffff888270a5
+               |          |          |          |          
+               |          |          |          |--1.16%--0xffffffff87c5d110
+               |          |          |          |          
+               |          |          |          |--0.92%--0xffffffff87c5d176
+               |          |          |          |          
+               |          |          |          |--0.77%--0xffffffff87c5d199
+               |          |          |          |          
+               |          |          |          |--0.68%--0xffffffff87c5d1df
+               |          |          |          |          
+               |          |          |          |--0.64%--0xffffffff87c5d118
+               |          |          |          |          
+               |          |          |           --0.62%--0xffffffff87c5d162
+               |          |          |          
+               |          |          |--1.00%--0xffffffff87c60ee7
+               |          |          |          
+               |          |           --0.71%--0xffffffff87c610a3
+               |          |          
+               |          |--8.73%--0xffffffff87c617a7
+               |          |          |          
+               |          |           --7.97%--0xffffffff8806e754
+               |          |                     |          
+               |          |                     |--5.59%--0xffffffff8806def6
+               |          |                     |          |          
+               |          |                     |           --5.13%--0xffffffff8882adc5
+               |          |                     |          
+               |          |                      --1.67%--0xffffffff8806deeb
+               |          |          
+               |          |--1.38%--0xffffffff87c616da
+               |          |          
+               |          |--1.30%--0xffffffff87c61734
+               |          |          
+               |          |--1.06%--0xffffffff87c61738
+               |          |          
+               |          |--0.79%--0xffffffff87c61632
+               |          |          
+               |          |--0.66%--0xffffffffc0673e84
+               |          |          
+               |           --0.63%--0xffffffffc0673e80
+               |          
+               |--6.43%--0xffffffff87dbea7b
+               |          |          
+               |          |--4.65%--0xffffffff87dbb8e1
+               |          |          |          
+               |          |          |--1.83%--0xffffffff87f0aa4b
+               |          |          |          |          
+               |          |          |           --0.62%--0xffffffff87f1f91a
+               |          |          |          
+               |          |          |--0.84%--0xffffffff87f0aa60
+               |          |          |          
+               |          |          |--0.72%--0xffffffff87f0aa62
+               |          |          |          
+               |          |           --0.57%--0xffffffff87f0aa4d
+               |          |          
+               |          |--0.58%--0xffffffff87dbb904
+               |          |          
+               |           --0.54%--0xffffffff87dbb8e3
+               |          
+                --0.81%--0xffffffff87dbea7e
+
+    35.11%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbecca
+            |
+            ---0xffffffff87dbecca
+               |          
+               |--17.27%--0xffffffff87c616d6
+               |          |          
+               |          |--14.23%--0xffffffff87c60ee3
+               |          |          |          
+               |          |          |--5.10%--0xffffffff87c5d115
+               |          |          |          |          
+               |          |          |          |--1.31%--0xffffffff888270ad
+               |          |          |          |          |          
+               |          |          |          |           --0.57%--0xffffffff88826ffa
+               |          |          |          |          
+               |          |          |          |--0.99%--0xffffffff888270e5
+               |          |          |          |          
+               |          |          |           --0.67%--0xffffffff888270a5
+               |          |          |          
+               |          |          |--1.16%--0xffffffff87c5d110
+               |          |          |          
+               |          |          |--0.92%--0xffffffff87c5d176
+               |          |          |          
+               |          |          |--0.77%--0xffffffff87c5d199
+               |          |          |          
+               |          |          |--0.68%--0xffffffff87c5d1df
+               |          |          |          
+               |          |          |--0.64%--0xffffffff87c5d118
+               |          |          |          
+               |          |           --0.62%--0xffffffff87c5d162
+               |          |          
+               |          |--1.00%--0xffffffff87c60ee7
+               |          |          
+               |           --0.71%--0xffffffff87c610a3
+               |          
+               |--8.73%--0xffffffff87c617a7
+               |          |          
+               |           --7.97%--0xffffffff8806e754
+               |                     |          
+               |                     |--5.59%--0xffffffff8806def6
+               |                     |          |          
+               |                     |           --5.13%--0xffffffff8882adc5
+               |                     |          
+               |                      --1.67%--0xffffffff8806deeb
+               |          
+               |--1.38%--0xffffffff87c616da
+               |          
+               |--1.30%--0xffffffff87c61734
+               |          
+               |--1.06%--0xffffffff87c61738
+               |          
+               |--0.79%--0xffffffff87c61632
+               |          
+               |--0.66%--0xffffffffc0673e84
+               |          
+                --0.63%--0xffffffffc0673e80
+
+    22.68%    22.68%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+            |          
+            |--15.52%--rank (inlined)
+            |          |          
+            |          |--14.38%--sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>, usize> (inlined)
+            |          |          sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+            |          |          fold<usize, core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, usize, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+            |          |          fold<u64, usize, core::iter::adapters::map::map_fold::{closure_env#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>>> (inlined)
+            |          |          |          
+            |          |           --9.15%--{closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+            |          |                     |          
+            |          |                     |--8.55%--{closure#0} (inlined)
+            |          |                     |          count_ones (inlined)
+            |          |                     |          
+            |          |                      --0.60%--{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+            |          |          
+            |          |--0.60%--index<u64, core::ops::range::Range<usize>, alloc::alloc::Global> (inlined)
+            |          |          |          
+            |          |           --0.52%--deref<u64, alloc::alloc::Global> (inlined)
+            |          |                     as_slice<u64, alloc::alloc::Global> (inlined)
+            |          |                     as_ptr<u64, alloc::alloc::Global> (inlined)
+            |          |                     ptr<u64, alloc::alloc::Global> (inlined)
+            |          |                     ptr<alloc::alloc::Global, u64> (inlined)
+            |          |                     non_null<alloc::alloc::Global, u64> (inlined)
+            |          |          
+            |           --0.54%--index<usize, usize, alloc::alloc::Global> (inlined)
+            |                     index<usize, usize> (inlined)
+            |                     index<usize> (inlined)
+            |          
+             --5.42%--0xffffffffffffffff
+
+    22.68%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] rank (inlined)
+            |
+            ---rank (inlined)
+               |          
+               |--15.74%--sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>, usize> (inlined)
+               |          sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+               |          fold<usize, core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, usize, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+               |          fold<u64, usize, core::iter::adapters::map::map_fold::{closure_env#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>>> (inlined)
+               |          |          
+               |           --10.44%--{closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+               |                     |          
+               |                     |--9.32%--{closure#0} (inlined)
+               |                     |          count_ones (inlined)
+               |                     |          
+               |                      --1.12%--{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+               |          
+               |--3.24%--count_ones (inlined)
+               |          
+               |--0.60%--index<u64, core::ops::range::Range<usize>, alloc::alloc::Global> (inlined)
+               |          |          
+               |           --0.52%--deref<u64, alloc::alloc::Global> (inlined)
+               |                     as_slice<u64, alloc::alloc::Global> (inlined)
+               |                     as_ptr<u64, alloc::alloc::Global> (inlined)
+               |                     ptr<u64, alloc::alloc::Global> (inlined)
+               |                     ptr<alloc::alloc::Global, u64> (inlined)
+               |                     non_null<alloc::alloc::Global, u64> (inlined)
+               |          
+                --0.54%--index<usize, usize, alloc::alloc::Global> (inlined)
+                          index<usize, usize> (inlined)
+                          index<usize> (inlined)
+
+    17.27%     0.20%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c616d6
+            |          
+             --17.07%--0xffffffff87c616d6
+                       |          
+                       |--14.23%--0xffffffff87c60ee3
+                       |          |          
+                       |          |--5.10%--0xffffffff87c5d115
+                       |          |          |          
+                       |          |          |--1.31%--0xffffffff888270ad
+                       |          |          |          |          
+                       |          |          |           --0.57%--0xffffffff88826ffa
+                       |          |          |          
+                       |          |          |--0.99%--0xffffffff888270e5
+                       |          |          |          
+                       |          |           --0.67%--0xffffffff888270a5
+                       |          |          
+                       |          |--1.16%--0xffffffff87c5d110
+                       |          |          
+                       |          |--0.92%--0xffffffff87c5d176
+                       |          |          
+                       |          |--0.77%--0xffffffff87c5d199
+                       |          |          
+                       |          |--0.68%--0xffffffff87c5d1df
+                       |          |          
+                       |          |--0.64%--0xffffffff87c5d118
+                       |          |          
+                       |           --0.62%--0xffffffff87c5d162
+                       |          
+                       |--1.00%--0xffffffff87c60ee7
+                       |          
+                        --0.71%--0xffffffff87c610a3
+
+    15.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>, usize> (inlined)
+            |
+            ---sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>, usize> (inlined)
+               sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+               fold<usize, core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, usize, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+               fold<u64, usize, core::iter::adapters::map::map_fold::{closure_env#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>>> (inlined)
+               |          
+                --10.44%--{closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+                          |          
+                          |--9.32%--{closure#0} (inlined)
+                          |          count_ones (inlined)
+                          |          
+                           --1.12%--{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+
+    15.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+            |
+            ---sum<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+               fold<usize, core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, usize, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+               fold<u64, usize, core::iter::adapters::map::map_fold::{closure_env#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>>> (inlined)
+               |          
+                --10.44%--{closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+                          |          
+                          |--9.32%--{closure#0} (inlined)
+                          |          count_ones (inlined)
+                          |          
+                           --1.12%--{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+
+    15.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] fold<usize, core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, usize, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+            |
+            ---fold<usize, core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, usize, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+               fold<u64, usize, core::iter::adapters::map::map_fold::{closure_env#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>>> (inlined)
+               |          
+                --10.44%--{closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+                          |          
+                          |--9.32%--{closure#0} (inlined)
+                          |          count_ones (inlined)
+                          |          
+                           --1.12%--{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+
+    15.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] fold<u64, usize, core::iter::adapters::map::map_fold::{closure_env#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>>> (inlined)
+            |
+            ---fold<u64, usize, core::iter::adapters::map::map_fold::{closure_env#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>>> (inlined)
+               |          
+                --10.44%--{closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+                          |          
+                          |--9.32%--{closure#0} (inlined)
+                          |          count_ones (inlined)
+                          |          
+                           --1.12%--{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+
+    14.23%     0.14%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c60ee3
+            |          
+             --14.09%--0xffffffff87c60ee3
+                       |          
+                       |--5.10%--0xffffffff87c5d115
+                       |          |          
+                       |          |--1.31%--0xffffffff888270ad
+                       |          |          |          
+                       |          |           --0.57%--0xffffffff88826ffa
+                       |          |          
+                       |          |--0.99%--0xffffffff888270e5
+                       |          |          
+                       |           --0.67%--0xffffffff888270a5
+                       |          
+                       |--1.16%--0xffffffff87c5d110
+                       |          
+                       |--0.92%--0xffffffff87c5d176
+                       |          
+                       |--0.77%--0xffffffff87c5d199
+                       |          
+                       |--0.68%--0xffffffff87c5d1df
+                       |          
+                       |--0.64%--0xffffffff87c5d118
+                       |          
+                        --0.62%--0xffffffff87c5d162
+
+    12.69%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] {closure#9}<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---{closure#9}<s_graph::storage_file::FileStorage> (inlined)
+               |          
+               |--7.30%--checked_sub (inlined)
+               |          
+               |--1.90%--follow<s_graph::storage_file::FileStorage> (inlined)
+               |          |          
+               |           --1.30%--base_child<s_graph::storage_file::FileStorage> (inlined)
+               |                     read_delta<s_graph::storage_file::FileStorage> (inlined)
+               |                     |          
+               |                      --0.61%--read_var (inlined)
+               |          
+                --0.97%--get (inlined)
+
+    12.56%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] count_ones (inlined)
+            |
+            ---count_ones (inlined)
+
+    12.08%    12.08%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>::{closure#9}
+            |          
+             --7.63%--{closure#9}<s_graph::storage_file::FileStorage> (inlined)
+                       |          
+                       |--3.85%--checked_sub (inlined)
+                       |          
+                       |--0.97%--get (inlined)
+                       |          
+                        --0.97%--follow<s_graph::storage_file::FileStorage> (inlined)
+
+    10.44%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] {closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+            |
+            ---{closure#0}<&u64, usize, usize, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}, core::iter::traits::accum::{impl#48}::sum::{closure_env#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>>> (inlined)
+               |          
+               |--9.32%--{closure#0} (inlined)
+               |          count_ones (inlined)
+               |          
+                --1.12%--{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+
+     9.32%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] {closure#0} (inlined)
+            |
+            ---{closure#0} (inlined)
+               count_ones (inlined)
+
+     8.73%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c617a7
+            |
+            ---0xffffffff87c617a7
+               |          
+                --7.97%--0xffffffff8806e754
+                          |          
+                          |--5.59%--0xffffffff8806def6
+                          |          |          
+                          |           --5.13%--0xffffffff8882adc5
+                          |          
+                           --1.67%--0xffffffff8806deeb
+
+     7.97%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff8806e754
+            |
+            ---0xffffffff8806e754
+               |          
+               |--5.59%--0xffffffff8806def6
+               |          |          
+               |           --5.13%--0xffffffff8882adc5
+               |          
+                --1.67%--0xffffffff8806deeb
+
+     7.45%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] checked_sub (inlined)
+            |
+            ---checked_sub (inlined)
+
+     6.43%     0.50%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbea7b
+            |          
+            |--5.93%--0xffffffff87dbea7b
+            |          |          
+            |          |--4.65%--0xffffffff87dbb8e1
+            |          |          |          
+            |          |          |--1.83%--0xffffffff87f0aa4b
+            |          |          |          |          
+            |          |          |           --0.62%--0xffffffff87f1f91a
+            |          |          |          
+            |          |          |--0.84%--0xffffffff87f0aa60
+            |          |          |          
+            |          |          |--0.72%--0xffffffff87f0aa62
+            |          |          |          
+            |          |           --0.57%--0xffffffff87f0aa4d
+            |          |          
+            |          |--0.58%--0xffffffff87dbb904
+            |          |          
+            |           --0.54%--0xffffffff87dbb8e3
+            |          
+             --0.50%--read_exact_at<std::fs::File> (inlined)
+                       read_at (inlined)
+                       read_at (inlined)
+                       read_at (inlined)
+                       __libc_pread
+                       __syscall_cancel
+                       __internal_syscall_cancel
+                       0xffffffff8760012f
+                       0xffffffff8882fb21
+                       0xffffffff87dbeeca
+                       0xffffffff87dbea7b
+
+     5.59%     0.09%  fst_freeze_prof  [unknown]           [.] 0xffffffff8806def6
+            |          
+             --5.50%--0xffffffff8806def6
+                       |          
+                        --5.13%--0xffffffff8882adc5
+
+     5.48%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffffffffffff
+            |
+            ---0xffffffffffffffff
+
+     5.13%     5.13%  fst_freeze_prof  [unknown]           [k] 0xffffffff8882adc5
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c617a7
+               0xffffffff8806e754
+               0xffffffff8806def6
+               0xffffffff8882adc5
+
+     5.10%     0.06%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c5d115
+            |          
+             --5.04%--0xffffffff87c5d115
+                       |          
+                       |--1.31%--0xffffffff888270ad
+                       |          |          
+                       |           --0.57%--0xffffffff88826ffa
+                       |          
+                       |--0.99%--0xffffffff888270e5
+                       |          
+                        --0.67%--0xffffffff888270a5
+
+     4.65%     0.18%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbb8e1
+            |          
+             --4.47%--0xffffffff87dbb8e1
+                       |          
+                       |--1.83%--0xffffffff87f0aa4b
+                       |          |          
+                       |           --0.62%--0xffffffff87f1f91a
+                       |          
+                       |--0.84%--0xffffffff87f0aa60
+                       |          
+                       |--0.72%--0xffffffff87f0aa62
+                       |          
+                        --0.57%--0xffffffff87f0aa4d
+
+     4.39%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] ensure_stack_entry (inlined)
+            |
+            ---ensure_stack_entry (inlined)
+               |          
+               |--1.37%--borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+               |          try_borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+               |          new (inlined)
+               |          
+                --0.93%--resize<u8, alloc::alloc::Global> (inlined)
+                          extend_with<u8, alloc::alloc::Global> (inlined)
+                          write<u8> (inlined)
+                          __memset_avx2_unaligned_erms
+
+     3.52%     3.52%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_var
+            |          
+             --1.28%--read_var (inlined)
+
+     3.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] read_var (inlined)
+            |
+            ---read_var (inlined)
+
+     3.46%     3.46%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage>::ensure_stack_entry
+            |          
+            |--1.71%--ensure_stack_entry (inlined)
+            |          
+             --0.53%--0x3ffffffffffffffe
+                       ensure_stack_entry (inlined)
+                       borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+                       try_borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+                       new (inlined)
+
+     3.24%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] run<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---run<s_graph::storage_file::FileStorage> (inlined)
+               |          
+               |--1.66%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#5}<s_graph::storage_file::FileStorage>> (inlined)
+               |          |          
+               |           --1.42%--{closure#5}<s_graph::storage_file::FileStorage> (inlined)
+               |                     |          
+               |                      --0.54%--count_ones (inlined)
+               |          
+                --1.29%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#4}<s_graph::storage_file::FileStorage>> (inlined)
+                          |          
+                           --1.13%--{closure#4}<s_graph::storage_file::FileStorage> (inlined)
+
+     3.03%     3.03%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>
+            |          
+             --2.56%--main (inlined)
+                       run<s_graph::storage_file::FileStorage> (inlined)
+                       compact_blocks<s_graph::storage_file::FileStorage> (inlined)
+                       run<s_graph::storage_file::FileStorage> (inlined)
+                       |          
+                       |--1.57%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#5}<s_graph::storage_file::FileStorage>> (inlined)
+                       |          |          
+                       |           --1.34%--{closure#5}<s_graph::storage_file::FileStorage> (inlined)
+                       |          
+                        --0.77%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#4}<s_graph::storage_file::FileStorage>> (inlined)
+                                  |          
+                                   --0.67%--{closure#4}<s_graph::storage_file::FileStorage> (inlined)
+
+     2.77%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] main (inlined)
+            |
+            ---main (inlined)
+               run<s_graph::storage_file::FileStorage> (inlined)
+               compact_blocks<s_graph::storage_file::FileStorage> (inlined)
+               run<s_graph::storage_file::FileStorage> (inlined)
+               |          
+               |--1.66%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#5}<s_graph::storage_file::FileStorage>> (inlined)
+               |          |          
+               |           --1.42%--{closure#5}<s_graph::storage_file::FileStorage> (inlined)
+               |                     |          
+               |                      --0.54%--count_ones (inlined)
+               |          
+                --0.82%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#4}<s_graph::storage_file::FileStorage>> (inlined)
+                          |          
+                           --0.72%--{closure#4}<s_graph::storage_file::FileStorage> (inlined)
+
+     2.77%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] run<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---run<s_graph::storage_file::FileStorage> (inlined)
+               compact_blocks<s_graph::storage_file::FileStorage> (inlined)
+               run<s_graph::storage_file::FileStorage> (inlined)
+               |          
+               |--1.66%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#5}<s_graph::storage_file::FileStorage>> (inlined)
+               |          |          
+               |           --1.42%--{closure#5}<s_graph::storage_file::FileStorage> (inlined)
+               |                     |          
+               |                      --0.54%--count_ones (inlined)
+               |          
+                --0.82%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#4}<s_graph::storage_file::FileStorage>> (inlined)
+                          |          
+                           --0.72%--{closure#4}<s_graph::storage_file::FileStorage> (inlined)
+
+     2.77%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] compact_blocks<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---compact_blocks<s_graph::storage_file::FileStorage> (inlined)
+               run<s_graph::storage_file::FileStorage> (inlined)
+               |          
+               |--1.66%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#5}<s_graph::storage_file::FileStorage>> (inlined)
+               |          |          
+               |           --1.42%--{closure#5}<s_graph::storage_file::FileStorage> (inlined)
+               |                     |          
+               |                      --0.54%--count_ones (inlined)
+               |          
+                --0.82%--level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#4}<s_graph::storage_file::FileStorage>> (inlined)
+                          |          
+                           --0.72%--{closure#4}<s_graph::storage_file::FileStorage> (inlined)
+
+     2.54%     2.54%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_u64
+            |          
+             --1.35%--read_u64 (inlined)
+                       |          
+                        --0.62%--drop_glue<core::cell::Ref<s_graph::storage_file::BlockStack>> (inlined)
+                                  drop_glue<core::cell::BorrowRef> (inlined)
+                                  drop (inlined)
+                                  replace<isize> (inlined)
+                                  replace<isize> (inlined)
+
+     2.54%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] read_u64 (inlined)
+            |
+            ---read_u64 (inlined)
+               |          
+               |--0.78%--drop_glue<core::cell::Ref<s_graph::storage_file::BlockStack>> (inlined)
+               |          drop_glue<core::cell::BorrowRef> (inlined)
+               |          drop (inlined)
+               |          replace<isize> (inlined)
+               |          replace<isize> (inlined)
+               |          
+                --0.52%--index<usize, usize, alloc::alloc::Global> (inlined)
+                          deref<usize, alloc::alloc::Global> (inlined)
+                          as_slice<usize, alloc::alloc::Global> (inlined)
+
+     1.90%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] follow<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---follow<s_graph::storage_file::FileStorage> (inlined)
+               |          
+                --1.30%--base_child<s_graph::storage_file::FileStorage> (inlined)
+                          read_delta<s_graph::storage_file::FileStorage> (inlined)
+                          |          
+                           --0.61%--read_var (inlined)
+
+     1.83%     0.32%  fst_freeze_prof  [unknown]           [.] 0xffffffff87f0aa4b
+            |          
+             --1.50%--0xffffffff87f0aa4b
+                       |          
+                        --0.62%--0xffffffff87f1f91a
+
+     1.67%     1.67%  fst_freeze_prof  [unknown]           [k] 0xffffffff8806deeb
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c617a7
+               0xffffffff8806e754
+               0xffffffff8806deeb
+
+     1.66%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#5}<s_graph::storage_file::FileStorage>> (inlined)
+            |
+            ---level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#5}<s_graph::storage_file::FileStorage>> (inlined)
+               |          
+                --1.42%--{closure#5}<s_graph::storage_file::FileStorage> (inlined)
+                          |          
+                           --0.54%--count_ones (inlined)
+
+     1.54%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] append_record (inlined)
+            |
+            ---append_record (inlined)
+               |          
+               |--0.81%--extend_from_slice<u8, alloc::alloc::Global> (inlined)
+               |          spec_extend<u8, alloc::alloc::Global> (inlined)
+               |          append_elements<u8, alloc::alloc::Global> (inlined)
+               |          |          
+               |           --0.74%--copy_nonoverlapping<u8> (inlined)
+               |                     |          
+               |                      --0.53%--__memmove_avx_unaligned
+               |          
+                --0.58%--allocate_slot (inlined)
+                          set_len (inlined)
+                          truncate (inlined)
+                          cvt_r<i32, std::sys::fs::unix::{impl#20}::truncate::{closure_env#1}> (inlined)
+                          {closure#1} (inlined)
+                          __ftruncate64
+                          0xffffffff8760012f
+
+     1.42%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] {closure#5}<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---{closure#5}<s_graph::storage_file::FileStorage> (inlined)
+               |          
+                --0.54%--count_ones (inlined)
+
+     1.38%     1.38%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c616da
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616da
+
+     1.37%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+            |
+            ---borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+               try_borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+               new (inlined)
+
+     1.37%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] try_borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+            |
+            ---try_borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+               new (inlined)
+
+     1.37%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] new (inlined)
+            |
+            ---new (inlined)
+
+     1.31%     0.09%  fst_freeze_prof  [unknown]           [.] 0xffffffff888270ad
+            |          
+             --1.22%--0xffffffff888270ad
+                       |          
+                        --0.57%--0xffffffff88826ffa
+
+     1.30%     0.77%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61734
+            |          
+            |--0.77%--read_exact_at<std::fs::File> (inlined)
+            |          read_at (inlined)
+            |          read_at (inlined)
+            |          read_at (inlined)
+            |          __libc_pread
+            |          __syscall_cancel
+            |          __internal_syscall_cancel
+            |          0xffffffff8760012f
+            |          0xffffffff8882fb21
+            |          0xffffffff87dbeeca
+            |          0xffffffff87dbecca
+            |          0xffffffff87c61734
+            |          
+             --0.54%--0xffffffff87c61734
+
+     1.30%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] base_child<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---base_child<s_graph::storage_file::FileStorage> (inlined)
+               read_delta<s_graph::storage_file::FileStorage> (inlined)
+               |          
+                --0.61%--read_var (inlined)
+
+     1.30%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] read_delta<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---read_delta<s_graph::storage_file::FileStorage> (inlined)
+               |          
+                --0.61%--read_var (inlined)
+
+     1.29%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#4}<s_graph::storage_file::FileStorage>> (inlined)
+            |
+            ---level<s_graph::storage_file::FileStorage, s_graph::mutable_fst::block_compact::run::{closure_env#4}<s_graph::storage_file::FileStorage>> (inlined)
+               |          
+                --1.13%--{closure#4}<s_graph::storage_file::FileStorage> (inlined)
+
+     1.16%     1.16%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d110
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d110
+
+     1.13%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] {closure#4}<s_graph::storage_file::FileStorage> (inlined)
+            |
+            ---{closure#4}<s_graph::storage_file::FileStorage> (inlined)
+
+     1.12%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] {closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+            |
+            ---{closure#0}<core::iter::adapters::map::Map<core::slice::iter::Iter<u64>, s_graph::mutable_fst::block_compact::{impl#0}::rank::{closure_env#0}>> (inlined)
+
+     1.06%     1.06%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61738
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c61738
+
+     1.01%     1.01%  fst_freeze_prof  libc.so.6           [.] __memset_avx2_unaligned_erms
+            |          
+             --0.59%--0x3
+                       ensure_stack_entry (inlined)
+                       resize<u8, alloc::alloc::Global> (inlined)
+                       extend_with<u8, alloc::alloc::Global> (inlined)
+                       write<u8> (inlined)
+                       __memset_avx2_unaligned_erms
+
+     1.00%     1.00%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c60ee7
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee7
+
+     0.99%     0.99%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270e5
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d115
+               0xffffffff888270e5
+
+     0.97%     0.97%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+            |
+            ---0x6
+               index (inlined)
+
+     0.97%     0.00%  fst_freeze_prof  [unknown]           [.] 0x0000000000000006
+            |
+            ---0x6
+               index (inlined)
+
+     0.97%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] index (inlined)
+            |
+            ---index (inlined)
+
+     0.97%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] get (inlined)
+            |
+            ---get (inlined)
+
+     0.93%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] resize<u8, alloc::alloc::Global> (inlined)
+            |
+            ---resize<u8, alloc::alloc::Global> (inlined)
+               extend_with<u8, alloc::alloc::Global> (inlined)
+               write<u8> (inlined)
+               __memset_avx2_unaligned_erms
+
+     0.93%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] extend_with<u8, alloc::alloc::Global> (inlined)
+            |
+            ---extend_with<u8, alloc::alloc::Global> (inlined)
+               write<u8> (inlined)
+               __memset_avx2_unaligned_erms
+
+     0.93%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] write<u8> (inlined)
+            |
+            ---write<u8> (inlined)
+               __memset_avx2_unaligned_erms
+
+     0.92%     0.92%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d176
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d176
+
+     0.91%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] count_ones (inlined)
+            |
+            ---count_ones (inlined)
+
+     0.84%     0.59%  fst_freeze_prof  [unknown]           [.] 0xffffffff87f0aa60
+            |          
+             --0.59%--read_exact_at<std::fs::File> (inlined)
+                       read_at (inlined)
+                       read_at (inlined)
+                       read_at (inlined)
+                       __libc_pread
+                       __syscall_cancel
+                       __internal_syscall_cancel
+                       0xffffffff8760012f
+                       0xffffffff8882fb21
+                       0xffffffff87dbeeca
+                       0xffffffff87dbea7b
+                       0xffffffff87dbb8e1
+                       0xffffffff87f0aa60
+
+     0.82%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] replace<isize> (inlined)
+            |
+            ---replace<isize> (inlined)
+               replace<isize> (inlined)
+
+     0.81%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] extend_from_slice<u8, alloc::alloc::Global> (inlined)
+            |
+            ---extend_from_slice<u8, alloc::alloc::Global> (inlined)
+               spec_extend<u8, alloc::alloc::Global> (inlined)
+               append_elements<u8, alloc::alloc::Global> (inlined)
+               |          
+                --0.74%--copy_nonoverlapping<u8> (inlined)
+                          |          
+                           --0.53%--__memmove_avx_unaligned
+
+     0.81%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] spec_extend<u8, alloc::alloc::Global> (inlined)
+            |
+            ---spec_extend<u8, alloc::alloc::Global> (inlined)
+               append_elements<u8, alloc::alloc::Global> (inlined)
+               |          
+                --0.74%--copy_nonoverlapping<u8> (inlined)
+                          |          
+                           --0.53%--__memmove_avx_unaligned
+
+     0.81%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] append_elements<u8, alloc::alloc::Global> (inlined)
+            |
+            ---append_elements<u8, alloc::alloc::Global> (inlined)
+               |          
+                --0.74%--copy_nonoverlapping<u8> (inlined)
+                          |          
+                           --0.53%--__memmove_avx_unaligned
+
+     0.81%     0.81%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbea7e
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7e
+
+     0.79%     0.79%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61632
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c61632
+
+     0.78%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] drop_glue<core::cell::Ref<s_graph::storage_file::BlockStack>> (inlined)
+            |
+            ---drop_glue<core::cell::Ref<s_graph::storage_file::BlockStack>> (inlined)
+               drop_glue<core::cell::BorrowRef> (inlined)
+               drop (inlined)
+               replace<isize> (inlined)
+               replace<isize> (inlined)
+
+     0.78%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] drop_glue<core::cell::BorrowRef> (inlined)
+            |
+            ---drop_glue<core::cell::BorrowRef> (inlined)
+               drop (inlined)
+               replace<isize> (inlined)
+               replace<isize> (inlined)
+
+     0.78%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] drop (inlined)
+            |
+            ---drop (inlined)
+               replace<isize> (inlined)
+               replace<isize> (inlined)
+
+     0.77%     0.77%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d199
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d199
+
+     0.74%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] copy_nonoverlapping<u8> (inlined)
+            |
+            ---copy_nonoverlapping<u8> (inlined)
+               |          
+                --0.53%--__memmove_avx_unaligned
+
+     0.72%     0.72%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa62
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7b
+               0xffffffff87dbb8e1
+               0xffffffff87f0aa62
+
+     0.71%     0.71%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c610a3
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c610a3
+
+     0.68%     0.68%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d1df
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d1df
+
+     0.67%     0.67%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270a5
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d115
+               0xffffffff888270a5
+
+     0.66%     0.66%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e84
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffffc0673e84
+
+     0.65%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] position (inlined)
+            |
+            ---position (inlined)
+
+     0.64%     0.64%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d118
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d118
+
+     0.63%     0.63%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e80
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffffc0673e80
+
+     0.62%     0.62%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d162
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d162
+
+     0.62%     0.62%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f1f91a
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7b
+               0xffffffff87dbb8e1
+               0xffffffff87f0aa4b
+               0xffffffff87f1f91a
+
+     0.60%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] index<u64, core::ops::range::Range<usize>, alloc::alloc::Global> (inlined)
+            |
+            ---index<u64, core::ops::range::Range<usize>, alloc::alloc::Global> (inlined)
+               |          
+                --0.52%--deref<u64, alloc::alloc::Global> (inlined)
+                          as_slice<u64, alloc::alloc::Global> (inlined)
+                          as_ptr<u64, alloc::alloc::Global> (inlined)
+                          ptr<u64, alloc::alloc::Global> (inlined)
+                          ptr<alloc::alloc::Global, u64> (inlined)
+                          non_null<alloc::alloc::Global, u64> (inlined)
+
+     0.59%     0.00%  fst_freeze_prof  [unknown]           [.] 0x0000000000000003
+            |
+            ---0x3
+               ensure_stack_entry (inlined)
+               resize<u8, alloc::alloc::Global> (inlined)
+               extend_with<u8, alloc::alloc::Global> (inlined)
+               write<u8> (inlined)
+               __memset_avx2_unaligned_erms
+
+     0.58%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] allocate_slot (inlined)
+            |
+            ---allocate_slot (inlined)
+               set_len (inlined)
+               truncate (inlined)
+               cvt_r<i32, std::sys::fs::unix::{impl#20}::truncate::{closure_env#1}> (inlined)
+               {closure#1} (inlined)
+               __ftruncate64
+               0xffffffff8760012f
+
+     0.58%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] set_len (inlined)
+            |
+            ---set_len (inlined)
+               truncate (inlined)
+               cvt_r<i32, std::sys::fs::unix::{impl#20}::truncate::{closure_env#1}> (inlined)
+               {closure#1} (inlined)
+               __ftruncate64
+               0xffffffff8760012f
+
+     0.58%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] truncate (inlined)
+            |
+            ---truncate (inlined)
+               cvt_r<i32, std::sys::fs::unix::{impl#20}::truncate::{closure_env#1}> (inlined)
+               {closure#1} (inlined)
+               __ftruncate64
+               0xffffffff8760012f
+
+     0.58%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] cvt_r<i32, std::sys::fs::unix::{impl#20}::truncate::{closure_env#1}> (inlined)
+            |
+            ---cvt_r<i32, std::sys::fs::unix::{impl#20}::truncate::{closure_env#1}> (inlined)
+               {closure#1} (inlined)
+               __ftruncate64
+               0xffffffff8760012f
+
+     0.58%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] {closure#1} (inlined)
+            |
+            ---{closure#1} (inlined)
+               __ftruncate64
+               0xffffffff8760012f
+
+     0.58%     0.00%  fst_freeze_prof  libc.so.6           [.] __ftruncate64
+            |
+            ---__ftruncate64
+               0xffffffff8760012f
+
+     0.58%     0.58%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbb904
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7b
+               0xffffffff87dbb904
+
+     0.57%     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa4d
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7b
+               0xffffffff87dbb8e1
+               0xffffffff87f0aa4d
+
+     0.57%     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff88826ffa
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d115
+               0xffffffff888270ad
+               0xffffffff88826ffa
+
+     0.55%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] next<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<u64>>, core::iter::sources::from_fn::FromFn<s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure#0}::{closure_env#0}>, s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure_env#0}> (inlined)
+            |
+            ---next<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<u64>>, core::iter::sources::from_fn::FromFn<s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure#0}::{closure_env#0}>, s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure_env#0}> (inlined)
+               next<core::iter::adapters::map::Map<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<u64>>, s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure_env#0}>, core::iter::sources::from_fn::FromFn<s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure#0}::{closure_env#0}>> (inlined)
+
+     0.55%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] next<core::iter::adapters::map::Map<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<u64>>, s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure_env#0}>, core::iter::sources::from_fn::FromFn<s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure#0}::{closure_env#0}>> (inlined)
+            |
+            ---next<core::iter::adapters::map::Map<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<u64>>, s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure_env#0}>, core::iter::sources::from_fn::FromFn<s_graph::mutable_fst::block_compact::{impl#0}::ones::{closure#0}::{closure_env#0}>> (inlined)
+
+     0.54%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] index<usize, usize, alloc::alloc::Global> (inlined)
+            |
+            ---index<usize, usize, alloc::alloc::Global> (inlined)
+               index<usize, usize> (inlined)
+               index<usize> (inlined)
+
+     0.54%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] index<usize, usize> (inlined)
+            |
+            ---index<usize, usize> (inlined)
+               index<usize> (inlined)
+
+     0.54%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] index<usize> (inlined)
+            |
+            ---index<usize> (inlined)
+
+     0.54%     0.54%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbb8e3
+            |
+            ---read_exact_at<std::fs::File> (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               read_at (inlined)
+               __libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7b
+               0xffffffff87dbb8e3
+
+     0.53%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] index<u64> (inlined)
+            |
+            ---index<u64> (inlined)
+
+     0.53%     0.00%  fst_freeze_prof  [unknown]           [.] 0x3ffffffffffffffe
+            |
+            ---0x3ffffffffffffffe
+               ensure_stack_entry (inlined)
+               borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+               try_borrow_mut<s_graph::storage_file::BlockStack> (inlined)
+               new (inlined)
+
+     0.53%     0.53%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned
+            |          
+             --0.53%--append_record (inlined)
+                       extend_from_slice<u8, alloc::alloc::Global> (inlined)
+                       spec_extend<u8, alloc::alloc::Global> (inlined)
+                       append_elements<u8, alloc::alloc::Global> (inlined)
+                       copy_nonoverlapping<u8> (inlined)
+                       __memmove_avx_unaligned
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] deref<u64, alloc::alloc::Global> (inlined)
+            |
+            ---deref<u64, alloc::alloc::Global> (inlined)
+               as_slice<u64, alloc::alloc::Global> (inlined)
+               as_ptr<u64, alloc::alloc::Global> (inlined)
+               ptr<u64, alloc::alloc::Global> (inlined)
+               ptr<alloc::alloc::Global, u64> (inlined)
+               non_null<alloc::alloc::Global, u64> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] as_slice<u64, alloc::alloc::Global> (inlined)
+            |
+            ---as_slice<u64, alloc::alloc::Global> (inlined)
+               as_ptr<u64, alloc::alloc::Global> (inlined)
+               ptr<u64, alloc::alloc::Global> (inlined)
+               ptr<alloc::alloc::Global, u64> (inlined)
+               non_null<alloc::alloc::Global, u64> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] as_ptr<u64, alloc::alloc::Global> (inlined)
+            |
+            ---as_ptr<u64, alloc::alloc::Global> (inlined)
+               ptr<u64, alloc::alloc::Global> (inlined)
+               ptr<alloc::alloc::Global, u64> (inlined)
+               non_null<alloc::alloc::Global, u64> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] ptr<u64, alloc::alloc::Global> (inlined)
+            |
+            ---ptr<u64, alloc::alloc::Global> (inlined)
+               ptr<alloc::alloc::Global, u64> (inlined)
+               non_null<alloc::alloc::Global, u64> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] ptr<alloc::alloc::Global, u64> (inlined)
+            |
+            ---ptr<alloc::alloc::Global, u64> (inlined)
+               non_null<alloc::alloc::Global, u64> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] non_null<alloc::alloc::Global, u64> (inlined)
+            |
+            ---non_null<alloc::alloc::Global, u64> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] index<usize, usize, alloc::alloc::Global> (inlined)
+            |
+            ---index<usize, usize, alloc::alloc::Global> (inlined)
+               deref<usize, alloc::alloc::Global> (inlined)
+               as_slice<usize, alloc::alloc::Global> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] deref<usize, alloc::alloc::Global> (inlined)
+            |
+            ---deref<usize, alloc::alloc::Global> (inlined)
+               as_slice<usize, alloc::alloc::Global> (inlined)
+
+     0.52%     0.00%  fst_freeze_prof  fst_freeze_profile  [.] as_slice<usize, alloc::alloc::Global> (inlined)
+            |
+            ---as_slice<usize, alloc::alloc::Global> (inlined)
+
+
+
+#
+# (Tip: Show user configuration overrides: perf config --user --list)
+#

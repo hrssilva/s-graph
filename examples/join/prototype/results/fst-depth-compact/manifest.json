@@ -1,0 +1,128 @@
+{
+  "recorded_utc": "2026-10-22T13:42:28.441485+00:00",
+  "binary_sha256": "c17a3738476a59203723e793c3686783ebf3addd7da0938eabb08c6544838b94",
+  "source_sha256": {
+    "examples/fst_freeze_profile.rs": "3261969e212ec3780f76a45763074ef08f33a3c1376ac97c54f7eceef190a2c8",
+    "examples/join/prototype/fst_freeze_profile.py": "19b759978d1638c1ee711b38bc2eb273007e3759646f1ce4d27275b25716ad7b",
+    "src/fst_block_compact.rs": "6b5fe7ab6a1f3ff727d137e109a175e040bdb8c7f6ce0c59dc4ec91ec30d560e",
+    "src/fst_depth_compact.rs": "a9674a904f796ad358e0a4e2a714a2396e079aad33aadb46b16ab66b5019af52",
+    "src/mutable_fst.rs": "9d37234b5d24ebf3b89f4ade25a14dfb1538095950d893d3274dca3880f0bef8",
+    "src/path_fst.rs": "83521c0ea9af9590f7eee660165921586d5978ce02f9d3c4caf47c96a961602b",
+    "src/storage.rs": "9ddb8c7f34ff7dd86fc654751975065ae9196a342801738b3f7973c2991cbd9c",
+    "src/storage_file.rs": "75aa0f3db9d04c618d5ac5ba0c3cfa51c7d6954602fe4b72e7a96cbe230a5eb1",
+    "src/storage_compressed.rs": "4ef7cc870a577afbf9c6ccf490dcbc683f8516051e3211880901209e1810c920"
+  },
+  "cases": [
+    [
+      1000000,
+      "heap",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "heap",
+      "packed",
+      "depths"
+    ],
+    [
+      1000000,
+      "file",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "file",
+      "packed",
+      "depths"
+    ],
+    [
+      1000000,
+      "compressed",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "compressed",
+      "packed",
+      "depths"
+    ],
+    [
+      4000000,
+      "heap",
+      "packed",
+      "blocks"
+    ],
+    [
+      4000000,
+      "heap",
+      "packed",
+      "depths"
+    ],
+    [
+      4000000,
+      "file",
+      "packed",
+      "blocks"
+    ],
+    [
+      4000000,
+      "file",
+      "packed",
+      "depths"
+    ],
+    [
+      4000000,
+      "compressed",
+      "packed",
+      "blocks"
+    ],
+    [
+      4000000,
+      "compressed",
+      "packed",
+      "depths"
+    ],
+    [
+      1000000,
+      "heap",
+      "bfs",
+      "blocks"
+    ],
+    [
+      1000000,
+      "heap",
+      "bfs",
+      "depths"
+    ],
+    [
+      1000000,
+      "file",
+      "bfs",
+      "blocks"
+    ],
+    [
+      1000000,
+      "file",
+      "bfs",
+      "depths"
+    ],
+    [
+      1000000,
+      "compressed",
+      "bfs",
+      "blocks"
+    ],
+    [
+      1000000,
+      "compressed",
+      "bfs",
+      "depths"
+    ]
+  ],
+  "trials": 3,
+  "stat_only": true,
+  "perf_version": "perf version 7.2.5"
+}

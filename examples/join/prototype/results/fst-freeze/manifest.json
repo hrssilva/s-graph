@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-10-21T19:09:25.887940+00:00",
+  "runs": [
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "4096",
+        "32",
+        "3",
+        "all"
+      ],
+      "elapsed_s": 1.7089358901139349,
+      "file": "4096-32-3-all.jsonl",
+      "rows": 54
+    },
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_freeze_perf",
+        "65536",
+        "256",
+        "3",
+        "heap"
+      ],
+      "elapsed_s": 3.822773281019181,
+      "file": "65536-256-3-heap.jsonl",
+      "rows": 18
+    }
+  ],
+  "binary_sha256": "76e705fe40b9a353f9829867ff84abe4a92abc994ec1ca0789b24764f4aecaab",
+  "build_command": "cargo rustc --offline --all-features --profile profiling --jobs 1 --example fst_freeze_perf -- -C link-arg=-Wl,--threads=1",
+  "source_sha256": {
+    "src/mutable_fst.rs": "d603ee4bfdc072e6af21e545735ebceeac853dbe3b9beabfe283d91fe129e7b2",
+    "examples/fst_freeze_perf.rs": "6e845fa45c7318d0b7883cc5cd2bda111f513c0e25225523c7f662ad3749f8c0",
+    "src/lib.rs": "90568043c53ffa5f85616f0ede2bb1f1eecc71312cd66067282e98e3ee22a62e",
+    "Cargo.toml": "801745c6cf942919585e1447272a8713e54f25f2850ff1e059f9e7e10ad6ca4a",
+    "README.md": "b13aa6fd425424e42e5396ba394bb91f8c28f3c3fa49ecfc3df4922467a71903"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-10-21T18:37:06.776930+00:00",
+  "records": [
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "4096",
+        "32",
+        "3",
+        "all"
+      ],
+      "elapsed_seconds": 1.3175867449026555,
+      "rows": 576,
+      "file": "4096-32-3-all.jsonl"
+    },
+    {
+      "command": [
+        "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ],
+      "elapsed_seconds": 5.175516523886472,
+      "rows": 192,
+      "file": "65536-64-3-heap.jsonl"
+    }
+  ],
+  "build_command": "cargo rustc --offline --profile profiling --jobs 1 --all-features --example fst_lazy_perf -- -C link-arg=-Wl,--threads=1",
+  "binary_sha256": "c73723091fb9d6c89ca5e94b3fd40f7c885e1fcbf5fbc9459156e6d8968d646f",
+  "source_sha256": {
+    "src/mutable_fst.rs": "eac658e876ceb2026526f56833b97b491100d553d1da29b7654959dc66492639",
+    "examples/fst_lazy_perf.rs": "35c7ddd812d0ae612302e4df8d11ac4de0020087d91b7cb2e26b26c91f9650fb",
+    "Cargo.toml": "51f7946516b1487d3f6c52d8627f469627fe9f6ddc059d7311fb345717199476"
+  }
+}

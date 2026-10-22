@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-compressed-bfs-blocks-stat-0-2475485.service; invocation ID: cc4553172e5e41c18dd395d64ab8d516
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 5.206s
+             CPU time consumed: 5.193s

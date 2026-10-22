@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-compressed-packed-blocks-cache-2457643.service
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 2.579s
+             CPU time consumed: 2.566s

@@ -99,6 +99,11 @@ pub trait BlockStorage: Sized {
     /// bulk build already asserts `block_capacity` is at least that).
     fn append_record(&mut self, bytes: &[u8], block_capacity: usize) -> Pos;
 
+    /// Finish the current append block so the next record starts a new block.
+    /// Returns false if this backend does not support explicit boundaries.
+    /// Unlike `finish_append`, this need not trim all prior block metadata.
+    fn start_new_append_block(&mut self, _block_capacity: usize) -> bool { false }
+
     /// Overwrites `width` bytes at `pos.offset + rel_offset`, where `pos`
     /// was returned by an earlier, not-yet-[`Self::finish_append`]ed call
     /// to [`Self::append_record`] on the same builder -- how a far node's
@@ -156,6 +161,45 @@ pub trait BlockStorage: Sized {
 pub struct NoopReadSession;
 impl Drop for NoopReadSession { fn drop(&mut self) {} }
 
+/// Storage used by consuming compaction. Retiring a block frees RAM-resident
+/// payload while preserving every logical block number. The block must never
+/// be read again; only a consumed graph may use this interface.
+pub trait ReclaimingBlockStorage: BlockStorage {
+    fn release_block_payload(&mut self, block: usize);
+
+    /// Read a committed block into reusable compaction scratch. Specialized
+    /// backends avoid allocating a fresh owned `bulk_read` result per block.
+    fn read_compaction_block(&self, block: usize, out: &mut Vec<u8>) {
+        let bytes = self.bulk_read(block, 0, self.block_len(block));
+        out.clear();
+        out.extend_from_slice(&bytes);
+    }
+
+    /// Replace a committed block with equally sized content. The default is
+    /// correct for custom backends; paged/compressed backends batch the write.
+    fn rewrite_compaction_block(&mut self, block: usize, bytes: &[u8]) {
+        assert_eq!(bytes.len(), self.block_len(block));
+        let (chunks, remainder) = bytes.as_chunks::<8>();
+        for (i, chunk) in chunks.iter().enumerate() {
+            self.write_u64_at(block, i * 8, u64::from_le_bytes(*chunk));
+        }
+        let start = bytes.len() / 8 * 8;
+        for (i, &byte) in remainder.iter().enumerate() {
+            self.write_var_at(block, start + i, 1, byte as u64);
+        }
+    }
+}
+
+/// Builder support for child-first compaction into a root-first logical layout.
+/// Reserved blocks have no readable payload until installed. Each slot must be
+/// installed exactly once, before exposing the resulting graph to readers.
+pub trait ReservedBlockStorage: ReclaimingBlockStorage {
+    /// Reserve metadata only; return the first new logical block number.
+    fn reserve_compaction_blocks(&mut self, count: usize, capacity: usize) -> usize;
+    /// Install a complete block, consuming or clearing `bytes` for reuse.
+    fn install_compaction_block(&mut self, block: usize, bytes: &mut Vec<u8>, capacity: usize);
+}
+
 // -------------------- HeapStorage --------------------
 
 /// Direct port of the original heap variant's storage: one `Vec<u8>` per
@@ -165,6 +209,31 @@ impl Drop for NoopReadSession { fn drop(&mut self) {} }
 #[cfg(feature = "heap")]
 pub struct HeapStorage {
     blocks: Vec<Vec<u8>>,
+}
+
+#[cfg(feature = "heap")]
+impl ReclaimingBlockStorage for HeapStorage {
+    fn release_block_payload(&mut self, block: usize) {
+        self.blocks[block] = Vec::new();
+    }
+    fn rewrite_compaction_block(&mut self, block: usize, bytes: &[u8]) {
+        self.blocks[block].copy_from_slice(bytes);
+    }
+}
+
+#[cfg(feature = "heap")]
+impl ReservedBlockStorage for HeapStorage {
+    fn reserve_compaction_blocks(&mut self, count: usize, _capacity: usize) -> usize {
+        let first = self.blocks.len();
+        self.blocks.resize_with(first + count, Vec::new);
+        first
+    }
+    fn install_compaction_block(&mut self, block: usize, bytes: &mut Vec<u8>, _capacity: usize) {
+        debug_assert!(self.blocks[block].is_empty());
+        let mut payload = std::mem::take(bytes);
+        payload.shrink_to_fit();
+        self.blocks[block] = payload;
+    }
 }
 
 #[cfg(feature = "heap")]
@@ -294,6 +363,14 @@ impl BlockStorage for HeapStorage {
         let offset = self.blocks[last].len();
         self.blocks[last].extend_from_slice(bytes);
         Pos { block: last, offset }
+    }
+    fn start_new_append_block(&mut self, capacity: usize) -> bool {
+        if let Some(last) = self.blocks.last_mut() {
+            if last.is_empty() { return true; }
+            last.shrink_to_fit();
+        }
+        self.blocks.push(Vec::with_capacity(capacity));
+        true
     }
     fn patch_appended(&mut self, pos: Pos, rel_offset: usize, width: u8, val: u64) {
         write_var_at(&mut self.blocks[pos.block], pos.offset + rel_offset, width, val);

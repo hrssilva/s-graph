@@ -1,0 +1,26 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 482  of event 'cycles:u'
+# Event count (approx.): 876113753
+#
+# Overhead  Command          Shared Object       Symbol                                                                                                                                              
+# ........  ...............  ..................  ....................................................................................................................................................
+#
+    41.08%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+    15.90%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage::HeapStorage>::{closure#9}
+    11.19%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::mark::<s_graph::storage::HeapStorage>
+     6.22%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::base_word
+     6.08%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::base_child
+     6.05%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage::HeapStorage>
+     5.21%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     3.88%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+     0.90%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned
+     0.90%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage::HeapStorage as s_graph::storage::BlockStorage>::append_record
+
+
+#
+# (Tip: To add Node.js USDT(User-Level Statically Defined Tracing): perf buildid-cache --add `which node`)
+#

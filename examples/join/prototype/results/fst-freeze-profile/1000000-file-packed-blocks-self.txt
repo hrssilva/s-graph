@@ -1,0 +1,52 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 1751127652
+#
+# Overhead  Command          Shared Object       Symbol                                                                                                                               
+# ........  ...............  ..................  .....................................................................................................................................
+#
+    22.68%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+    12.08%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>::{closure#9}
+     5.13%  fst_freeze_prof  [unknown]           [k] 0xffffffff8882adc5
+     3.52%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_var
+     3.46%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage>::ensure_stack_entry
+     3.03%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>
+     2.54%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_u64
+     1.67%  fst_freeze_prof  [unknown]           [k] 0xffffffff8806deeb
+     1.38%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c616da
+     1.16%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d110
+     1.06%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61738
+     1.01%  fst_freeze_prof  libc.so.6           [.] __memset_avx2_unaligned_erms
+     1.00%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c60ee7
+     0.99%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270e5
+     0.97%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+     0.92%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d176
+     0.81%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbea7e
+     0.79%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61632
+     0.77%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d199
+     0.77%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61734
+     0.72%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa62
+     0.71%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c610a3
+     0.68%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d1df
+     0.67%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270a5
+     0.66%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e84
+     0.64%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d118
+     0.63%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e80
+     0.62%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d162
+     0.62%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f1f91a
+     0.59%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa60
+     0.58%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbb904
+     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa4d
+     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff88826ffa
+     0.54%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbb8e3
+     0.53%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned
+     0.50%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbea7b
+
+
+#
+# (Tip: Show user configuration overrides: perf config --user --list)
+#

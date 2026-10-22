@@ -165,6 +165,54 @@ pub struct FileStorage {
     scratch: Vec<u8>,
 }
 
+impl crate::storage::ReclaimingBlockStorage for FileStorage {
+    fn read_compaction_block(&self, block: usize, out: &mut Vec<u8>) {
+        out.resize(self.block_len(block), 0);
+        self.slot_read_exact(self.blocks[block], 0, out);
+    }
+    fn rewrite_compaction_block(&mut self, block: usize, bytes: &[u8]) {
+        let slot = self.blocks[block];
+        assert_eq!(bytes.len(), self.slot_used_len[slot]);
+        self.slot_write_all(slot, 0, bytes);
+    }
+    fn release_block_payload(&mut self, block: usize) {
+        let slot = self.blocks[block];
+        self.slot_used_len[slot] = 0;
+        for entry in &mut self.block_stack.get_mut().entries {
+            if entry.slot == slot { entry.buf = Vec::new(); }
+        }
+        // std has no portable hole-punch operation. Disk slots are reclaimed
+        // when the consumed old backend is dropped; no graph payload lives in RAM.
+    }
+}
+
+impl crate::storage::ReservedBlockStorage for FileStorage {
+    fn reserve_compaction_blocks(&mut self, count: usize, capacity: usize) -> usize {
+        let first = self.blocks.len();
+        let start = self.file_len;
+        let new_len = start.checked_add((count as u64).checked_mul(capacity as u64).expect("file size overflow"))
+            .expect("file size overflow");
+        self.file.set_len(new_len).unwrap_or_else(|e| panic!("failed to reserve compaction blocks: {e}"));
+        for i in 0..count {
+            self.blocks.push(self.slot_start.len());
+            self.slot_start.push(start + i as u64 * capacity as u64);
+            self.slot_capacity.push(capacity);
+            self.slot_used_len.push(0);
+        }
+        self.file_len = new_len;
+        first
+    }
+    fn install_compaction_block(&mut self, block: usize, bytes: &mut Vec<u8>, capacity: usize) {
+        let slot = self.blocks[block];
+        debug_assert_eq!(self.slot_used_len[slot], 0);
+        debug_assert!(bytes.len() <= capacity);
+        self.file.write_all_at(bytes, self.slot_start[slot])
+            .unwrap_or_else(|e| panic!("failed to install compaction block: {e}"));
+        self.slot_used_len[slot] = bytes.len();
+        bytes.clear();
+    }
+}
+
 impl FileStorage {
     fn allocate_slot(&mut self, capacity: usize) -> usize {
         let slot = self.slot_capacity.len();
@@ -486,6 +534,12 @@ impl BlockStorage for FileStorage {
         let offset = pending.len();
         pending.extend_from_slice(bytes);
         Pos { block, offset }
+    }
+    fn start_new_append_block(&mut self, capacity: usize) -> bool {
+        if self.build_pending.is_some() {
+            self.flush_pending_block(capacity);
+        }
+        true
     }
     fn patch_appended(&mut self, pos: Pos, rel_offset: usize, width: u8, val: u64) {
         if pos.block == self.blocks.len() {

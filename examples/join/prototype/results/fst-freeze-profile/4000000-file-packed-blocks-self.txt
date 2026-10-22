@@ -1,0 +1,49 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 4K of event 'cycles:u'
+# Event count (approx.): 2947290738
+#
+# Overhead  Command          Shared Object       Symbol                                                                                                                                              
+# ........  ...............  ..................  ....................................................................................................................................................
+#
+    19.72%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+    18.43%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>::{closure#9}
+     5.02%  fst_freeze_prof  [unknown]           [k] 0xffffffff8882adc5
+     3.32%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage>::ensure_stack_entry
+     2.93%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>
+     2.74%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_var
+     2.71%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_u64
+     1.74%  fst_freeze_prof  [unknown]           [k] 0xffffffff8806deeb
+     1.33%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61738
+     1.30%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270e5
+     1.26%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c616da
+     1.17%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d176
+     1.09%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+     1.05%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c60ee7
+     1.00%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e84
+     0.92%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d110
+     0.84%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d1df
+     0.78%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61632
+     0.77%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d118
+     0.75%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270b0
+     0.67%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e80
+     0.66%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d162
+     0.64%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d199
+     0.63%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::append_record
+     0.60%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c610a3
+     0.60%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned_erms
+     0.60%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61734
+     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbb8e3
+     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d25f
+     0.56%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbea7e
+     0.55%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270cb
+     0.54%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d10d
+     0.52%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270a5
+
+
+#
+# (Tip: To show inline functions in call traces add --inline to perf report)
+#

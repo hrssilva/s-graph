@@ -1,0 +1,164 @@
+ Percent |	Source code & Disassembly of fst_freeze_profile for cycles:u (736 samples, percent: local period)
+-----------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     000000000007aba0 <<s_graph::mutable_fst::block_compact::RankBits>::rank>:
+    0.00 :   7aba0:  push   %r15
+    1.91 :   7aba2:  push   %r14
+    0.00 :   7aba4:  push   %r12
+    0.00 :   7aba6:  push   %rbx
+    0.00 :   7aba7:  push   %rax
+    0.00 :   7aba8:  mov    %rsi,%rcx
+    0.00 :   7abab:  mov    %rsi,%rax
+    0.27 :   7abae:  shr    $0xa,%rax
+    0.00 :   7abb2:  mov    0x28(%rdi),%rsi
+    2.58 :   7abb6:  cmp    %rsi,%rax
+    0.00 :   7abb9:  jae    7adf6 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x256>
+    0.00 :   7abbf:  mov    %rdi,%r8
+    0.00 :   7abc2:  mov    %rcx,%rsi
+    0.00 :   7abc5:  shr    $0x6,%rsi
+    0.00 :   7abc9:  mov    0x10(%rdi),%rdx
+    0.00 :   7abcd:  mov    %rax,%rdi
+    0.68 :   7abd0:  shl    $0x4,%rdi
+    0.00 :   7abd4:  cmp    %rdi,%rsi
+    3.27 :   7abd7:  jb     7ade9 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x249>
+    0.00 :   7abdd:  cmp    %rdx,%rsi
+    0.00 :   7abe0:  ja     7ade9 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x249>
+    0.00 :   7abe6:  mov    0x20(%r8),%r9
+    0.00 :   7abea:  mov    (%r9,%rax,8),%rbx
+    2.66 :   7abee:  mov    0x8(%r8),%r11
+    0.00 :   7abf2:  mov    %rsi,%r14
+    0.00 :   7abf5:  movabs $0x3333333333333333,%r10
+    0.00 :   7abff:  movabs $0xf0f0f0f0f0f0f0f,%r9
+    0.00 :   7ac09:  movabs $0x101010101010101,%r8
+    1.64 :   7ac13:  sub    %rdi,%r14
+    0.14 :   7ac16:  jne    7ac1f <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x7f>
+    0.00 :   7ac18:  xor    %eax,%eax
+    0.54 :   7ac1a:  jmp    7ad80 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x1e0>
+    0.00 :   7ac1f:  cmp    $0x4,%r14
+    0.54 :   7ac23:  jae    7ac2f <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x8f>
+    0.00 :   7ac25:  xor    %r14d,%r14d
+    1.36 :   7ac28:  xor    %eax,%eax
+    0.00 :   7ac2a:  jmp    7ad2c <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x18c>
+    0.00 :   7ac2f:  mov    %esi,%r15d
+    0.13 :   7ac32:  and    $0x3,%r15d
+    0.00 :   7ac36:  sub    %r15,%r14
+    0.14 :   7ac39:  mov    %rsi,%rax
+    0.00 :   7ac3c:  and    $0xfffffffffffffffc,%rax
+    0.69 :   7ac40:  pxor   %xmm0,%xmm0
+    0.00 :   7ac44:  movdqa -0x6abcc(%rip),%xmm2        # 10080 <anon.8eca0fe67ef8ce3e43809944cd9ed2c7.3.llvm.1643624632056318839+0x50>
+    0.27 :   7ac4c:  movdqa -0x6aa74(%rip),%xmm3        # 101e0 <anon.8eca0fe67ef8ce3e43809944cd9ed2c7.3.llvm.1643624632056318839+0x1b0>
+    0.27 :   7ac54:  movdqa -0x6ac0c(%rip),%xmm5        # 10050 <anon.8eca0fe67ef8ce3e43809944cd9ed2c7.3.llvm.1643624632056318839+0x20>
+    0.00 :   7ac5c:  mov    %rdi,%r12
+    0.00 :   7ac5f:  pxor   %xmm4,%xmm4
+    0.41 :   7ac63:  pxor   %xmm1,%xmm1
+    0.14 :   7ac67:  nopw   0x0(%rax,%rax,1)
+    0.68 :   7ac70:  movdqu (%r11,%r12,8),%xmm7
+    2.59 :   7ac76:  movdqu 0x10(%r11,%r12,8),%xmm6
+    0.27 :   7ac7d:  movdqa %xmm7,%xmm8
+    0.55 :   7ac82:  psrlw  $0x1,%xmm8
+    3.00 :   7ac88:  pand   %xmm2,%xmm8
+    0.00 :   7ac8d:  psubb  %xmm8,%xmm7
+    1.63 :   7ac92:  movdqa %xmm7,%xmm8
+    0.14 :   7ac97:  pand   %xmm3,%xmm8
+    1.23 :   7ac9c:  psrlw  $0x2,%xmm7
+    2.33 :   7aca1:  pand   %xmm3,%xmm7
+    0.54 :   7aca5:  paddb  %xmm8,%xmm7
+    0.00 :   7acaa:  movdqa %xmm7,%xmm8
+    0.27 :   7acaf:  psrlw  $0x4,%xmm8
+    3.81 :   7acb5:  paddb  %xmm7,%xmm8
+    0.41 :   7acba:  pand   %xmm5,%xmm8
+    0.68 :   7acbf:  psadbw %xmm0,%xmm8
+    2.60 :   7acc4:  paddq  %xmm8,%xmm4
+    4.49 :   7acc9:  movdqa %xmm6,%xmm7
+    0.27 :   7accd:  psrlw  $0x1,%xmm7
+    0.13 :   7acd2:  pand   %xmm2,%xmm7
+    0.00 :   7acd6:  psubb  %xmm7,%xmm6
+    0.00 :   7acda:  movdqa %xmm6,%xmm7
+    0.41 :   7acde:  pand   %xmm3,%xmm7
+    0.00 :   7ace2:  psrlw  $0x2,%xmm6
+    0.41 :   7ace7:  pand   %xmm3,%xmm6
+    2.45 :   7aceb:  paddb  %xmm7,%xmm6
+    0.00 :   7acef:  movdqa %xmm6,%xmm7
+    0.00 :   7acf3:  psrlw  $0x4,%xmm7
+    1.09 :   7acf8:  paddb  %xmm6,%xmm7
+    0.27 :   7acfc:  pand   %xmm5,%xmm7
+    0.00 :   7ad00:  psadbw %xmm0,%xmm7
+    0.95 :   7ad04:  paddq  %xmm7,%xmm1
+    4.90 :   7ad08:  add    $0x4,%r12
+    0.40 :   7ad0c:  cmp    %r12,%rax
+    0.00 :   7ad0f:  jne    7ac70 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0xd0>
+    0.00 :   7ad15:  paddq  %xmm4,%xmm1
+    2.47 :   7ad19:  pshufd $0xee,%xmm1,%xmm0
+    1.50 :   7ad1e:  paddq  %xmm1,%xmm0
+    0.50 :   7ad22:  movq   %xmm0,%rax
+    0.95 :   7ad27:  test   %r15,%r15
+    0.00 :   7ad2a:  je     7ad80 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x1e0>
+    0.00 :   7ad2c:  add    %rdi,%r14
+    0.55 :   7ad2f:  movabs $0x5555555555555555,%rdi
+    0.41 :   7ad39:  nopl   0x0(%rax)
+    0.00 :   7ad40:  mov    (%r11,%r14,8),%r15
+    4.49 :   7ad44:  mov    %r15,%r12
+    0.00 :   7ad47:  shr    $1,%r12
+    0.00 :   7ad4a:  and    %rdi,%r12
+    0.95 :   7ad4d:  sub    %r12,%r15
+    1.23 :   7ad50:  mov    %r15,%r12
+    0.82 :   7ad53:  and    %r10,%r12
+    0.14 :   7ad56:  shr    $0x2,%r15
+    0.00 :   7ad5a:  and    %r10,%r15
+    1.64 :   7ad5d:  add    %r12,%r15
+    0.00 :   7ad60:  mov    %r15,%r12
+    0.00 :   7ad63:  shr    $0x4,%r12
+    0.68 :   7ad67:  add    %r15,%r12
+    2.10 :   7ad6a:  and    %r9,%r12
+    1.63 :   7ad6d:  imul   %r8,%r12
+    1.57 :   7ad71:  shr    $0x38,%r12
+    1.36 :   7ad75:  add    %r12,%rax
+    2.04 :   7ad78:  inc    %r14
+    0.00 :   7ad7b:  cmp    %r14,%rsi
+    0.00 :   7ad7e:  jne    7ad40 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x1a0>
+    0.00 :   7ad80:  add    %rbx,%rax
+    2.45 :   7ad83:  and    $0x3f,%rcx
+    0.00 :   7ad87:  je     7addd <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x23d>
+    1.17 :   7ad89:  cmp    %rdx,%rsi
+    0.18 :   7ad8c:  jae    7ae06 <<s_graph::mutable_fst::block_compact::RankBits>::rank+0x266>
+    0.14 :   7ad8e:  mov    $0xffffffffffffffff,%rdx
+    0.00 :   7ad95:  shl    %cl,%rdx
+    0.68 :   7ad98:  not    %rdx
+    0.51 :   7ad9b:  and    (%r11,%rsi,8),%rdx
+    2.46 :   7ad9f:  mov    %rdx,%rcx
+    0.68 :   7ada2:  shr    $1,%rcx
+    0.27 :   7ada5:  movabs $0x1555555555555555,%rsi
+    0.00 :   7adaf:  and    %rcx,%rsi
+    0.00 :   7adb2:  sub    %rsi,%rdx
+    0.41 :   7adb5:  mov    %rdx,%rcx
+    0.82 :   7adb8:  and    %r10,%rcx
+    1.23 :   7adbb:  shr    $0x2,%rdx
+    0.27 :   7adbf:  and    %r10,%rdx
+    0.54 :   7adc2:  add    %rcx,%rdx
+    0.35 :   7adc5:  mov    %rdx,%rcx
+    0.14 :   7adc8:  shr    $0x4,%rcx
+    0.27 :   7adcc:  add    %rdx,%rcx
+    0.27 :   7adcf:  and    %r9,%rcx
+    1.17 :   7add2:  imul   %r8,%rcx
+    2.72 :   7add6:  shr    $0x38,%rcx
+    2.05 :   7adda:  add    %rcx,%rax
+    1.91 :   7addd:  add    $0x8,%rsp
+    0.00 :   7ade1:  pop    %rbx
+    0.14 :   7ade2:  pop    %r12
+    0.00 :   7ade4:  pop    %r14
+    0.00 :   7ade6:  pop    %r15
+    0.00 :   7ade8:  ret
+    0.00 :   7ade9:  lea    0x4ccf0(%rip),%rcx        # c7ae0 <anon.f67d4fe1fb7472479644b86a81ab7052.6.llvm.8354286018179449677>
+    0.00 :   7adf0:  call   *0x4f8aa(%rip)        # ca6a0 <_DYNAMIC+0x2c8>
+    0.00 :   7adf6:  lea    0x4ccb3(%rip),%rdx        # c7ab0 <anon.f67d4fe1fb7472479644b86a81ab7052.4.llvm.8354286018179449677>
+    0.00 :   7adfd:  mov    %rax,%rdi
+    0.00 :   7ae00:  call   *0x4f84a(%rip)        # ca650 <_DYNAMIC+0x278>
+    0.00 :   7ae06:  lea    0x4ccbb(%rip),%rax        # c7ac8 <anon.f67d4fe1fb7472479644b86a81ab7052.5.llvm.8354286018179449677>
+    0.00 :   7ae0d:  mov    %rsi,%rdi
+    0.00 :   7ae10:  mov    %rdx,%rsi
+    0.00 :   7ae13:  mov    %rax,%rdx
+    0.00 :   7ae16:  call   *0x4f834(%rip)        # ca650 <_DYNAMIC+0x278>

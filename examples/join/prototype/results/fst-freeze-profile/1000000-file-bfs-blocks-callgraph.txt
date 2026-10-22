@@ -1,0 +1,711 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 2303591269
+#
+# Children      Self  Command          Shared Object       Symbol                                                                                                                    
+# ........  ........  ...............  ..................  ..........................................................................................................................
+#
+    35.46%     0.00%  fst_freeze_prof  libc.so.6           [.] __libc_pread
+            |
+            ---__libc_pread
+               |          
+                --35.46%--__syscall_cancel
+                          |          
+                           --35.39%--__internal_syscall_cancel
+                                     |          
+                                     |--32.87%--0xffffffff8760012f
+                                     |          |          
+                                     |           --31.66%--0xffffffff8882fb21
+                                     |                     |          
+                                     |                     |--29.76%--0xffffffff87dbeeca
+                                     |                     |          |          
+                                     |                     |          |--22.28%--0xffffffff87dbecca
+                                     |                     |          |          |          
+                                     |                     |          |          |--11.35%--0xffffffff87c616d6
+                                     |                     |          |          |          |          
+                                     |                     |          |          |          |--9.79%--0xffffffff87c60ee3
+                                     |                     |          |          |          |          |          
+                                     |                     |          |          |          |          |--3.54%--0xffffffff87c5d115
+                                     |                     |          |          |          |          |          |          
+                                     |                     |          |          |          |          |          |--1.02%--0xffffffff888270e5
+                                     |                     |          |          |          |          |          |          
+                                     |                     |          |          |          |          |          |--0.88%--0xffffffff888270ad
+                                     |                     |          |          |          |          |          |          
+                                     |                     |          |          |          |          |           --0.52%--0xffffffff888270b0
+                                     |                     |          |          |          |          |          
+                                     |                     |          |          |          |          |--3.20%--0xffffffff87c5d162
+                                     |                     |          |          |          |          |          
+                                     |                     |          |          |          |           --0.64%--0xffffffff87c5d110
+                                     |                     |          |          |          |          
+                                     |                     |          |          |           --0.55%--0xffffffff87c60ee7
+                                     |                     |          |          |          
+                                     |                     |          |          |--5.58%--0xffffffff87c617a7
+                                     |                     |          |          |          |          
+                                     |                     |          |          |           --4.97%--0xffffffff8806e754
+                                     |                     |          |          |                     |          
+                                     |                     |          |          |                     |--4.06%--0xffffffff8806def6
+                                     |                     |          |          |                     |          |          
+                                     |                     |          |          |                     |          |--2.81%--0xffffffff8882adc5
+                                     |                     |          |          |                     |          |          
+                                     |                     |          |          |                     |           --1.15%--0xffffffff8882ada4
+                                     |                     |          |          |                     |          
+                                     |                     |          |          |                      --0.70%--0xffffffff8806deeb
+                                     |                     |          |          |          
+                                     |                     |          |          |--0.72%--0xffffffff87c61734
+                                     |                     |          |          |          
+                                     |                     |          |          |--0.67%--0xffffffff87c616da
+                                     |                     |          |          |          
+                                     |                     |          |           --0.62%--0xffffffffc0673e80
+                                     |                     |          |          
+                                     |                     |          |--5.07%--0xffffffff87dbea7b
+                                     |                     |          |          |          
+                                     |                     |          |           --4.06%--0xffffffff87dbb8e1
+                                     |                     |          |                     |          
+                                     |                     |          |                     |--1.72%--0xffffffff87f0aa4b
+                                     |                     |          |                     |          
+                                     |                     |          |                     |--0.66%--0xffffffff87f0aa62
+                                     |                     |          |                     |          
+                                     |                     |          |                      --0.60%--0xffffffff87f0aa60
+                                     |                     |          |          
+                                     |                     |           --0.57%--0xffffffff87dbea7e
+                                     |                     |          
+                                     |                      --0.91%--0xffffffff87dbee6d
+                                     |          
+                                      --1.00%--0xffffffff87600116
+
+    35.46%     0.07%  fst_freeze_prof  libc.so.6           [.] __syscall_cancel
+            |          
+             --35.39%--__syscall_cancel
+                       __internal_syscall_cancel
+                       |          
+                       |--32.87%--0xffffffff8760012f
+                       |          |          
+                       |           --31.66%--0xffffffff8882fb21
+                       |                     |          
+                       |                     |--29.76%--0xffffffff87dbeeca
+                       |                     |          |          
+                       |                     |          |--22.28%--0xffffffff87dbecca
+                       |                     |          |          |          
+                       |                     |          |          |--11.35%--0xffffffff87c616d6
+                       |                     |          |          |          |          
+                       |                     |          |          |          |--9.79%--0xffffffff87c60ee3
+                       |                     |          |          |          |          |          
+                       |                     |          |          |          |          |--3.54%--0xffffffff87c5d115
+                       |                     |          |          |          |          |          |          
+                       |                     |          |          |          |          |          |--1.02%--0xffffffff888270e5
+                       |                     |          |          |          |          |          |          
+                       |                     |          |          |          |          |          |--0.88%--0xffffffff888270ad
+                       |                     |          |          |          |          |          |          
+                       |                     |          |          |          |          |           --0.52%--0xffffffff888270b0
+                       |                     |          |          |          |          |          
+                       |                     |          |          |          |          |--3.20%--0xffffffff87c5d162
+                       |                     |          |          |          |          |          
+                       |                     |          |          |          |           --0.64%--0xffffffff87c5d110
+                       |                     |          |          |          |          
+                       |                     |          |          |           --0.55%--0xffffffff87c60ee7
+                       |                     |          |          |          
+                       |                     |          |          |--5.58%--0xffffffff87c617a7
+                       |                     |          |          |          |          
+                       |                     |          |          |           --4.97%--0xffffffff8806e754
+                       |                     |          |          |                     |          
+                       |                     |          |          |                     |--4.06%--0xffffffff8806def6
+                       |                     |          |          |                     |          |          
+                       |                     |          |          |                     |          |--2.81%--0xffffffff8882adc5
+                       |                     |          |          |                     |          |          
+                       |                     |          |          |                     |           --1.15%--0xffffffff8882ada4
+                       |                     |          |          |                     |          
+                       |                     |          |          |                      --0.70%--0xffffffff8806deeb
+                       |                     |          |          |          
+                       |                     |          |          |--0.72%--0xffffffff87c61734
+                       |                     |          |          |          
+                       |                     |          |          |--0.67%--0xffffffff87c616da
+                       |                     |          |          |          
+                       |                     |          |           --0.62%--0xffffffffc0673e80
+                       |                     |          |          
+                       |                     |          |--5.07%--0xffffffff87dbea7b
+                       |                     |          |          |          
+                       |                     |          |           --4.06%--0xffffffff87dbb8e1
+                       |                     |          |                     |          
+                       |                     |          |                     |--1.72%--0xffffffff87f0aa4b
+                       |                     |          |                     |          
+                       |                     |          |                     |--0.66%--0xffffffff87f0aa62
+                       |                     |          |                     |          
+                       |                     |          |                      --0.60%--0xffffffff87f0aa60
+                       |                     |          |          
+                       |                     |           --0.57%--0xffffffff87dbea7e
+                       |                     |          
+                       |                      --0.91%--0xffffffff87dbee6d
+                       |          
+                        --1.00%--0xffffffff87600116
+
+    35.40%     0.14%  fst_freeze_prof  libc.so.6           [.] __internal_syscall_cancel
+            |          
+             --35.27%--__internal_syscall_cancel
+                       |          
+                       |--32.87%--0xffffffff8760012f
+                       |          |          
+                       |           --31.66%--0xffffffff8882fb21
+                       |                     |          
+                       |                     |--29.76%--0xffffffff87dbeeca
+                       |                     |          |          
+                       |                     |          |--22.28%--0xffffffff87dbecca
+                       |                     |          |          |          
+                       |                     |          |          |--11.35%--0xffffffff87c616d6
+                       |                     |          |          |          |          
+                       |                     |          |          |          |--9.79%--0xffffffff87c60ee3
+                       |                     |          |          |          |          |          
+                       |                     |          |          |          |          |--3.54%--0xffffffff87c5d115
+                       |                     |          |          |          |          |          |          
+                       |                     |          |          |          |          |          |--1.02%--0xffffffff888270e5
+                       |                     |          |          |          |          |          |          
+                       |                     |          |          |          |          |          |--0.88%--0xffffffff888270ad
+                       |                     |          |          |          |          |          |          
+                       |                     |          |          |          |          |           --0.52%--0xffffffff888270b0
+                       |                     |          |          |          |          |          
+                       |                     |          |          |          |          |--3.20%--0xffffffff87c5d162
+                       |                     |          |          |          |          |          
+                       |                     |          |          |          |           --0.64%--0xffffffff87c5d110
+                       |                     |          |          |          |          
+                       |                     |          |          |           --0.55%--0xffffffff87c60ee7
+                       |                     |          |          |          
+                       |                     |          |          |--5.58%--0xffffffff87c617a7
+                       |                     |          |          |          |          
+                       |                     |          |          |           --4.97%--0xffffffff8806e754
+                       |                     |          |          |                     |          
+                       |                     |          |          |                     |--4.06%--0xffffffff8806def6
+                       |                     |          |          |                     |          |          
+                       |                     |          |          |                     |          |--2.81%--0xffffffff8882adc5
+                       |                     |          |          |                     |          |          
+                       |                     |          |          |                     |           --1.15%--0xffffffff8882ada4
+                       |                     |          |          |                     |          
+                       |                     |          |          |                      --0.70%--0xffffffff8806deeb
+                       |                     |          |          |          
+                       |                     |          |          |--0.72%--0xffffffff87c61734
+                       |                     |          |          |          
+                       |                     |          |          |--0.67%--0xffffffff87c616da
+                       |                     |          |          |          
+                       |                     |          |           --0.62%--0xffffffffc0673e80
+                       |                     |          |          
+                       |                     |          |--5.07%--0xffffffff87dbea7b
+                       |                     |          |          |          
+                       |                     |          |           --4.06%--0xffffffff87dbb8e1
+                       |                     |          |                     |          
+                       |                     |          |                     |--1.72%--0xffffffff87f0aa4b
+                       |                     |          |                     |          
+                       |                     |          |                     |--0.66%--0xffffffff87f0aa62
+                       |                     |          |                     |          
+                       |                     |          |                      --0.60%--0xffffffff87f0aa60
+                       |                     |          |          
+                       |                     |           --0.57%--0xffffffff87dbea7e
+                       |                     |          
+                       |                      --0.91%--0xffffffff87dbee6d
+                       |          
+                        --1.00%--0xffffffff87600116
+
+    32.87%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff8760012f
+            |
+            ---0xffffffff8760012f
+               |          
+                --31.66%--0xffffffff8882fb21
+                          |          
+                          |--29.76%--0xffffffff87dbeeca
+                          |          |          
+                          |          |--22.28%--0xffffffff87dbecca
+                          |          |          |          
+                          |          |          |--11.35%--0xffffffff87c616d6
+                          |          |          |          |          
+                          |          |          |          |--9.79%--0xffffffff87c60ee3
+                          |          |          |          |          |          
+                          |          |          |          |          |--3.54%--0xffffffff87c5d115
+                          |          |          |          |          |          |          
+                          |          |          |          |          |          |--1.02%--0xffffffff888270e5
+                          |          |          |          |          |          |          
+                          |          |          |          |          |          |--0.88%--0xffffffff888270ad
+                          |          |          |          |          |          |          
+                          |          |          |          |          |           --0.52%--0xffffffff888270b0
+                          |          |          |          |          |          
+                          |          |          |          |          |--3.20%--0xffffffff87c5d162
+                          |          |          |          |          |          
+                          |          |          |          |           --0.64%--0xffffffff87c5d110
+                          |          |          |          |          
+                          |          |          |           --0.55%--0xffffffff87c60ee7
+                          |          |          |          
+                          |          |          |--5.58%--0xffffffff87c617a7
+                          |          |          |          |          
+                          |          |          |           --4.97%--0xffffffff8806e754
+                          |          |          |                     |          
+                          |          |          |                     |--4.06%--0xffffffff8806def6
+                          |          |          |                     |          |          
+                          |          |          |                     |          |--2.81%--0xffffffff8882adc5
+                          |          |          |                     |          |          
+                          |          |          |                     |           --1.15%--0xffffffff8882ada4
+                          |          |          |                     |          
+                          |          |          |                      --0.70%--0xffffffff8806deeb
+                          |          |          |          
+                          |          |          |--0.72%--0xffffffff87c61734
+                          |          |          |          
+                          |          |          |--0.67%--0xffffffff87c616da
+                          |          |          |          
+                          |          |           --0.62%--0xffffffffc0673e80
+                          |          |          
+                          |          |--5.07%--0xffffffff87dbea7b
+                          |          |          |          
+                          |          |           --4.06%--0xffffffff87dbb8e1
+                          |          |                     |          
+                          |          |                     |--1.72%--0xffffffff87f0aa4b
+                          |          |                     |          
+                          |          |                     |--0.66%--0xffffffff87f0aa62
+                          |          |                     |          
+                          |          |                      --0.60%--0xffffffff87f0aa60
+                          |          |          
+                          |           --0.57%--0xffffffff87dbea7e
+                          |          
+                           --0.91%--0xffffffff87dbee6d
+
+    31.66%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff8882fb21
+            |
+            ---0xffffffff8882fb21
+               |          
+               |--29.76%--0xffffffff87dbeeca
+               |          |          
+               |          |--22.28%--0xffffffff87dbecca
+               |          |          |          
+               |          |          |--11.35%--0xffffffff87c616d6
+               |          |          |          |          
+               |          |          |          |--9.79%--0xffffffff87c60ee3
+               |          |          |          |          |          
+               |          |          |          |          |--3.54%--0xffffffff87c5d115
+               |          |          |          |          |          |          
+               |          |          |          |          |          |--1.02%--0xffffffff888270e5
+               |          |          |          |          |          |          
+               |          |          |          |          |          |--0.88%--0xffffffff888270ad
+               |          |          |          |          |          |          
+               |          |          |          |          |           --0.52%--0xffffffff888270b0
+               |          |          |          |          |          
+               |          |          |          |          |--3.20%--0xffffffff87c5d162
+               |          |          |          |          |          
+               |          |          |          |           --0.64%--0xffffffff87c5d110
+               |          |          |          |          
+               |          |          |           --0.55%--0xffffffff87c60ee7
+               |          |          |          
+               |          |          |--5.58%--0xffffffff87c617a7
+               |          |          |          |          
+               |          |          |           --4.97%--0xffffffff8806e754
+               |          |          |                     |          
+               |          |          |                     |--4.06%--0xffffffff8806def6
+               |          |          |                     |          |          
+               |          |          |                     |          |--2.81%--0xffffffff8882adc5
+               |          |          |                     |          |          
+               |          |          |                     |           --1.15%--0xffffffff8882ada4
+               |          |          |                     |          
+               |          |          |                      --0.70%--0xffffffff8806deeb
+               |          |          |          
+               |          |          |--0.72%--0xffffffff87c61734
+               |          |          |          
+               |          |          |--0.67%--0xffffffff87c616da
+               |          |          |          
+               |          |           --0.62%--0xffffffffc0673e80
+               |          |          
+               |          |--5.07%--0xffffffff87dbea7b
+               |          |          |          
+               |          |           --4.06%--0xffffffff87dbb8e1
+               |          |                     |          
+               |          |                     |--1.72%--0xffffffff87f0aa4b
+               |          |                     |          
+               |          |                     |--0.66%--0xffffffff87f0aa62
+               |          |                     |          
+               |          |                      --0.60%--0xffffffff87f0aa60
+               |          |          
+               |           --0.57%--0xffffffff87dbea7e
+               |          
+                --0.91%--0xffffffff87dbee6d
+
+    29.76%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbeeca
+            |
+            ---0xffffffff87dbeeca
+               |          
+               |--22.28%--0xffffffff87dbecca
+               |          |          
+               |          |--11.35%--0xffffffff87c616d6
+               |          |          |          
+               |          |          |--9.79%--0xffffffff87c60ee3
+               |          |          |          |          
+               |          |          |          |--3.54%--0xffffffff87c5d115
+               |          |          |          |          |          
+               |          |          |          |          |--1.02%--0xffffffff888270e5
+               |          |          |          |          |          
+               |          |          |          |          |--0.88%--0xffffffff888270ad
+               |          |          |          |          |          
+               |          |          |          |           --0.52%--0xffffffff888270b0
+               |          |          |          |          
+               |          |          |          |--3.20%--0xffffffff87c5d162
+               |          |          |          |          
+               |          |          |           --0.64%--0xffffffff87c5d110
+               |          |          |          
+               |          |           --0.55%--0xffffffff87c60ee7
+               |          |          
+               |          |--5.58%--0xffffffff87c617a7
+               |          |          |          
+               |          |           --4.97%--0xffffffff8806e754
+               |          |                     |          
+               |          |                     |--4.06%--0xffffffff8806def6
+               |          |                     |          |          
+               |          |                     |          |--2.81%--0xffffffff8882adc5
+               |          |                     |          |          
+               |          |                     |           --1.15%--0xffffffff8882ada4
+               |          |                     |          
+               |          |                      --0.70%--0xffffffff8806deeb
+               |          |          
+               |          |--0.72%--0xffffffff87c61734
+               |          |          
+               |          |--0.67%--0xffffffff87c616da
+               |          |          
+               |           --0.62%--0xffffffffc0673e80
+               |          
+               |--5.07%--0xffffffff87dbea7b
+               |          |          
+               |           --4.06%--0xffffffff87dbb8e1
+               |                     |          
+               |                     |--1.72%--0xffffffff87f0aa4b
+               |                     |          
+               |                     |--0.66%--0xffffffff87f0aa62
+               |                     |          
+               |                      --0.60%--0xffffffff87f0aa60
+               |          
+                --0.57%--0xffffffff87dbea7e
+
+    23.01%    23.01%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+    22.28%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbecca
+            |
+            ---0xffffffff87dbecca
+               |          
+               |--11.35%--0xffffffff87c616d6
+               |          |          
+               |          |--9.79%--0xffffffff87c60ee3
+               |          |          |          
+               |          |          |--3.54%--0xffffffff87c5d115
+               |          |          |          |          
+               |          |          |          |--1.02%--0xffffffff888270e5
+               |          |          |          |          
+               |          |          |          |--0.88%--0xffffffff888270ad
+               |          |          |          |          
+               |          |          |           --0.52%--0xffffffff888270b0
+               |          |          |          
+               |          |          |--3.20%--0xffffffff87c5d162
+               |          |          |          
+               |          |           --0.64%--0xffffffff87c5d110
+               |          |          
+               |           --0.55%--0xffffffff87c60ee7
+               |          
+               |--5.58%--0xffffffff87c617a7
+               |          |          
+               |           --4.97%--0xffffffff8806e754
+               |                     |          
+               |                     |--4.06%--0xffffffff8806def6
+               |                     |          |          
+               |                     |          |--2.81%--0xffffffff8882adc5
+               |                     |          |          
+               |                     |           --1.15%--0xffffffff8882ada4
+               |                     |          
+               |                      --0.70%--0xffffffff8806deeb
+               |          
+               |--0.72%--0xffffffff87c61734
+               |          
+               |--0.67%--0xffffffff87c616da
+               |          
+                --0.62%--0xffffffffc0673e80
+
+    11.35%     0.02%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c616d6
+            |          
+             --11.33%--0xffffffff87c616d6
+                       |          
+                       |--9.79%--0xffffffff87c60ee3
+                       |          |          
+                       |          |--3.54%--0xffffffff87c5d115
+                       |          |          |          
+                       |          |          |--1.02%--0xffffffff888270e5
+                       |          |          |          
+                       |          |          |--0.88%--0xffffffff888270ad
+                       |          |          |          
+                       |          |           --0.52%--0xffffffff888270b0
+                       |          |          
+                       |          |--3.20%--0xffffffff87c5d162
+                       |          |          
+                       |           --0.64%--0xffffffff87c5d110
+                       |          
+                        --0.55%--0xffffffff87c60ee7
+
+    10.02%    10.02%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_var
+     9.79%     0.08%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c60ee3
+            |          
+             --9.71%--0xffffffff87c60ee3
+                       |          
+                       |--3.54%--0xffffffff87c5d115
+                       |          |          
+                       |          |--1.02%--0xffffffff888270e5
+                       |          |          
+                       |          |--0.88%--0xffffffff888270ad
+                       |          |          
+                       |           --0.52%--0xffffffff888270b0
+                       |          
+                       |--3.20%--0xffffffff87c5d162
+                       |          
+                        --0.64%--0xffffffff87c5d110
+
+     8.54%     8.54%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>
+     7.72%     7.72%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>::{closure#9}
+     6.47%     6.47%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage>::ensure_stack_entry
+     5.58%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c617a7
+            |
+            ---0xffffffff87c617a7
+               |          
+                --4.97%--0xffffffff8806e754
+                          |          
+                          |--4.06%--0xffffffff8806def6
+                          |          |          
+                          |          |--2.81%--0xffffffff8882adc5
+                          |          |          
+                          |           --1.15%--0xffffffff8882ada4
+                          |          
+                           --0.70%--0xffffffff8806deeb
+
+     5.07%     0.26%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbea7b
+            |          
+             --4.82%--0xffffffff87dbea7b
+                       |          
+                        --4.06%--0xffffffff87dbb8e1
+                                  |          
+                                  |--1.72%--0xffffffff87f0aa4b
+                                  |          
+                                  |--0.66%--0xffffffff87f0aa62
+                                  |          
+                                   --0.60%--0xffffffff87f0aa60
+
+     4.97%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff8806e754
+            |
+            ---0xffffffff8806e754
+               |          
+               |--4.06%--0xffffffff8806def6
+               |          |          
+               |          |--2.81%--0xffffffff8882adc5
+               |          |          
+               |           --1.15%--0xffffffff8882ada4
+               |          
+                --0.70%--0xffffffff8806deeb
+
+     4.06%     0.15%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbb8e1
+            |          
+             --3.91%--0xffffffff87dbb8e1
+                       |          
+                       |--1.72%--0xffffffff87f0aa4b
+                       |          
+                       |--0.66%--0xffffffff87f0aa62
+                       |          
+                        --0.60%--0xffffffff87f0aa60
+
+     4.06%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff8806def6
+            |
+            ---0xffffffff8806def6
+               |          
+               |--2.81%--0xffffffff8882adc5
+               |          
+                --1.15%--0xffffffff8882ada4
+
+     3.54%     0.07%  fst_freeze_prof  [unknown]           [.] 0xffffffff87c5d115
+            |          
+             --3.47%--0xffffffff87c5d115
+                       |          
+                       |--1.02%--0xffffffff888270e5
+                       |          
+                       |--0.88%--0xffffffff888270ad
+                       |          
+                        --0.52%--0xffffffff888270b0
+
+     3.43%     3.43%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+     3.20%     3.20%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d162
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d162
+
+     2.81%     2.81%  fst_freeze_prof  [unknown]           [k] 0xffffffff8882adc5
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c617a7
+               0xffffffff8806e754
+               0xffffffff8806def6
+               0xffffffff8882adc5
+
+     1.72%     0.33%  fst_freeze_prof  [unknown]           [.] 0xffffffff87f0aa4b
+            |          
+             --1.39%--0xffffffff87f0aa4b
+
+     1.71%     1.71%  fst_freeze_prof  libc.so.6           [.] __memset_avx2_unaligned_erms
+            |
+            ---__memset_avx2_unaligned_erms
+
+     1.53%     1.53%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_u64
+     1.15%     1.15%  fst_freeze_prof  [unknown]           [k] 0xffffffff8882ada4
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c617a7
+               0xffffffff8806e754
+               0xffffffff8806def6
+               0xffffffff8882ada4
+
+     1.02%     1.02%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270e5
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d115
+               0xffffffff888270e5
+
+     1.00%     1.00%  fst_freeze_prof  [unknown]           [k] 0xffffffff87600116
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff87600116
+
+     0.91%     0.00%  fst_freeze_prof  [unknown]           [.] 0xffffffff87dbee6d
+            |
+            ---0xffffffff87dbee6d
+
+     0.88%     0.12%  fst_freeze_prof  [unknown]           [.] 0xffffffff888270ad
+            |          
+             --0.76%--0xffffffff888270ad
+
+     0.72%     0.48%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c61734
+     0.70%     0.70%  fst_freeze_prof  [unknown]           [k] 0xffffffff8806deeb
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c617a7
+               0xffffffff8806e754
+               0xffffffff8806deeb
+
+     0.67%     0.67%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c616da
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616da
+
+     0.66%     0.66%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa62
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7b
+               0xffffffff87dbb8e1
+               0xffffffff87f0aa62
+
+     0.64%     0.64%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d110
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d110
+
+     0.62%     0.62%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e80
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffffc0673e80
+
+     0.60%     0.39%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa60
+     0.58%     0.58%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     0.57%     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbea7e
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbea7e
+
+     0.55%     0.55%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c60ee7
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee7
+
+     0.52%     0.52%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270b0
+            |
+            ---__libc_pread
+               __syscall_cancel
+               __internal_syscall_cancel
+               0xffffffff8760012f
+               0xffffffff8882fb21
+               0xffffffff87dbeeca
+               0xffffffff87dbecca
+               0xffffffff87c616d6
+               0xffffffff87c60ee3
+               0xffffffff87c5d115
+               0xffffffff888270b0
+
+
+
+#
+# (Tip: Use --symfs <dir>[,layout] if your symbol files are in non-standard locations.)
+#

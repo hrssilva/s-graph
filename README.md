@@ -113,7 +113,7 @@ assert!(graph.insert(1, 0, 3)?);
 // Reuse the machine; compile a fresh search after edits.
 
 let bytes = graph.serialize()?; // compact SGF1 snapshot, no edit history
-let packed = graph.freeze()?; // minimize physical states, return packed FST
+let packed = graph.freeze()?; // stream live states into a compact packed FST
 assert!(packed.contains(1, 0, 3));
 let restored = Fst::deserialize(&bytes)?;
 assert!(restored.contains(1, 0, 3));
@@ -134,13 +134,33 @@ edit prepares it. Call `prepare_updates()` before a burst to pay that cost
 explicitly. Duplicate/absent updates skip preparation. The edit arena lives in RAM in all modes; its obsolete nodes are
 reclaimed immediately. Packed base bytes stay intact until `compact()` or
 `freeze()`. Call `compact()` between write bursts to reclaim dead base bytes
-and move edits into the chosen block storage. There is no automatic compaction
+and move edits into the chosen block storage. Consuming `freeze()` uses rank-free
+BFS compaction: it reuses edit metadata and releases source blocks as it copies
+live states. It preserves the minimality maintained by updates. Use
+`compact_streaming()` for the same algorithm with timing and memory statistics.
+Borrowed `to_fst()`, `compact()` and serialization preserve the source until
+packing succeeds and currently use the separate physical-state rebuild path.
+See [compaction details and measurements](examples/join/FST_RANK_FREE_COMPACTION.md).
+There is no automatic compaction
 or background I/O. `memory_usage()` reports base storage, suffix indexes,
 live edits and reusable arena/table capacity separately; see the
 [memory experiment](examples/join/FST_MEMORY.md). Compaction works over physical DAG states, without listing
 all triples, and uses temporary memory proportional to physical states/edges.
 Editable `serialize` returns `Result<Vec<u8>>` because it performs this packing;
 `serialize_into` and `serialize_to_path` also compact into a temporary packed graph.
+
+For periodic batches, the experimental `UpdateLookup::Memoized` strategy caches
+suffix lookups as edits encounter them. `freeze_in_place()` returns an immutable
+`FrozenFst`: it keeps the original blocks, packs live edited states into blocked
+storage and releases update indexes. Consume `into_mutable_with_lookup(...)`
+to apply the next batch. Obsolete records remain until explicit compaction;
+ordinary SGF1 serialization still repacks. See the
+[in-place freeze prototype](examples/join/FST_FREEZE_IN_PLACE.md) for usage
+and BFS edit blocks. The experimental
+[block compactor](examples/join/FST_BLOCK_COMPACTION.md) releases old blocks
+as their live records are copied.
+The [recursive variant](examples/join/FST_RECURSIVE_COMPACTION.md),
+`compact_recursive()`, reserves BFS positions and builds child first.
 
 Insertions outside declared domains fail; `insert_batch` validates the whole
 batch before changing the graph. Duplicate updates are no-ops. Removal outside

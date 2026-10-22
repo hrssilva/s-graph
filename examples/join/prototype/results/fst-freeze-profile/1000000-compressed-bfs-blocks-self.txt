@@ -1,0 +1,28 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 5725467633
+#
+# Overhead  Command          Shared Object       Symbol                                                                                                                               
+# ........  ...............  ..................  .....................................................................................................................................
+#
+    73.76%  fst_freeze_prof  fst_freeze_profile  [.] lz4_flex::block::decompress_safe::decompress_internal::<false, lz4_flex::sink::SliceSink>
+     5.71%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+     4.18%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage>::ensure_stack_entry
+     3.40%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage as s_graph::storage::BlockStorage>::read_var
+     2.61%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_compressed::CompressedStorage>
+     1.99%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_compressed::CompressedStorage>::{closure#9}
+     1.86%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     1.82%  fst_freeze_prof  libc.so.6           [.] __memset_avx2_unaligned_erms
+     0.93%  fst_freeze_prof  fst_freeze_profile  [.] lz4_flex::block::compress::compress_internal::<lz4_flex::block::hashtable::HashTable4KU16, false, lz4_flex::sink::SliceSink>
+     0.89%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::mark::<s_graph::storage_compressed::CompressedStorage>
+     0.82%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_compressed::CompressedStorage as s_graph::storage::BlockStorage>::read_u64
+     0.76%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+
+
+#
+# (Tip: To see callchains in a more compact form: perf report -g folded)
+#

@@ -1,0 +1,44 @@
+{
+  "recorded_utc": "2026-10-22T13:36:57.943905+00:00",
+  "binary_sha256": "ded018aced8bff1d5615147bc3414076df38d1b87643248e1a4f421219129211",
+  "source_sha256": {
+    "examples/fst_freeze_profile.rs": "3261969e212ec3780f76a45763074ef08f33a3c1376ac97c54f7eceef190a2c8",
+    "examples/join/prototype/fst_freeze_profile.py": "19b759978d1638c1ee711b38bc2eb273007e3759646f1ce4d27275b25716ad7b",
+    "src/fst_block_compact.rs": "6b5fe7ab6a1f3ff727d137e109a175e040bdb8c7f6ce0c59dc4ec91ec30d560e",
+    "src/fst_depth_compact.rs": "cbcbfa2fc9780fccc46c85189fa09223f59a0f9dec9b57d11bf309304dfc4c86",
+    "src/mutable_fst.rs": "b3ae1cbee171e90655b767812f3b01b93e9e07020635c66da813471353967349",
+    "src/path_fst.rs": "83521c0ea9af9590f7eee660165921586d5978ce02f9d3c4caf47c96a961602b",
+    "src/storage.rs": "f89a7c41bcf90d8810832930ead32538ed8674cd02732f6be3a0e38af448eff1",
+    "src/storage_file.rs": "75aa0f3db9d04c618d5ac5ba0c3cfa51c7d6954602fe4b72e7a96cbe230a5eb1",
+    "src/storage_compressed.rs": "4ef7cc870a577afbf9c6ccf490dcbc683f8516051e3211880901209e1810c920"
+  },
+  "cases": [
+    [
+      1000000,
+      "heap",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "heap",
+      "packed",
+      "depths"
+    ],
+    [
+      1000000,
+      "compressed",
+      "packed",
+      "blocks"
+    ],
+    [
+      1000000,
+      "compressed",
+      "packed",
+      "depths"
+    ]
+  ],
+  "trials": 1,
+  "stat_only": true,
+  "perf_version": "perf version 7.2.5"
+}

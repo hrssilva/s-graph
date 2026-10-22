@@ -1,0 +1,26 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 1945916592
+#
+# Overhead  Command          Shared Object       Symbol                                                                                                                                              
+# ........  ...............  ..................  ....................................................................................................................................................
+#
+    33.62%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+    24.27%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage::HeapStorage>
+    10.88%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::base_word
+     9.29%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage::HeapStorage>::{closure#9}
+     5.12%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+     4.64%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::base_child
+     4.52%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     4.31%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::mark::<s_graph::storage::HeapStorage>
+     0.71%  fst_freeze_prof  libc.so.6           [.] _int_malloc
+     0.71%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage::HeapStorage as s_graph::storage::BlockStorage>::append_record
+
+
+#
+# (Tip: To see callchains in a more compact form: perf report -g folded)
+#

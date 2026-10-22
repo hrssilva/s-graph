@@ -178,6 +178,50 @@ pub struct CompressedStorage {
     scratch: Vec<u8>,
 }
 
+impl crate::storage::ReclaimingBlockStorage for CompressedStorage {
+    fn read_compaction_block(&self, block: usize, out: &mut Vec<u8>) {
+        decompress_whole_into(&self.blocks[block], out);
+    }
+    fn rewrite_compaction_block(&mut self, block: usize, bytes: &[u8]) {
+        assert_eq!(bytes.len(), self.blocks[block].uncompressed_len);
+        for (chunk, content) in self.blocks[block].chunks.iter_mut()
+            .zip(bytes.chunks(COMPRESS_CHUNK_BYTES)) {
+            chunk.resize(lz4_flex::block::get_maximum_output_size(content.len()), 0);
+            let len = lz4_flex::compress_into(content, chunk).expect("compression buffer too small");
+            chunk.truncate(len);
+        }
+        // Compaction reads bypass the normal cache. Invalidate any old view.
+        for entry in &mut self.block_stack.get_mut().entries {
+            if entry.block == block { entry.buf = Vec::new(); }
+        }
+    }
+    fn release_block_payload(&mut self, block: usize) {
+        self.blocks[block].chunks = Vec::new();
+        self.blocks[block].uncompressed_len = 0;
+        for entry in &mut self.block_stack.get_mut().entries {
+            if entry.block == block { entry.buf = Vec::new(); }
+        }
+    }
+}
+
+impl crate::storage::ReservedBlockStorage for CompressedStorage {
+    fn reserve_compaction_blocks(&mut self, count: usize, capacity: usize) -> usize {
+        let first = self.blocks.len();
+        self.blocks.resize_with(first + count, || CompressedBlock {
+            chunks: Vec::new(), uncompressed_len: 0, capacity,
+        });
+        first
+    }
+    fn install_compaction_block(&mut self, block: usize, bytes: &mut Vec<u8>, capacity: usize) {
+        debug_assert_eq!(self.blocks[block].uncompressed_len, 0);
+        debug_assert!(bytes.len() <= capacity);
+        self.blocks[block] = CompressedBlock {
+            chunks: chunk_and_compress(bytes), uncompressed_len: bytes.len(), capacity,
+        };
+        bytes.clear();
+    }
+}
+
 impl CompressedStorage {
     /// Ensures `Self::block_stack` has `block`'s decompressed content
     /// covering `[offset, offset + len)` at its top -- the same
@@ -456,6 +500,12 @@ impl BlockStorage for CompressedStorage {
         let offset = pending.len();
         pending.extend_from_slice(bytes);
         Pos { block, offset }
+    }
+    fn start_new_append_block(&mut self, capacity: usize) -> bool {
+        if self.build_pending.is_some() {
+            self.flush_pending_block(capacity);
+        }
+        true
     }
     fn patch_appended(&mut self, pos: Pos, rel_offset: usize, width: u8, val: u64) {
         if pos.block == self.blocks.len() {

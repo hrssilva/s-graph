@@ -1933,6 +1933,38 @@ impl<S: BlockStorage> PackedFst<S> {
 
     pub(crate) fn read_session(&self) -> impl Drop + '_ { self.storage.begin_read_session() }
 
+    pub(crate) fn release_compaction_block(&mut self, block: usize)
+    where S: crate::storage::ReclaimingBlockStorage {
+        self.storage.release_block_payload(block);
+    }
+    pub(crate) fn block_len(&self, block: usize) -> usize { self.storage.block_len(block) }
+
+    pub(crate) fn read_compaction_block(&self, block: usize, out: &mut Vec<u8>)
+    where S: crate::storage::ReclaimingBlockStorage {
+        self.storage.read_compaction_block(block, out);
+    }
+
+    // Trusted construction by the consuming block compactor. It writes only
+    // existing canonical live states, in level order, with checked child deltas.
+    pub(crate) fn from_compacted_storage(storage: S, dimension_sizes: [u64; 3], block_capacity: usize,
+        level_node_counts: Vec<usize>, visited_count: u64) -> Self {
+        let mut level_dim_bits = dynamic_schedule(total_bits_needed(dimension_sizes));
+        if level_dim_bits.is_empty() { level_dim_bits.push([0; 3]); }
+        let height = level_dim_bits.len();
+        let level_shifts_cache: Vec<_> = level_dim_bits.iter().map(|&bits| level_shifts(bits, [0, 1, 2])).collect();
+        let mut remaining = total_bits_needed(dimension_sizes);
+        let level_child_cell_bits_cache: Vec<_> = level_dim_bits.iter().map(|bits| {
+            for d in 0..3 { remaining[d] -= bits[d]; }
+            remaining
+        }).collect();
+        let scan_layout = (0..height).map(|l| crate::fst::ScanLayout::new(level_dim_bits[l], level_shifts_cache[l], level_child_cell_bits_cache[l])).collect();
+        Self { storage, root_virtual_addr: 0, height, level_dim_bits, level_shifts_cache,
+            level_child_cell_bits_cache, dimension_sizes, block_capacity,
+            capacity_bits: block_capacity.trailing_zeros(), capacity_mask: block_capacity as u64 - 1,
+            node_count: level_node_counts.iter().sum::<usize>() as u64, level_node_counts,
+            scan_layout, visited_count, level_addrs: std::sync::OnceLock::new() }
+    }
+
     /// Allocation-free suffix lookup without a retained state directory.
     /// Earlier levels must be parsed to locate the requested level's records.
     pub(crate) fn find_physical_state(&self, target_level: usize, mut matches: impl FnMut(u64, u64) -> bool) -> Option<u64> {

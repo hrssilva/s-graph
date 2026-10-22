@@ -1,0 +1,30 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 4269933345
+#
+# Children      Self  Command          Shared Object       Symbol                                                                                                                               
+# ........  ........  ...............  ..................  .....................................................................................................................................
+#
+    33.80%    33.80%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+    26.90%    26.90%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage::HeapStorage>::{closure#9}
+     8.84%     8.84%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::mark::<s_graph::storage::HeapStorage>
+     6.99%     6.99%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::base_child
+     6.01%     6.01%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage::HeapStorage>
+     5.83%     5.83%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     4.72%     4.72%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::base_word
+     2.48%     2.48%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+     1.58%     1.58%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage::HeapStorage as s_graph::storage::BlockStorage>::append_record
+     1.01%     1.01%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned_erms
+            |
+            ---__memmove_avx_unaligned_erms
+
+     0.50%     0.50%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Relocations>::set
+
+
+#
+# (Tip: To trace only single function with Processor Trace use perf record --filter 'filter func @ program' -e intel_pt//u ./program ; perf script --insn-trace)
+#

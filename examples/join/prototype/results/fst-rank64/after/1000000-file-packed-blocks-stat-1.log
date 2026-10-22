@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-file-packed-blocks-stat-1-2464941.service
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 2.472s
+             CPU time consumed: 2.465s

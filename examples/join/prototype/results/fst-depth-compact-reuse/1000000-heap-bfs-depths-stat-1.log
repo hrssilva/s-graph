@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-heap-bfs-depths-stat-1-2478326.service; invocation ID: e5dc82558c7d40cb8ad43045bd06e24e
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 3.017s
+             CPU time consumed: 3.001s

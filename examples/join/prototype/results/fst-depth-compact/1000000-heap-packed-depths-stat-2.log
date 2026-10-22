@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-heap-packed-depths-stat-2-2475485.service; invocation ID: fcf62482e3bc48728d6458a13027f7fc
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 1.308s
+             CPU time consumed: 1.301s

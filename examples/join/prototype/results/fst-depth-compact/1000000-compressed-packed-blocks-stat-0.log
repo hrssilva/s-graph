@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-compressed-packed-blocks-stat-0-2475485.service; invocation ID: 3a9967dc8be54cacb94fa3854dd298a9
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 2.545s
+             CPU time consumed: 2.535s

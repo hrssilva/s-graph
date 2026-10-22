@@ -1,5 +1,6 @@
 //! Local updates over a packed, suffix-sharing FST. Edits copy one root-to-leaf
-//! path; the packed base is never rewritten. Freeze re-minimizes physical states.
+//! path; the packed base is never rewritten. Compact freeze repacks physical
+//! states; experimental in-place freeze seals edited states in blocked storage.
 use crate::automata_core::{BitmapSource, TripleSource};
 use crate::path_fst::{BfsNodeMeta, PackedFst};
 use crate::{BlockStorage, OutOfDomain, Result, TreeError, Triple};
@@ -7,8 +8,99 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+#[path = "fst_block_compact.rs"]
+mod block_compact;
+pub use block_compact::BlockCompactionStats;
+
+#[path = "fst_stream_compact.rs"]
+mod streaming;
+
 const EDIT: u64 = 1 << 63;
+const SEALED: u64 = 1 << 62;
 const EMPTY: u64 = u64::MAX;
+
+struct ReadSessions<A, B> {
+    _base: A,
+    _sealed: Option<B>,
+}
+impl<A, B> Drop for ReadSessions<A, B> {
+    fn drop(&mut self) {}
+}
+
+// Append-only blocked records: level:u8, word:u64, absolute children:u64[].
+// Tagged absolute cursors link to either base without relocating old records.
+struct SealedStorage<S: BlockStorage> {
+    storage: S,
+    capacity: usize,
+    per_level: Vec<usize>,
+}
+impl<S: BlockStorage> SealedStorage<S> {
+    fn new(capacity: usize, height: usize) -> Self {
+        Self {
+            storage: S::empty(),
+            capacity: capacity.max(1024),
+            per_level: vec![0; height],
+        }
+    }
+    fn position(&self, cursor: u64) -> (usize, usize) {
+        let address = cursor & !SEALED;
+        (
+            (address >> self.capacity.trailing_zeros()) as usize,
+            (address & (self.capacity as u64 - 1)) as usize,
+        )
+    }
+    fn word(&self, cursor: u64) -> u64 {
+        let (block, offset) = self.position(cursor);
+        self.storage.read_u64(block, offset + 1)
+    }
+    fn child(&self, cursor: u64, index: usize) -> u64 {
+        let (block, offset) = self.position(cursor);
+        self.storage.read_var(block, offset + 9 + index * 8, 8)
+    }
+    fn append(&mut self, level: usize, word: u64, children: &[u64]) -> Result<u64> {
+        // Reserve the two high cursor bits, including a possible next block.
+        if self.storage.block_count() as u64 >= (SEALED >> self.capacity.trailing_zeros()) - 1 {
+            return Err(TreeError::InvalidConfig(
+                "sealed FST address space exhausted".into(),
+            ));
+        }
+        // A 64-child absolute-link record needs 521 bytes; sealed blocks use
+        // at least 1024 even when the original packed block budget is 512.
+        let mut record = [0u8; 9 + 64 * 8];
+        record[0] = level as u8;
+        record[1..9].copy_from_slice(&word.to_le_bytes());
+        for (i, child) in children.iter().enumerate() {
+            record[9 + i * 8..17 + i * 8].copy_from_slice(&child.to_le_bytes());
+        }
+        let pos = self
+            .storage
+            .append_record(&record[..9 + children.len() * 8], self.capacity);
+        self.per_level[level] += 1;
+        Ok(SEALED | ((pos.block as u64) << self.capacity.trailing_zeros()) | pos.offset as u64)
+    }
+    fn visit(&self, mut emit: impl FnMut(usize, u64, u64) -> bool) {
+        for block in 0..self.storage.block_count() {
+            let mut offset = 0;
+            while offset < self.storage.block_len(block) {
+                let level = self.storage.read_var(block, offset, 1) as usize;
+                let word = self.storage.read_u64(block, offset + 1);
+                let cursor =
+                    SEALED | ((block as u64) << self.capacity.trailing_zeros()) | offset as u64;
+                if !emit(level, cursor, word) {
+                    return;
+                }
+                offset += 9 + if level + 1 == self.per_level.len() {
+                    0
+                } else {
+                    word.count_ones() as usize * 8
+                };
+            }
+        }
+    }
+    fn mem_size_bytes(&self) -> usize {
+        self.storage.mem_size_bytes() + crate::vec_bytes(&self.per_level)
+    }
+}
 
 /// Experimental time/space alternatives for exact suffix canonicalization.
 /// Scanning preserves minimality but trades retained indexes for repeated work.
@@ -21,6 +113,10 @@ pub enum UpdateLookup {
     /// Scan packed records and live edit slots; retain neither lookup index.
     /// Reference counts and slot-reuse bookkeeping are still maintained.
     ScanAll,
+    /// Memoize exact packed-state lookups (including absences) across edits.
+    /// Remember packed states on edited paths; scan only uncached signatures.
+    /// The edited-state lookup table is retained. Compaction clears the memo.
+    Memoized,
 }
 
 fn fingerprint(word: u64, children: impl ExactSizeIterator<Item = u64>) -> u64 {
@@ -33,7 +129,7 @@ fn fingerprint(word: u64, children: impl ExactSizeIterator<Item = u64>) -> u64 {
     hash.finish()
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 struct Signature {
     word: u64,
     children: Vec<u64>,
@@ -49,9 +145,12 @@ struct Node {
 /// HashMap bucket overhead is estimated, as in `mem_size_bytes`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MemoryUsage {
+    /// Original packed backend plus any blocked records sealed by prior batches.
     pub packed_base_bytes: usize,
     /// Fingerprint/cursor pairs and per-level vector headers for packed states.
     pub base_register_bytes: usize,
+    /// Cross-edit memo tables, including retained signature child vectors.
+    pub memo_register_bytes: usize,
     /// Live edited occupancy words, child vectors and shared signature headers.
     pub edit_payload_bytes: usize,
     /// State slots, including reference counts, level tags and unused capacity.
@@ -67,10 +166,123 @@ impl MemoryUsage {
     pub fn total_ram_bytes(&self) -> usize {
         self.packed_base_bytes
             + self.base_register_bytes
+            + self.memo_register_bytes
             + self.edit_payload_bytes
             + self.edit_arena_bytes
             + self.edit_register_bytes
             + self.free_list_bytes
+    }
+}
+
+/// Cumulative packed lookup work since construction or the last compaction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UpdateLookupStats {
+    pub base_scans: u64,
+    pub memo_hits: u64,
+    pub memo_entries: usize,
+    pub cached_absences: usize,
+}
+
+/// Physical ordering of records newly written by `freeze_in_place`.
+/// Existing packed and previously sealed records keep their addresses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FreezeOrder {
+    /// Child-first DFS postorder, retained as an experimental comparison.
+    Dfs,
+    /// Parent-first BFS levels, each starting in a fresh block.
+    #[default]
+    Levels,
+}
+
+/// Immutable prototype retaining original packed blocks and blocked edit records.
+/// Update tables and the RAM edit arena are released. Obsolete stored records
+/// remain until explicit compaction. Methods shared with the editable engine
+/// are available through an immutable dereference; mutation requires consuming
+/// `into_mutable` first.
+pub struct FrozenFst<S: BlockStorage = crate::storage::HeapStorage> {
+    graph: MutableFst<S>,
+}
+impl<S: BlockStorage> std::ops::Deref for FrozenFst<S> {
+    type Target = MutableFst<S>;
+    fn deref(&self) -> &Self::Target {
+        &self.graph
+    }
+}
+impl<S: BlockStorage> FrozenFst<S> {
+    /// Resume local edits without copying or scanning retained storage.
+    pub fn into_mutable(self) -> MutableFst<S> {
+        self.into_mutable_with_lookup(UpdateLookup::Indexed)
+    }
+    pub fn into_mutable_with_lookup(self, lookup: UpdateLookup) -> MutableFst<S> {
+        let mut graph = self.graph;
+        graph.lookup = lookup;
+        graph.register = if lookup == UpdateLookup::ScanAll {
+            Vec::new()
+        } else {
+            (0..graph.height()).map(|_| HashMap::new()).collect()
+        };
+        graph.memo = if lookup == UpdateLookup::Memoized {
+            (0..graph.height()).map(|_| HashMap::new()).collect()
+        } else {
+            Vec::new()
+        };
+        graph
+    }
+    /// Stored sealed states, including obsolete records from previous batches.
+    pub fn sealed_node_count(&self) -> usize {
+        self.graph
+            .sealed
+            .as_ref()
+            .map_or(0, |s| s.per_level.iter().sum())
+    }
+    /// Reclaim obsolete records and produce ordinary SGF1-compatible storage.
+    pub fn compact(self) -> Result<PackedFst<S>>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        self.graph.freeze()
+    }
+    pub fn compact_blocks(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        self.graph.compact_blocks()
+    }
+    pub fn compact_recursive(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReservedBlockStorage,
+    {
+        self.graph.compact_recursive()
+    }
+    pub fn compact_depths(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        self.graph.compact_depths()
+    }
+    pub fn compact_streaming(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        self.graph.compact_streaming()
+    }
+}
+
+impl<S: BlockStorage> crate::join::PatternBackend for FrozenFst<S> {
+    type Scan<'a>
+        = crate::path_ops::PatternIter<'a, MutableFstSource<'a, S>>
+    where
+        S: 'a;
+    fn scan_pattern(&self, bounds: [Option<u32>; 3]) -> Self::Scan<'_> {
+        self.graph.scan(bounds)
+    }
+}
+impl<S: BlockStorage> crate::path::AdjacencyBackend for FrozenFst<S> {
+    fn out_neighbors(&self, node: u32, predicate: Option<u32>) -> Vec<u32> {
+        crate::path::AdjacencyBackend::out_neighbors(&self.graph, node, predicate)
+    }
+    fn num_nodes(&self) -> usize {
+        crate::path::AdjacencyBackend::num_nodes(&self.graph)
     }
 }
 
@@ -81,11 +293,18 @@ impl MemoryUsage {
 /// by `compact`/`freeze`, never by rewriting the base on each update.
 pub struct MutableFst<S: BlockStorage = crate::storage::HeapStorage> {
     base: PackedFst<S>,
+    sealed: Option<SealedStorage<S>>,
     root: u64,
+    logical_visits: u128,
     nodes: Vec<Option<Node>>,
     free: Vec<usize>,
     register: Vec<HashMap<Arc<Signature>, usize>>,
     base_register: Option<Vec<Vec<(u64, u64)>>>,
+    // Keys contain only packed child identities. Packed bytes and addresses
+    // remain immutable until compaction, so both hits and absences stay valid.
+    memo: Vec<HashMap<Signature, Option<u64>>>,
+    base_scans: u64,
+    memo_hits: u64,
     lookup: UpdateLookup,
     live_nodes: usize,
 }
@@ -102,7 +321,14 @@ impl<S: BlockStorage> Clone for MutableFstSource<'_, S> {
 }
 impl<S: BlockStorage> BitmapSource for MutableFstSource<'_, S> {
     fn begin_read(&self) -> impl Drop + '_ {
-        self.0.base.read_session()
+        ReadSessions {
+            _base: self.0.base.read_session(),
+            _sealed: self
+                .0
+                .sealed
+                .as_ref()
+                .map(|s| s.storage.begin_read_session()),
+        }
     }
 
     type Cursor = u64;
@@ -117,7 +343,7 @@ impl<S: BlockStorage> BitmapSource for MutableFstSource<'_, S> {
         if cursor == EMPTY {
             0
         } else if cursor & EDIT == 0 {
-            self.0.base.read_word(cursor)
+            self.0.base_word(cursor)
         } else {
             self.0.node(cursor).signature.word
         }
@@ -126,7 +352,7 @@ impl<S: BlockStorage> BitmapSource for MutableFstSource<'_, S> {
     fn follow(&self, cursor: u64, word: u64, slot: u32) -> u64 {
         let index = (word & ((1u64 << slot) - 1)).count_ones() as usize;
         if cursor & EDIT == 0 {
-            cursor + self.0.base.read_delta(cursor, index)
+            self.0.base_child(cursor, index)
         } else {
             self.0.node(cursor).signature.children[index]
         }
@@ -152,12 +378,21 @@ impl<S: BlockStorage> PackedFst<S> {
     pub fn into_mutable_with_lookup(self, lookup: UpdateLookup) -> MutableFst<S> {
         MutableFst {
             root: self.root_addr(),
+            logical_visits: self.visited_count() as u128,
+            sealed: None,
             register: if lookup == UpdateLookup::ScanAll {
                 Vec::new()
             } else {
                 (0..self.height()).map(|_| HashMap::new()).collect()
             },
             base_register: None,
+            memo: if lookup == UpdateLookup::Memoized {
+                (0..self.height()).map(|_| HashMap::new()).collect()
+            } else {
+                Vec::new()
+            },
+            base_scans: 0,
+            memo_hits: 0,
             lookup,
             base: self,
             nodes: Vec::new(),
@@ -168,6 +403,29 @@ impl<S: BlockStorage> PackedFst<S> {
 }
 
 impl<S: BlockStorage> MutableFst<S> {
+    fn base_word(&self, cursor: u64) -> u64 {
+        if cursor & SEALED != 0 {
+            self.sealed.as_ref().unwrap().word(cursor)
+        } else {
+            self.base.read_word(cursor)
+        }
+    }
+    fn base_child(&self, cursor: u64, index: usize) -> u64 {
+        if cursor & SEALED != 0 {
+            self.sealed.as_ref().unwrap().child(cursor, index)
+        } else {
+            cursor + self.base.read_delta(cursor, index)
+        }
+    }
+    fn for_each_base_state(&self, mut emit: impl FnMut(usize, u64, u64)) {
+        self.base.for_each_physical_state(&mut emit);
+        if let Some(sealed) = &self.sealed {
+            sealed.visit(|level, cursor, word| {
+                emit(level, cursor, word);
+                true
+            });
+        }
+    }
     pub fn try_build(
         triples: Vec<Triple>,
         domains: [u64; 3],
@@ -207,14 +465,43 @@ impl<S: BlockStorage> MutableFst<S> {
     pub fn mem_size_bytes(&self) -> usize {
         self.memory_usage().total_ram_bytes()
     }
+    /// Diagnostic work counters and current cross-edit cache population.
+    pub fn update_lookup_stats(&self) -> UpdateLookupStats {
+        UpdateLookupStats {
+            base_scans: self.base_scans,
+            memo_hits: self.memo_hits,
+            memo_entries: self.memo.iter().map(HashMap::len).sum(),
+            cached_absences: self
+                .memo
+                .iter()
+                .flat_map(HashMap::values)
+                .filter(|cursor| cursor.is_none())
+                .count(),
+        }
+    }
     /// Separate packed graph data, live edit payload and online-maintenance
     /// allocations. No query execution or graph mutation is performed.
     pub fn memory_usage(&self) -> MemoryUsage {
         MemoryUsage {
-            packed_base_bytes: self.base.mem_size_bytes(),
+            packed_base_bytes: self.base.mem_size_bytes()
+                + self
+                    .sealed
+                    .as_ref()
+                    .map_or(0, SealedStorage::mem_size_bytes),
             base_register_bytes: self.base_register.as_ref().map_or(0, |levels| {
                 crate::vec_bytes(levels) + levels.iter().map(crate::vec_bytes).sum::<usize>()
             }),
+            memo_register_bytes: crate::vec_bytes(&self.memo)
+                + self
+                    .memo
+                    .iter()
+                    .map(|r| {
+                        r.capacity() * (std::mem::size_of::<(Signature, Option<u64>)>() + 1)
+                            + r.keys()
+                                .map(|s| crate::vec_bytes(&s.children))
+                                .sum::<usize>()
+                    })
+                    .sum::<usize>(),
             edit_arena_bytes: crate::vec_bytes(&self.nodes),
             free_list_bytes: crate::vec_bytes(&self.free),
             edit_register_bytes: crate::vec_bytes(&self.register)
@@ -394,12 +681,12 @@ impl<S: BlockStorage> MutableFst<S> {
         }
         // Bottom-up canonical identities make base comparison possible without
         // expanding right languages. A base state cannot have an edited child.
-        if children.iter().all(|c| c & EDIT == 0)
-            && let Some(cursor) = self.find_base(level, word, &children)
+        let signature = Signature { word, children };
+        if signature.children.iter().all(|c| c & EDIT == 0)
+            && let Some(cursor) = self.find_base(level, &signature)
         {
             return cursor;
         }
-        let signature = Signature { word, children };
         let existing = if self.lookup == UpdateLookup::ScanAll {
             self.nodes.iter().position(|n| {
                 n.as_ref()
@@ -432,7 +719,7 @@ impl<S: BlockStorage> MutableFst<S> {
     }
     /// Build the exact base-state register before a write burst. Otherwise it
     /// is built lazily on the first effective edit (no-op writes do not pay).
-    /// The scan-based experimental strategies skip this preparation.
+    /// The scan-based and memoized strategies skip this preparation.
     /// Retains 16 bytes per packed state plus O(height) vector metadata; scans
     /// physical records, not triples. Hash collisions are checked structurally.
     pub fn prepare_updates(&mut self) {
@@ -443,9 +730,12 @@ impl<S: BlockStorage> MutableFst<S> {
             .base
             .physical_states_per_level()
             .iter()
-            .map(|&n| Vec::with_capacity(n))
+            .enumerate()
+            .map(|(level, &n)| {
+                Vec::with_capacity(n + self.sealed.as_ref().map_or(0, |s| s.per_level[level]))
+            })
             .collect();
-        self.base.for_each_physical_state(|level, cursor, word| {
+        self.for_each_base_state(|level, cursor, word| {
             if word == 0 {
                 return;
             }
@@ -454,10 +744,7 @@ impl<S: BlockStorage> MutableFst<S> {
             } else {
                 word.count_ones() as usize
             };
-            let hash = fingerprint(
-                word,
-                (0..count).map(|i| cursor + self.base.read_delta(cursor, i)),
-            );
+            let hash = fingerprint(word, (0..count).map(|i| self.base_child(cursor, i)));
             levels[level].push((hash, cursor));
         });
         for states in &mut levels {
@@ -465,15 +752,46 @@ impl<S: BlockStorage> MutableFst<S> {
         }
         self.base_register = Some(levels);
     }
-    fn find_base(&self, level: usize, word: u64, children: &[u64]) -> Option<u64> {
+    fn find_base(&mut self, level: usize, signature: &Signature) -> Option<u64> {
+        let word = signature.word;
+        let children = &signature.children;
+        if self.lookup == UpdateLookup::Memoized
+            && let Some(&cursor) = self.memo[level].get(signature)
+        {
+            self.memo_hits += 1;
+            return cursor;
+        }
         if self.lookup != UpdateLookup::Indexed {
-            return self.base.find_physical_state(level, |cursor, stored_word| {
+            self.base_scans += 1;
+            let mut found = self.base.find_physical_state(level, |cursor, stored_word| {
                 stored_word == word
                     && children
                         .iter()
                         .enumerate()
                         .all(|(i, &child)| cursor + self.base.read_delta(cursor, i) == child)
             });
+            if found.is_none()
+                && let Some(sealed) = &self.sealed
+            {
+                sealed.visit(|stored_level, cursor, stored_word| {
+                    if stored_level == level
+                        && stored_word == word
+                        && children
+                            .iter()
+                            .enumerate()
+                            .all(|(i, &child)| sealed.child(cursor, i) == child)
+                    {
+                        found = Some(cursor);
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
+            if self.lookup == UpdateLookup::Memoized {
+                self.memo[level].insert(signature.clone(), found);
+            }
+            return found;
         }
         let states = &self
             .base_register
@@ -486,11 +804,11 @@ impl<S: BlockStorage> MutableFst<S> {
             .take_while(|&&(h, _)| h == hash)
             .map(|&(_, cursor)| cursor)
             .find(|&cursor| {
-                self.base.read_word(cursor) == word
+                self.base_word(cursor) == word
                     && children
                         .iter()
                         .enumerate()
-                        .all(|(i, &c)| cursor + self.base.read_delta(cursor, i) == c)
+                        .all(|(i, &c)| self.base_child(cursor, i) == c)
             })
     }
 
@@ -540,6 +858,16 @@ impl<S: BlockStorage> MutableFst<S> {
                     children.push(source.follow(cursor, word, q));
                 }
             }
+            if self.lookup == UpdateLookup::Memoized && cursor != EMPTY && cursor & EDIT == 0 {
+                // The traversal already identifies this exact packed state.
+                // Seed its signature before changing it, making inverse edits
+                // cheap even if no lookup previously requested this state.
+                let original = Signature { word, children };
+                if !self.memo[level].contains_key(&original) {
+                    self.memo[level].insert(original.clone(), Some(cursor));
+                }
+                children = original.children;
+            }
             let bit = 1u64 << slot;
             if level + 1 == self.height() {
                 if insert {
@@ -560,6 +888,14 @@ impl<S: BlockStorage> MutableFst<S> {
                 }
             }
             child = self.intern(level, word, children);
+            if level != 0 {
+                if old_word == 0 && word != 0 {
+                    self.logical_visits += 1;
+                }
+                if old_word != 0 && word == 0 {
+                    self.logical_visits -= 1;
+                }
+            }
         }
         let old = self.root;
         self.acquire(child);
@@ -606,13 +942,174 @@ impl<S: BlockStorage> MutableFst<S> {
         }
         Ok(count)
     }
-    /// Re-minimize and pack reachable physical states into the chosen backend.
+    /// Borrowing snapshot/backend conversion: rebuild and pack reachable states.
+    /// Preserves this graph and its update metadata. Unlike consuming `freeze`,
+    /// this path retains the source storage until the output is complete.
     /// Does not enumerate root-to-leaf paths or materialize graph relations.
     pub fn to_fst<T: BlockStorage>(&self) -> Result<PackedFst<T>> {
         pack_source(self.source(), self.block_capacity())
     }
-    pub fn freeze(self) -> Result<PackedFst<S>> {
-        self.to_fst()
+    /// Consume this graph and repack its already minimal live states in BFS order.
+    /// Uses the rank-free streaming compactor: reuses edit metadata and retires
+    /// source blocks incrementally, without a global liveness/minimization pass.
+    /// All built-in storage backends support this operation. For compaction
+    /// diagnostics, use [`Self::compact_streaming`].
+    pub fn freeze(self) -> Result<PackedFst<S>>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        self.compact_streaming().map(|(packed, _)| packed)
+    }
+    /// Consume the graph, repack its already minimal live states, and release
+    /// source blocks as soon as their last live record has been copied.
+    /// Uses RAM rank bitmaps and 32/64-bit relocations; does not spill to files.
+    pub fn compact_blocks(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        block_compact::run(self)
+    }
+    /// Experimental depth-scoped compaction. Discovers liveness while copying
+    /// source records, then resolves the preceding output depth block by block.
+    /// Reuses frontier, rank, relocation and block-scratch allocations.
+    pub fn compact_depths(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        block_compact::depths::run(self)
+    }
+    /// The default consuming freeze algorithm, with compaction diagnostics.
+    /// Root-first BFS compaction without rank directories.
+    /// Reuses edit-arena metadata and maps stored addresses with block runs.
+    pub fn compact_streaming(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReclaimingBlockStorage,
+    {
+        streaming::run(self)
+    }
+    /// Experimental child-first compaction into reserved BFS block slots.
+    /// Preserves minimality; retains a dense relocation map for live states.
+    pub fn compact_recursive(self) -> Result<(PackedFst<S>, BlockCompactionStats)>
+    where
+        S: crate::storage::ReservedBlockStorage,
+    {
+        block_compact::recursive::run(self)
+    }
+    /// Seal only live edited states into blocked storage. Original storage is
+    /// moved intact; no packed-base traversal, minimization or repack occurs.
+    /// Retains obsolete base/sealed records until explicit compaction.
+    pub fn freeze_in_place(self) -> Result<FrozenFst<S>> {
+        self.freeze_in_place_with_order(FreezeOrder::default())
+    }
+    pub fn freeze_in_place_with_order(mut self, order: FreezeOrder) -> Result<FrozenFst<S>> {
+        // Free graph-sized maintenance allocations before allocating relocation
+        // workspace. Edit payload is now owned only by arena slots.
+        self.register = Vec::new();
+        self.memo = Vec::new();
+        self.base_register = None;
+        self.free = Vec::new();
+        if self.live_nodes != 0 {
+            if self.sealed.is_none() {
+                self.sealed = Some(SealedStorage::new(self.block_capacity(), self.height()));
+            }
+            let mut locations = vec![EMPTY; self.nodes.len()];
+            fn seal<S: BlockStorage>(
+                graph: &mut MutableFst<S>,
+                cursor: u64,
+                locations: &mut [u64],
+            ) -> Result<u64> {
+                if cursor == EMPTY || cursor & EDIT == 0 {
+                    return Ok(cursor);
+                }
+                let index = (cursor & !EDIT) as usize;
+                if locations[index] != EMPTY {
+                    return Ok(locations[index]);
+                }
+                let node = graph.nodes[index].take().expect("live edit state");
+                let mut signature =
+                    Arc::try_unwrap(node.signature).unwrap_or_else(|arc| (*arc).clone());
+                for child in &mut signature.children {
+                    *child = seal(graph, *child, locations)?;
+                }
+                let address = graph.sealed.as_mut().unwrap().append(
+                    node.level,
+                    signature.word,
+                    &signature.children,
+                )?;
+                locations[index] = address;
+                Ok(address)
+            }
+            if order == FreezeOrder::Levels {
+                // Bucket slots in O(arena slots + height), avoiding a sort.
+                let mut counts = vec![0; self.height()];
+                for node in self.nodes.iter().flatten() {
+                    counts[node.level] += 1;
+                }
+                let mut levels: Vec<Vec<usize>> =
+                    counts.into_iter().map(Vec::with_capacity).collect();
+                for (i, node) in self.nodes.iter().enumerate() {
+                    if let Some(node) = node {
+                        levels[node.level].push(i);
+                    }
+                }
+                let sealed = self.sealed.as_mut().unwrap();
+                let bits = sealed.capacity.trailing_zeros();
+                let mut block = sealed.storage.block_count();
+                // Plan forward references before consuming any arena payload.
+                // Isolate levels, including the first level of each new batch.
+                for slots in levels.iter().filter(|slots| !slots.is_empty()) {
+                    let mut offset = 0;
+                    for &i in slots {
+                        let node = self.nodes[i].as_ref().unwrap();
+                        let len = 9 + 8 * node.signature.children.len();
+                        if offset + len > sealed.capacity {
+                            block += 1;
+                            offset = 0;
+                        }
+                        if block as u64 >= SEALED >> bits {
+                            return Err(TreeError::InvalidConfig(
+                                "sealed FST address space exhausted".into(),
+                            ));
+                        }
+                        locations[i] = SEALED | ((block as u64) << bits) | offset as u64;
+                        offset += len;
+                    }
+                    block += 1;
+                }
+                for slots in levels.iter().filter(|slots| !slots.is_empty()) {
+                    if !sealed.storage.start_new_append_block(sealed.capacity) {
+                        return Err(TreeError::InvalidConfig(
+                            "BFS sealing requires explicit append-block boundaries".into(),
+                        ));
+                    }
+                    for &i in slots {
+                        let node = self.nodes[i].take().expect("live edit state");
+                        let mut signature =
+                            Arc::try_unwrap(node.signature).unwrap_or_else(|arc| (*arc).clone());
+                        for child in &mut signature.children {
+                            if *child != EMPTY && *child & EDIT != 0 {
+                                *child = locations[(*child & !EDIT) as usize];
+                                debug_assert_ne!(*child, EMPTY);
+                            }
+                        }
+                        let address =
+                            sealed.append(node.level, signature.word, &signature.children)?;
+                        debug_assert_eq!(address, locations[i]);
+                    }
+                }
+            }
+            let root = self.root;
+            self.root = seal(&mut self, root, &mut locations)?;
+            // Finish only touches the sealed segment. The original base's
+            // backend, block list, file and compressed chunks are untouched.
+            let sealed = self.sealed.as_mut().unwrap();
+            sealed.storage.finish_append(sealed.capacity);
+        }
+        self.nodes = Vec::new();
+        self.live_nodes = 0;
+        self.base_scans = 0;
+        self.memo_hits = 0;
+        Ok(FrozenFst { graph: self })
     }
     /// Reclaim dead base bytes and reset the edit arena; O(physical states and
     /// transitions). Failure leaves the existing graph intact.
@@ -769,7 +1266,7 @@ impl<S: BlockStorage> crate::path::AdjacencyBackend for MutableFst<S> {
 impl MutableFst<crate::storage_file::FileStorage> {
     /// Packed base bytes on disk; edits remain in the RAM arena until compacted.
     pub fn disk_bytes(&self) -> u64 {
-        self.base.disk_bytes()
+        self.base.disk_bytes() + self.sealed.as_ref().map_or(0, |s| s.storage.file_len)
     }
 }
 
@@ -777,12 +1274,139 @@ impl MutableFst<crate::storage_file::FileStorage> {
 mod tests {
     use super::*;
     #[test]
+    fn block_compaction_preserves_shared_suffixes_and_incremental_visit_counts() {
+        let mut graph = crate::Fst::build(vec![(0, 0, 1), (8, 0, 1)], [16, 4, 16], 512)
+            .into_mutable_with_lookup(UpdateLookup::Memoized);
+        assert!(graph.remove(0, 0, 1).unwrap());
+        for i in 0..64 {
+            let t = (i % 16, 2, (i * 7) % 16);
+            graph.insert(t.0, t.1, t.2).unwrap();
+            assert_eq!(
+                graph.logical_visits,
+                graph
+                    .to_fst::<crate::storage::HeapStorage>()
+                    .unwrap()
+                    .visited_count() as u128
+            );
+            graph.remove(t.0, t.1, t.2).unwrap();
+            assert_eq!(
+                graph.logical_visits,
+                graph
+                    .to_fst::<crate::storage::HeapStorage>()
+                    .unwrap()
+                    .visited_count() as u128
+            );
+        }
+        let expected = graph.to_fst::<crate::storage::HeapStorage>().unwrap();
+        let (packed, stats) = graph.compact_blocks().unwrap();
+        assert_eq!(packed.scan([None; 3]).collect::<Vec<_>>(), vec![(8, 0, 1)]);
+        assert_eq!(packed.visited_count(), expected.visited_count());
+        assert_eq!(stats.released_blocks, stats.source_blocks);
+        let mut graph = packed.into_mutable();
+        graph.remove(8, 0, 1).unwrap();
+        let (packed, _) = graph.compact_blocks().unwrap();
+        assert_eq!(packed.node_count(), 1);
+        assert_eq!(packed.count_matching([None; 3]), 0);
+    }
+    #[test]
+    fn in_place_freeze_handles_empty_singleton_and_full_width_domains() {
+        for domains in [[1, 1, 1], [1 << 32, 1, 1 << 32]] {
+            let graph = crate::Fst::build(vec![], domains, 512).into_mutable();
+            let frozen = graph.freeze_in_place().unwrap();
+            assert_eq!(frozen.sealed_node_count(), 0);
+            assert_eq!(frozen.count_matching([None; 3]), 0);
+            let t = ((domains[0] - 1) as u32, 0, (domains[2] - 1) as u32);
+            let mut graph = frozen.into_mutable_with_lookup(UpdateLookup::Memoized);
+            assert!(graph.insert(t.0, t.1, t.2).unwrap());
+            let frozen = graph.freeze_in_place().unwrap();
+            assert_eq!(frozen.scan([None; 3]).collect::<Vec<_>>(), vec![t]);
+            let mut graph = frozen.into_mutable_with_lookup(UpdateLookup::Memoized);
+            assert!(graph.remove(t.0, t.1, t.2).unwrap());
+            let frozen = graph.freeze_in_place().unwrap();
+            assert_eq!(frozen.count_matching([None; 3]), 0);
+            let compact = frozen.compact().unwrap();
+            assert_eq!(compact.node_count(), 1);
+        }
+    }
+    #[test]
+    fn in_place_freeze_retains_base_bytes_and_releases_all_update_allocations() {
+        let base = crate::Fst::build(
+            (0..4096).map(|s| (s, 0, (s * 197) % 4096)).collect(),
+            [4096, 4, 4096],
+            512,
+        );
+        let bytes = base.serialize();
+        let mut graph = base.into_mutable_with_lookup(UpdateLookup::Memoized);
+        graph.insert(9, 2, 13).unwrap();
+        let live = graph.live_nodes;
+        let frozen = graph.freeze_in_place().unwrap();
+        assert_eq!(frozen.graph.base.serialize(), bytes);
+        assert_eq!(frozen.sealed_node_count(), live);
+        assert!(frozen.graph.nodes.is_empty());
+        assert_eq!(
+            frozen.memory_usage().packed_base_bytes,
+            frozen.mem_size_bytes()
+        );
+        assert!(frozen.contains(9, 2, 13));
+        let mut graph = frozen.into_mutable_with_lookup(UpdateLookup::Memoized);
+        graph.remove(9, 2, 13).unwrap();
+        assert_eq!(graph.live_nodes, 0);
+        let frozen = graph.freeze_in_place().unwrap();
+        assert_eq!(frozen.sealed_node_count(), live); // no new records for inverse edit
+        assert_eq!(frozen.graph.base.serialize(), bytes);
+        assert!(!frozen.contains(9, 2, 13));
+    }
+    #[test]
+    fn memoized_lookups_survive_inverse_edits_and_reset_on_compaction() {
+        let initial: Vec<_> = (0..1024).map(|s| (s, 0, (s * 197 + 73) % 1024)).collect();
+        let mut graph = crate::Fst::build(initial, [1024, 4, 1024], 512)
+            .into_mutable_with_lookup(UpdateLookup::Memoized);
+        let original = graph.root;
+        let before = graph.mem_size_bytes();
+        graph.prepare_updates();
+        assert!(!graph.insert(0, 0, 73).unwrap());
+        assert!(!graph.remove(0, 3, 13).unwrap());
+        assert_eq!(graph.update_lookup_stats(), UpdateLookupStats::default());
+        assert_eq!(graph.mem_size_bytes(), before);
+
+        assert!(graph.insert(9, 2, 13).unwrap());
+        assert!(graph.remove(9, 2, 13).unwrap());
+        let warm = graph.update_lookup_stats();
+        assert!(warm.base_scans > 0);
+        assert!(warm.cached_absences > 0);
+        assert!(warm.memo_entries > warm.cached_absences);
+        for _ in 0..100 {
+            assert!(graph.insert(9, 2, 13).unwrap());
+            assert!(graph.remove(9, 2, 13).unwrap());
+            assert_eq!(graph.root, original);
+            assert_eq!(graph.edited_node_count(), 0);
+        }
+        let after = graph.update_lookup_stats();
+        assert_eq!(after.base_scans, warm.base_scans);
+        assert_eq!(after.memo_entries, warm.memo_entries);
+        assert!(after.memo_hits > warm.memo_hits);
+        let usage = graph.memory_usage();
+        assert_eq!(usage.base_register_bytes, 0);
+        assert!(usage.memo_register_bytes > 0);
+        assert_eq!(usage.total_ram_bytes(), graph.mem_size_bytes());
+        assert!(graph.mem_size_bytes() > before);
+        graph.compact().unwrap();
+        assert_eq!(graph.update_lookup_stats(), UpdateLookupStats::default());
+        assert!(graph.insert(9, 2, 13).unwrap());
+        assert!(graph.update_lookup_stats().base_scans > 0);
+        assert_eq!(graph.memory_usage().base_register_bytes, 0);
+        assert!(graph.remove(9, 2, 13).unwrap());
+        assert_eq!(graph.edited_node_count(), 0);
+    }
+
+    #[test]
     fn lookup_strategies_preserve_live_minimality_and_inverse_updates() {
         use std::collections::HashSet;
         for lookup in [
             UpdateLookup::Indexed,
             UpdateLookup::ScanBase,
             UpdateLookup::ScanAll,
+            UpdateLookup::Memoized,
         ] {
             let initial: Vec<_> = (0..32).map(|s| (s, 0, s ^ 1)).collect();
             let mut graph =
@@ -840,7 +1464,16 @@ mod tests {
         let desired = states[1];
         states[0].0 = desired.0; // forced collision, wrong candidate first
         let word = graph.base.read_word(desired.1);
-        assert_eq!(graph.find_base(level, word, &[]), Some(desired.1));
+        assert_eq!(
+            graph.find_base(
+                level,
+                &Signature {
+                    word,
+                    children: vec![]
+                }
+            ),
+            Some(desired.1)
+        );
     }
     #[test]
     fn inverse_edits_reuse_base_identity_and_bound_the_arena() {
@@ -890,12 +1523,40 @@ mod tests {
         assert_eq!(graph.count_matching([None; 3]), 1 << 48);
         assert!(graph.remove(1, 0, 2).unwrap());
         assert_eq!(graph.count_matching([None; 3]), (1 << 48) - 1);
-        let packed = graph.freeze().unwrap();
+        let frozen = graph.freeze_in_place().unwrap();
+        assert!(frozen.sealed_node_count() <= height);
+        assert_eq!(frozen.count_matching([None; 3]), (1 << 48) - 1);
+        let graph = frozen.into_mutable();
+        let (packed, stats) = graph.compact_blocks().unwrap();
+        assert_eq!(stats.released_blocks, stats.source_blocks);
         assert!(packed.node_count() <= 2 * height as u64);
         assert_eq!(packed.count_matching([None; 3]), (1 << 48) - 1);
         assert!(packed.contains(2, 0, 2));
         assert!(!packed.contains(1, 0, 2));
         let restored = crate::Fst::deserialize(&packed.serialize()).unwrap();
         assert_eq!(restored.count_matching([None; 3]), (1 << 48) - 1);
+        let (packed, stats) = restored.into_mutable().compact_recursive().unwrap();
+        assert_eq!(stats.released_blocks, stats.source_blocks);
+        assert_eq!(packed.count_matching([None; 3]), (1 << 48) - 1);
+        assert!(packed.contains(2, 0, 2));
+        assert!(!packed.contains(1, 0, 2));
+        let restored = crate::Fst::deserialize(&packed.serialize()).unwrap();
+        assert_eq!(restored.count_matching([None; 3]), (1 << 48) - 1);
+        let (packed, stats) = restored.into_mutable().compact_depths().unwrap();
+        assert_eq!(stats.released_blocks, stats.source_blocks);
+        assert_eq!(packed.count_matching([None; 3]), (1 << 48) - 1);
+        assert!(packed.contains(2, 0, 2));
+        assert!(!packed.contains(1, 0, 2));
+        let restored = crate::Fst::deserialize(&packed.serialize()).unwrap();
+        assert_eq!(restored.count_matching([None; 3]), (1 << 48) - 1);
+        let mut graph = restored.into_mutable();
+        graph.remove(2, 0, 3).unwrap();
+        let edit_states = graph.live_nodes;
+        let (packed, stats) = graph.compact_streaming().unwrap();
+        assert_eq!(stats.rank_lookups, 0);
+        assert_eq!(stats.forwarded_edit_states, edit_states);
+        assert_eq!(packed.count_matching([None; 3]), (1 << 48) - 2);
+        assert!(!packed.contains(1, 0, 2));
+        assert!(!packed.contains(2, 0, 3));
     }
 }

@@ -1,0 +1,37 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cycles:u'
+# Event count (approx.): 3305780395
+#
+# Overhead  Command          Shared Object       Symbol                                                                                                                                                                                                                                                                                                                                      
+# ........  ...............  ..................  ............................................................................................................................................................................................................................................................................................................................................
+#
+    29.14%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::freeze
+    19.22%  fst_freeze_prof  fst_freeze_profile  [.] <std::hash::random::DefaultHasher as core::hash::Hasher>::write
+     7.38%  fst_freeze_prof  libc.so.6           [.] cfree@GLIBC_2.2.5
+     6.03%  fst_freeze_prof  libc.so.6           [.] unlink_chunk.isra.0
+     5.57%  fst_freeze_prof  libc.so.6           [.] _int_malloc
+     4.53%  fst_freeze_prof  fst_freeze_profile  [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&u64>
+     3.26%  fst_freeze_prof  fst_freeze_profile  [.] <hashbrown::map::HashMap<(u64, alloc::vec::Vec<u32>), u32, std::hash::random::RandomState>>::rustc_entry
+     3.05%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::path_fst::PackedFst<s_graph::storage::HeapStorage>>::pack_nodes
+     2.92%  fst_freeze_prof  fst_freeze_profile  [.] <std::hash::random::DefaultHasher as core::hash::Hasher>::write
+     2.15%  fst_freeze_prof  fst_freeze_profile  [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&(u64, alloc::vec::Vec<u32>)>
+     1.79%  fst_freeze_prof  fst_freeze_profile  [.] <alloc::vec::Vec<u32> as alloc::vec::spec_from_iter::SpecFromIter<u32, core::iter::adapters::map::Map<core::slice::iter::Iter<u32>, s_graph::mutable_fst::pack_source<s_graph::mutable_fst::MutableFstSource<s_graph::storage_compressed::CompressedStorage>, s_graph::storage_compressed::CompressedStorage>::{closure#3}>>>::from_iter
+     1.66%  fst_freeze_prof  fst_freeze_profile  [.] <hashbrown::raw::RawTable<((u64, alloc::vec::Vec<u32>), u32)>>::reserve_rehash::<hashbrown::map::make_hasher<(u64, alloc::vec::Vec<u32>), u32, std::hash::random::RandomState>::{closure#0}>
+     1.58%  fst_freeze_prof  fst_freeze_profile  [.] <hashbrown::raw::RawTable<(u64, u32)>>::reserve_rehash::<hashbrown::map::make_hasher<u64, u32, std::hash::random::RandomState>::{closure#0}>
+     1.55%  fst_freeze_prof  fst_freeze_profile  [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&(u64, alloc::vec::Vec<u32>)>
+     1.47%  fst_freeze_prof  libc.so.6           [.] _int_free_merge_chunk
+     1.35%  fst_freeze_prof  libc.so.6           [.] _int_free_create_chunk
+     1.12%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned_erms
+     1.06%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::MutableFst>::base_child
+     0.53%  fst_freeze_prof  fst_freeze_profile  [.] <alloc::raw_vec::RawVecInner>::finish_grow
+     0.53%  fst_freeze_prof  libc.so.6           [.] __memmove_avx_unaligned
+     0.50%  fst_freeze_prof  libc.so.6           [.] __libc_malloc2
+
+
+#
+# (Tip: To change sampling frequency to 100 Hz: perf record -F 100)
+#

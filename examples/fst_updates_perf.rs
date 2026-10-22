@@ -4,7 +4,7 @@ use s_graph::automata::{
     Term::{Const as C, Var as V},
 };
 use s_graph::tree::RadixTreeDfsInterleavedVarSkipUnrolledGeneric as Tree;
-use s_graph::{BlockStorage, PackedFst, Triple};
+use s_graph::{PackedFst, Triple};
 use std::{hint::black_box, ops::ControlFlow, time::Instant};
 
 fn mix(mut x: u32) -> u32 {
@@ -30,7 +30,7 @@ fn visit<P: Search>(plan: &P, ws: &mut P::Workspace) -> usize {
     });
     rows
 }
-fn run<S: BlockStorage>(
+fn run<S: s_graph::storage::ReclaimingBlockStorage>(
     name: &str,
     n: u32,
     edits: usize,

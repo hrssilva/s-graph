@@ -1,0 +1,93 @@
+{
+  "recorded_utc": "2026-10-22T15:25:53.101067+00:00",
+  "binary_sha256": "20f05fd1bf5e62f0b3fceeef1731c633f076a71ae10b2a38f0929945a68748d8",
+  "source_sha256": {
+    "examples/fst_freeze_profile.rs": "d410ea730c1469c985add31761c62cdd313463686eba40b40a7a34a3d1d5702c",
+    "examples/join/prototype/fst_freeze_profile.py": "2be47626acabd203ec609533a725a6844534efc87d8fc08313b34cb807244ea6",
+    "src/fst_block_compact.rs": "3b8ba7246fec72ea4950eb981de930205e6cc3cf85713957c3955b32b4a887e8",
+    "src/fst_depth_compact.rs": "f308a24b5336646ac4da8310dfe8edc75e3290cefa258f38dfb0393a647ecbc1",
+    "src/fst_stream_compact.rs": "18626c559570eeb6aa2285abb0773747a5b9c48442e7f80d1dfc4546341c2060",
+    "src/mutable_fst.rs": "0d33c4011f2d4210abb8a503139f668481c978ab4f5ea616da91806316eb8221",
+    "src/path_fst.rs": "83521c0ea9af9590f7eee660165921586d5978ce02f9d3c4caf47c96a961602b",
+    "src/storage.rs": "9ddb8c7f34ff7dd86fc654751975065ae9196a342801738b3f7973c2991cbd9c",
+    "src/storage_file.rs": "75aa0f3db9d04c618d5ac5ba0c3cfa51c7d6954602fe4b72e7a96cbe230a5eb1",
+    "src/storage_compressed.rs": "4ef7cc870a577afbf9c6ccf490dcbc683f8516051e3211880901209e1810c920"
+  },
+  "cases": [
+    [
+      1000000,
+      "heap",
+      "packed",
+      "depths"
+    ],
+    [
+      1000000,
+      "heap",
+      "packed",
+      "streaming"
+    ],
+    [
+      1000000,
+      "file",
+      "packed",
+      "depths"
+    ],
+    [
+      1000000,
+      "file",
+      "packed",
+      "streaming"
+    ],
+    [
+      1000000,
+      "compressed",
+      "packed",
+      "depths"
+    ],
+    [
+      1000000,
+      "compressed",
+      "packed",
+      "streaming"
+    ],
+    [
+      4000000,
+      "heap",
+      "packed",
+      "depths"
+    ],
+    [
+      4000000,
+      "heap",
+      "packed",
+      "streaming"
+    ],
+    [
+      4000000,
+      "file",
+      "packed",
+      "depths"
+    ],
+    [
+      4000000,
+      "file",
+      "packed",
+      "streaming"
+    ],
+    [
+      4000000,
+      "compressed",
+      "packed",
+      "depths"
+    ],
+    [
+      4000000,
+      "compressed",
+      "packed",
+      "streaming"
+    ]
+  ],
+  "trials": 3,
+  "stat_only": true,
+  "perf_version": "perf version 7.2.5"
+}

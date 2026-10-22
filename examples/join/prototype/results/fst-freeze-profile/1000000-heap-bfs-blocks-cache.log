@@ -1,0 +1,8 @@
+Running as unit: sgraph-freeze-1000000-heap-bfs-blocks-cache-2457643.service; invocation ID: c17d42c7735c4af5b7181e86c7e57365
+Events disabled
+Events enabled
+Events disabled
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 3.164s
+             CPU time consumed: 3.155s

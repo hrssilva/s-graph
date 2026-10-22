@@ -77,6 +77,8 @@ pub mod tree_source;
 #[cfg(feature = "heap")]
 pub use mutable_fst::MutableFst as EditableFst;
 #[cfg(feature = "heap")]
+pub use mutable_fst::{BlockCompactionStats, FreezeOrder, FrozenFst};
+#[cfg(feature = "heap")]
 pub type MutableFst = EditableFst<storage::HeapStorage>;
 #[cfg(feature = "file")]
 pub type MutableFileFst = EditableFst<storage_file::FileStorage>;

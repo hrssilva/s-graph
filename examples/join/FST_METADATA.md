@@ -94,6 +94,9 @@ strict RAM budget. Compacting and dropping update metadata after a write burst
 is the existing alternative for read-mostly use. No adaptive policy or bounded
 cache was added based on this small experiment.
 
+A subsequent [cross-edit memoization prototype](FST_LAZY_INDEX.md) adds the
+explicit `UpdateLookup::Memoized` alternative, without changing the default.
+
 ## Protocol and validation
 
 - 4,096 vertices / 32 updates on heap, file and compressed storage; 65,536

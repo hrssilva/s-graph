@@ -1,0 +1,38 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cycles:u'
+# Event count (approx.): 2303591269
+#
+# Overhead  Command          Shared Object       Symbol                                                                                         
+# ........  ...............  ..................  ...............................................................................................
+#
+    23.01%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::RankBits>::rank
+    10.02%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_var
+     8.54%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>
+     7.72%  fst_freeze_prof  fst_freeze_profile  [.] s_graph::mutable_fst::block_compact::run::<s_graph::storage_file::FileStorage>::{closure#9}
+     6.47%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage>::ensure_stack_entry
+     3.43%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::index
+     3.20%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d162
+     2.81%  fst_freeze_prof  [unknown]           [k] 0xffffffff8882adc5
+     1.71%  fst_freeze_prof  libc.so.6           [.] __memset_avx2_unaligned_erms
+     1.53%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::storage_file::FileStorage as s_graph::storage::BlockStorage>::read_u64
+     1.15%  fst_freeze_prof  [unknown]           [k] 0xffffffff8882ada4
+     1.02%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270e5
+     1.00%  fst_freeze_prof  [unknown]           [k] 0xffffffff87600116
+     0.70%  fst_freeze_prof  [unknown]           [k] 0xffffffff8806deeb
+     0.67%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c616da
+     0.66%  fst_freeze_prof  [unknown]           [k] 0xffffffff87f0aa62
+     0.64%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c5d110
+     0.62%  fst_freeze_prof  [unknown]           [k] 0xffffffffc0673e80
+     0.58%  fst_freeze_prof  fst_freeze_profile  [.] <s_graph::mutable_fst::block_compact::Marks>::mark
+     0.57%  fst_freeze_prof  [unknown]           [k] 0xffffffff87dbea7e
+     0.55%  fst_freeze_prof  [unknown]           [k] 0xffffffff87c60ee7
+     0.52%  fst_freeze_prof  [unknown]           [k] 0xffffffff888270b0
+
+
+#
+# (Tip: Use --symfs <dir>[,layout] if your symbol files are in non-standard locations.)
+#
