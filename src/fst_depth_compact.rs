@@ -360,6 +360,7 @@ pub(in crate::mutable_fst) fn run<S: ReclaimingBlockStorage>(
     graph.register = Vec::new();
     graph.memo = Vec::new();
     graph.base_register = None;
+    graph.sampled_register = None;
     graph.free = Vec::new();
     if graph.source().word(graph.root) == 0 {
         drop(graph);

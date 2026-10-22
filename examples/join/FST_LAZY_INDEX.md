@@ -25,6 +25,11 @@ println!("{:?}", graph.update_lookup_stats());
 println!("{:?}", graph.memory_usage());
 ```
 
+The subsequent [sampled-index and depth-start experiment](FST_SAMPLED_INDEX.md)
+adds `UpdateLookup::Sampled(rate)` and makes packed scan misses jump directly
+to the requested depth after a one-time depth-start preparation. The results
+below predate that scan improvement.
+
 ## Algorithm and invariants
 
 The immutable packed base makes cross-edit memoization straightforward. A

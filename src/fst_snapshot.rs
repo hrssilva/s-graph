@@ -181,6 +181,7 @@ impl<S: BlockStorage> PackedFst<S> {
             scan_layout,
             visited_count,
             level_addrs: std::sync::OnceLock::new(),
+            level_starts: std::sync::OnceLock::new(),
         };
         graph.validate_snapshot(&graph.level_node_counts)?;
         Ok(graph)

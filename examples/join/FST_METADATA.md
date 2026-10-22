@@ -38,6 +38,10 @@ let mut graph = packed.into_mutable_with_lookup(UpdateLookup::ScanAll);
 loading and ordinary `into_mutable()` still choose indexed updates. The default
 was not changed.
 
+The later [sampled-index/depth-start experiment](FST_SAMPLED_INDEX.md) removes
+repeated parsing of earlier packed depths. The scan timings below predate that
+change and remain historical comparisons.
+
 ## Results
 
 Two fixtures have two initial triples per vertex: a very small, highly shared

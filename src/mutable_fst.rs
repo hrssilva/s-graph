@@ -108,6 +108,9 @@ impl<S: BlockStorage> SealedStorage<S> {
 pub enum UpdateLookup {
     #[default]
     Indexed,
+    /// Keep every packed-state address, but only every `rate`th sorted fingerprint.
+    /// Rate must be nonzero. Candidate intervals are checked structurally.
+    Sampled(usize),
     /// Scan packed records; retain the edited-state lookup table.
     ScanBase,
     /// Scan packed records and live edit slots; retain neither lookup index.
@@ -117,6 +120,46 @@ pub enum UpdateLookup {
     /// Remember packed states on edited paths; scan only uncached signatures.
     /// The edited-state lookup table is retained. Compaction clears the memo.
     Memoized,
+}
+
+struct SampledLevel {
+    addresses: Vec<u64>,
+    fingerprints: Vec<u64>,
+}
+impl SampledLevel {
+    fn from_sorted(states: Vec<(u64, u64)>, rate: usize) -> Self {
+        let fingerprints = states.iter().step_by(rate).map(|&(h, _)| h).collect();
+        let mut addresses: Vec<u64> = states.into_iter().map(|(_, address)| address).collect();
+        // In-place Vec collection may reuse the 16-byte pair allocation.
+        // Release its excess capacity before reporting the sampled index size.
+        addresses.shrink_to_fit();
+        Self {
+            addresses,
+            fingerprints,
+        }
+    }
+    fn candidates(&self, hash: u64, rate: usize) -> std::ops::Range<usize> {
+        // Include the interval preceding the first equal sample: a collision
+        // range can start between samples and extend across several of them.
+        let lower = self.fingerprints.partition_point(|&h| h < hash);
+        let upper = if self.fingerprints.get(lower) == Some(&hash) {
+            lower + 1 + self.fingerprints[lower + 1..].partition_point(|&h| h == hash)
+        } else {
+            lower
+        };
+        // A preceding sample is strictly smaller than hash, so skip that
+        // known nonmatch. With rate 1 this becomes the exact collision range.
+        let start = if lower == 0 {
+            0
+        } else {
+            (lower - 1).saturating_mul(rate).saturating_add(1)
+        };
+        let end = upper.saturating_mul(rate).min(self.addresses.len());
+        start..end
+    }
+    fn bytes(&self) -> usize {
+        crate::vec_bytes(&self.addresses) + crate::vec_bytes(&self.fingerprints)
+    }
 }
 
 fn fingerprint(word: u64, children: impl ExactSizeIterator<Item = u64>) -> u64 {
@@ -214,6 +257,10 @@ impl<S: BlockStorage> FrozenFst<S> {
         self.into_mutable_with_lookup(UpdateLookup::Indexed)
     }
     pub fn into_mutable_with_lookup(self, lookup: UpdateLookup) -> MutableFst<S> {
+        assert!(
+            lookup != UpdateLookup::Sampled(0),
+            "sample rate must be nonzero"
+        );
         let mut graph = self.graph;
         graph.lookup = lookup;
         graph.register = if lookup == UpdateLookup::ScanAll {
@@ -300,6 +347,7 @@ pub struct MutableFst<S: BlockStorage = crate::storage::HeapStorage> {
     free: Vec<usize>,
     register: Vec<HashMap<Arc<Signature>, usize>>,
     base_register: Option<Vec<Vec<(u64, u64)>>>,
+    sampled_register: Option<Vec<SampledLevel>>,
     // Keys contain only packed child identities. Packed bytes and addresses
     // remain immutable until compaction, so both hits and absences stay valid.
     memo: Vec<HashMap<Signature, Option<u64>>>,
@@ -375,7 +423,14 @@ impl<S: BlockStorage> PackedFst<S> {
     }
     /// Choose an experimental suffix lookup strategy without changing the
     /// represented language, update semantics or reclamation algorithm.
+    /// `Sampled(rate)` selects the fingerprint sampling interval at construction.
+    /// Panics if the sample rate is zero. Preparation remains lazy; call
+    /// [`MutableFst::prepare_updates`] to pay its cost before the first edit.
     pub fn into_mutable_with_lookup(self, lookup: UpdateLookup) -> MutableFst<S> {
+        assert!(
+            lookup != UpdateLookup::Sampled(0),
+            "sample rate must be nonzero"
+        );
         MutableFst {
             root: self.root_addr(),
             logical_visits: self.visited_count() as u128,
@@ -386,6 +441,7 @@ impl<S: BlockStorage> PackedFst<S> {
                 (0..self.height()).map(|_| HashMap::new()).collect()
             },
             base_register: None,
+            sampled_register: None,
             memo: if lookup == UpdateLookup::Memoized {
                 (0..self.height()).map(|_| HashMap::new()).collect()
             } else {
@@ -490,6 +546,8 @@ impl<S: BlockStorage> MutableFst<S> {
                     .map_or(0, SealedStorage::mem_size_bytes),
             base_register_bytes: self.base_register.as_ref().map_or(0, |levels| {
                 crate::vec_bytes(levels) + levels.iter().map(crate::vec_bytes).sum::<usize>()
+            }) + self.sampled_register.as_ref().map_or(0, |levels| {
+                crate::vec_bytes(levels) + levels.iter().map(SampledLevel::bytes).sum::<usize>()
             }),
             memo_register_bytes: crate::vec_bytes(&self.memo)
                 + self
@@ -720,10 +778,16 @@ impl<S: BlockStorage> MutableFst<S> {
     /// Build the exact base-state register before a write burst. Otherwise it
     /// is built lazily on the first effective edit (no-op writes do not pay).
     /// The scan-based and memoized strategies skip this preparation.
-    /// Retains 16 bytes per packed state plus O(height) vector metadata; scans
+    /// Indexed retains 16 bytes per packed state; Sampled(rate) retains roughly
+    /// 8 + 8/rate bytes per state. Both add O(height) vector metadata. Scans
     /// physical records, not triples. Hash collisions are checked structurally.
     pub fn prepare_updates(&mut self) {
-        if self.lookup != UpdateLookup::Indexed || self.base_register.is_some() {
+        if !matches!(
+            self.lookup,
+            UpdateLookup::Indexed | UpdateLookup::Sampled(_)
+        ) || self.base_register.is_some()
+            || self.sampled_register.is_some()
+        {
             return;
         }
         let mut levels: Vec<Vec<(u64, u64)>> = self
@@ -750,7 +814,16 @@ impl<S: BlockStorage> MutableFst<S> {
         for states in &mut levels {
             states.sort_unstable();
         }
-        self.base_register = Some(levels);
+        if let UpdateLookup::Sampled(rate) = self.lookup {
+            self.sampled_register = Some(
+                levels
+                    .into_iter()
+                    .map(|states| SampledLevel::from_sorted(states, rate))
+                    .collect(),
+            );
+        } else {
+            self.base_register = Some(levels);
+        }
     }
     fn find_base(&mut self, level: usize, signature: &Signature) -> Option<u64> {
         let word = signature.word;
@@ -760,6 +833,23 @@ impl<S: BlockStorage> MutableFst<S> {
         {
             self.memo_hits += 1;
             return cursor;
+        }
+        if let UpdateLookup::Sampled(rate) = self.lookup {
+            let states = &self
+                .sampled_register
+                .as_ref()
+                .expect("prepared sampled register")[level];
+            let hash = fingerprint(word, children.iter().copied());
+            return states.addresses[states.candidates(hash, rate)]
+                .iter()
+                .copied()
+                .find(|&cursor| {
+                    self.base_word(cursor) == word
+                        && children
+                            .iter()
+                            .enumerate()
+                            .all(|(i, &c)| self.base_child(cursor, i) == c)
+                });
         }
         if self.lookup != UpdateLookup::Indexed {
             self.base_scans += 1;
@@ -1007,6 +1097,7 @@ impl<S: BlockStorage> MutableFst<S> {
         self.register = Vec::new();
         self.memo = Vec::new();
         self.base_register = None;
+        self.sampled_register = None;
         self.free = Vec::new();
         if self.live_nodes != 0 {
             if self.sealed.is_none() {
@@ -1404,6 +1495,11 @@ mod tests {
         use std::collections::HashSet;
         for lookup in [
             UpdateLookup::Indexed,
+            UpdateLookup::Sampled(1),
+            UpdateLookup::Sampled(4),
+            UpdateLookup::Sampled(8),
+            UpdateLookup::Sampled(16),
+            UpdateLookup::Sampled(32),
             UpdateLookup::ScanBase,
             UpdateLookup::ScanAll,
             UpdateLookup::Memoized,
@@ -1439,7 +1535,7 @@ mod tests {
                 assert!(graph.remove(i, 2, (i * 7) % 64).unwrap());
                 assert!(graph.insert(i, 0, i ^ 1).unwrap());
                 assert_eq!(graph.edited_node_count(), 0);
-                if lookup != UpdateLookup::Indexed {
+                if !matches!(lookup, UpdateLookup::Indexed | UpdateLookup::Sampled(_)) {
                     assert_eq!(graph.memory_usage().base_register_bytes, 0);
                 }
                 if lookup == UpdateLookup::ScanAll {
@@ -1448,6 +1544,68 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn sampled_ranges_cover_collisions_boundaries_and_missing_hashes() {
+        let hashes = [1, 1, 1, 1, 1, 3, 4, 4, 4, 4, 4, 4, 8, 9, 9, u64::MAX];
+        for rate in [1, 2, 4, 8, 16, 32, usize::MAX] {
+            let states = hashes
+                .iter()
+                .enumerate()
+                .map(|(i, &h)| (h, i as u64))
+                .collect();
+            let index = SampledLevel::from_sorted(states, rate);
+            assert_eq!(index.addresses.capacity(), hashes.len());
+            for h in [0, 1, 2, 3, 4, 5, 8, 9, 10, u64::MAX] {
+                let range = index.candidates(h, rate);
+                for (i, &stored) in hashes.iter().enumerate() {
+                    if stored == h {
+                        assert!(range.contains(&i), "rate={rate} hash={h}");
+                    }
+                }
+                assert!(range.end <= hashes.len());
+            }
+            assert!(
+                SampledLevel::from_sorted(Vec::new(), rate)
+                    .candidates(0, rate)
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn depth_starts_find_all_physical_states_without_a_state_directory() {
+        for triples in [
+            Vec::new(),
+            (0..4096u32).map(|s| (s, s % 4, (s * 197) % 4096)).collect(),
+        ] {
+            let graph = crate::Fst::build(triples, [4096, 4, 4096], 512);
+            let before_bytes = graph.mem_size_bytes();
+            let snapshot = graph.serialize();
+            let mut targets = vec![Vec::new(); graph.height()];
+            graph
+                .for_each_physical_state(|level, cursor, word| targets[level].push((cursor, word)));
+            for (level, states) in targets.iter().enumerate().rev() {
+                // Last record forces the whole requested level to be scanned.
+                if let Some(&(target, word)) = states.last() {
+                    assert_eq!(
+                        graph.find_physical_state(level, |c, w| c == target && w == word),
+                        Some(target)
+                    );
+                }
+                assert_eq!(graph.find_physical_state(level, |_, _| false), None);
+            }
+            assert_eq!(graph.mem_size_bytes() - before_bytes, 8 * graph.height());
+            assert_eq!(graph.serialize(), snapshot);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "sample rate must be nonzero")]
+    fn zero_sample_rate_is_rejected_at_construction() {
+        crate::Fst::build(Vec::new(), [16, 4, 16], 512)
+            .into_mutable_with_lookup(UpdateLookup::Sampled(0));
+    }
+
     #[test]
     fn packed_register_collisions_require_exact_structural_equality() {
         let mut graph = crate::Fst::build(

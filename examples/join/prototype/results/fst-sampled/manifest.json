@@ -1,0 +1,93 @@
+{
+  "recorded_utc": "2026-10-22T16:56:20.409961+00:00",
+  "before_binary_sha256": "593e832bb6399611b2323afc98e0569cbf796a250cc1847022cdc6077c6283e8",
+  "after_binary_sha256": "e8c289afab8fafcab594ee0b5a7fe70e8cccfe1aaf6156bd6e39320c12013a68",
+  "after_source_sha256": {
+    "src/mutable_fst.rs": "5bb3491733e5032ac618a990cec34ad2aa83ff3f491065cfa42e33c9f57bca3a",
+    "src/path_fst.rs": "1a04ba853a496928d67a2eb0aeb02d9e0d02f27ab6d7cbb6996780e4f2538850",
+    "src/fst_snapshot.rs": "0696bf698d1de63d6c35ec998e6fca35489e288a168c663b62c8518dbd54742d",
+    "examples/fst_lazy_perf.rs": "dfcf97ccd71265308f83ab44c8b49eda01b1ac1e2ea270bdfcc25c2a6d1a1a07"
+  },
+  "build_command": "CARGO_TARGET_DIR=target/automata-prototype cargo rustc --offline --all-features --profile profiling --jobs 1 --example fst_lazy_perf -- -C link-arg=-Wl,--threads=1",
+  "initial_commands": [
+    {
+      "command": [
+        "target/automata-tmp/fst-lazy-before-depth-starts",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ],
+      "output": "examples/join/prototype/results/fst-sampled/before-65536-heap.jsonl"
+    },
+    {
+      "command": [
+        "target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ],
+      "output": "examples/join/prototype/results/fst-sampled/after-65536-heap.jsonl"
+    }
+  ],
+  "additional_commands": [
+    {
+      "command": [
+        "target/automata-tmp/fst-lazy-before-depth-starts",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ],
+      "output": "examples/join/prototype/results/fst-sampled/before-65536-heap-2.jsonl"
+    },
+    {
+      "command": [
+        "target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ],
+      "output": "examples/join/prototype/results/fst-sampled/after-65536-heap-2.jsonl"
+    },
+    {
+      "command": [
+        "target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ],
+      "output": "examples/join/prototype/results/fst-sampled/after-65536-heap-3.jsonl"
+    },
+    {
+      "command": [
+        "target/automata-tmp/fst-lazy-before-depth-starts",
+        "65536",
+        "64",
+        "3",
+        "heap"
+      ],
+      "output": "examples/join/prototype/results/fst-sampled/before-65536-heap-3.jsonl"
+    },
+    {
+      "command": [
+        "target/automata-prototype/profiling/examples/fst_lazy_perf",
+        "4096",
+        "32",
+        "3",
+        "all"
+      ],
+      "output": "examples/join/prototype/results/fst-sampled/after-4096-all.jsonl"
+    }
+  ],
+  "notes": [
+    "Before binary was built and copied before the depth-start/sample changes.",
+    "Sequential wall times, unpinned; no concurrent builds/tests during after runs or repeated before runs.",
+    "First before run overlapped initial debug compilation; use the two repeated before runs for before/after timing comparisons.",
+    "Memory is retained allocation capacity, not RSS; preparation workspace is not measured.",
+    "All after files were regenerated after skipping known nonmatching preceding samples and avoiding the second binary search for unequal sample keys."
+  ]
+}

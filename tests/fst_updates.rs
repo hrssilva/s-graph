@@ -87,6 +87,7 @@ fn check<S: BlockStorage>(graph: &EditableFst<S>, expected: &BTreeSet<Triple>) {
 fn exercise<S: s_graph::storage::ReclaimingBlockStorage>() {
     for lookup in [
         s_graph::mutable_fst::UpdateLookup::Indexed,
+        s_graph::mutable_fst::UpdateLookup::Sampled(8),
         s_graph::mutable_fst::UpdateLookup::Memoized,
     ] {
         exercise_lookup::<S>(lookup);
@@ -262,6 +263,7 @@ fn in_place<S: s_graph::storage::ReservedBlockStorage>() {
         for order in [FreezeOrder::Dfs, FreezeOrder::Levels] {
             for lookup in [
                 UpdateLookup::Indexed,
+                UpdateLookup::Sampled(8),
                 UpdateLookup::ScanBase,
                 UpdateLookup::ScanAll,
                 UpdateLookup::Memoized,

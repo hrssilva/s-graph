@@ -1788,6 +1788,8 @@ pub struct PackedFst<S: BlockStorage> {
     /// Lazily retained only by diagnostic sweep comparisons. Default queries
     /// and serialization do not allocate this per-node directory.
     level_addrs: std::sync::OnceLock<Vec<Vec<u64>>>,
+    /// Update scans need one start cursor per depth, not a per-state directory.
+    level_starts: std::sync::OnceLock<Vec<u64>>,
 }
 
 impl<S: BlockStorage> PackedFst<S> {
@@ -1928,6 +1930,7 @@ impl<S: BlockStorage> PackedFst<S> {
             level_node_counts: addr_of.iter().map(Vec::len).collect(),
             visited_count,
             level_addrs: std::sync::OnceLock::new(),
+            level_starts: std::sync::OnceLock::new(),
         })
     }
 
@@ -1962,21 +1965,45 @@ impl<S: BlockStorage> PackedFst<S> {
             level_child_cell_bits_cache, dimension_sizes, block_capacity,
             capacity_bits: block_capacity.trailing_zeros(), capacity_mask: block_capacity as u64 - 1,
             node_count: level_node_counts.iter().sum::<usize>() as u64, level_node_counts,
-            scan_layout, visited_count, level_addrs: std::sync::OnceLock::new() }
+            scan_layout, visited_count, level_addrs: std::sync::OnceLock::new(), level_starts: std::sync::OnceLock::new() }
     }
 
-    /// Allocation-free suffix lookup without a retained state directory.
-    /// Earlier levels must be parsed to locate the requested level's records.
-    pub(crate) fn find_physical_state(&self, target_level: usize, mut matches: impl FnMut(u64, u64) -> bool) -> Option<u64> {
-        let (mut block, mut offset) = (0, 0);
-        for (level, &count) in self.level_node_counts[..=target_level].iter().enumerate() {
-            for _ in 0..count {
-                if offset == self.storage.block_len(block) { block += 1; offset = 0; }
-                let cursor = ((block as u64) << self.capacity_bits) | offset as u64;
-                let word = self.storage.read_u64(block, offset);
-                if level == target_level && matches(cursor, word) { return Some(cursor); }
-                offset += WORD_BYTES + if level + 1 < self.height { DELTA_BYTES as usize * word.count_ones() as usize } else { 0 };
+    /// Build only O(height) starting cursors, once, without a state directory.
+    fn physical_level_starts(&self) -> &[u64] {
+        self.level_starts.get_or_init(|| {
+            let mut starts = Vec::with_capacity(self.height);
+            let (mut block, mut offset) = (0, 0);
+            for (level, &count) in self.level_node_counts.iter().enumerate() {
+                if block < self.storage.block_count() && offset == self.storage.block_len(block) {
+                    block += 1; offset = 0;
+                }
+                starts.push(((block as u64) << self.capacity_bits) | offset as u64);
+                if level + 1 == self.height { break; } // no later start needs leaf decoding
+                for _ in 0..count {
+                    if offset == self.storage.block_len(block) { block += 1; offset = 0; }
+                    let word = self.storage.read_u64(block, offset);
+                    offset += WORD_BYTES + if level + 1 < self.height {
+                        DELTA_BYTES as usize * word.count_ones() as usize
+                    } else { 0 };
+                }
             }
+            starts
+        })
+    }
+
+    /// Scan only the requested depth. The first scan prepares O(height) starts
+    /// in a single sequential record pass; later scans jump there directly.
+    pub(crate) fn find_physical_state(&self, target_level: usize, mut matches: impl FnMut(u64, u64) -> bool) -> Option<u64> {
+        let start = self.physical_level_starts()[target_level];
+        let (mut block, mut offset) = ((start >> self.capacity_bits) as usize, (start & self.capacity_mask) as usize);
+        for _ in 0..self.level_node_counts[target_level] {
+            if offset == self.storage.block_len(block) { block += 1; offset = 0; }
+            let cursor = ((block as u64) << self.capacity_bits) | offset as u64;
+            let word = self.storage.read_u64(block, offset);
+            if matches(cursor, word) { return Some(cursor); }
+            offset += WORD_BYTES + if target_level + 1 < self.height {
+                DELTA_BYTES as usize * word.count_ones() as usize
+            } else { 0 };
         }
         None
     }
@@ -2035,6 +2062,7 @@ impl<S: BlockStorage> PackedFst<S> {
             + crate::vec_bytes(&self.level_dim_bits)
             + crate::vec_bytes(&self.level_shifts_cache)
             + crate::vec_bytes(&self.level_child_cell_bits_cache)
+            + self.level_starts.get().map_or(0, crate::vec_bytes)
             + self.level_addrs.get().map_or(0, |levels| crate::vec_bytes(levels) + levels.iter().map(crate::vec_bytes).sum::<usize>())
     }
 

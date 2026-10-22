@@ -141,6 +141,13 @@ live states. It preserves the minimality maintained by updates. Use
 Borrowed `to_fst()`, `compact()` and serialization preserve the source until
 packing succeeds and currently use the separate physical-state rebuild path.
 See [compaction details and measurements](examples/join/FST_RANK_FREE_COMPACTION.md).
+For a smaller update index, select
+`packed.into_mutable_with_lookup(UpdateLookup::Sampled(8))` (import
+`s_graph::mutable_fst::UpdateLookup`). It keeps every state address and one
+fingerprint per eight states, trading extra candidate reads for roughly 44%
+less index memory. The rate must be nonzero. `prepare_updates()` builds it
+before the first edit; otherwise the first effective edit pays that cost.
+See [sampled indexes and depth-scoped scans](examples/join/FST_SAMPLED_INDEX.md).
 There is no automatic compaction
 or background I/O. `memory_usage()` reports base storage, suffix indexes,
 live edits and reusable arena/table capacity separately; see the

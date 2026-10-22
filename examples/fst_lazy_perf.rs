@@ -43,7 +43,10 @@ fn phase<S: BlockStorage>(
     let after = graph.update_lookup_stats();
     let memory = graph.memory_usage();
     assert_eq!(memory.total_ram_bytes(), graph.mem_size_bytes());
-    if context.mode != UpdateLookup::Indexed {
+    if !matches!(
+        context.mode,
+        UpdateLookup::Indexed | UpdateLookup::Sampled(_)
+    ) {
         assert_eq!(memory.base_register_bytes, 0);
     }
     if context.mode != UpdateLookup::Memoized {
@@ -86,19 +89,36 @@ fn run<S: BlockStorage>(
         .collect();
     let modes = [
         UpdateLookup::Indexed,
+        UpdateLookup::Sampled(1),
+        UpdateLookup::Sampled(4),
+        UpdateLookup::Sampled(8),
+        UpdateLookup::Sampled(16),
+        UpdateLookup::Sampled(32),
         UpdateLookup::ScanAll,
         UpdateLookup::Memoized,
     ];
     for pass in 0..2 {
-        for i in if pass == 0 {
-            vec![0, 1, 2]
-        } else {
-            vec![2, 1, 0]
-        } {
+        let mut order: Vec<_> = (0..modes.len()).collect();
+        if pass != 0 {
+            order.reverse();
+        }
+        for i in order {
             let mode = modes[i];
             let mut graph =
                 PackedFst::<S>::try_build(initial.clone(), [n as u64, 4, n as u64], 4096)?
                     .into_mutable_with_lookup(mode);
+            if matches!(mode, UpdateLookup::Indexed | UpdateLookup::Sampled(_)) {
+                let mut probe =
+                    PackedFst::<S>::try_build(initial.clone(), [n as u64, 4, n as u64], 4096)?
+                        .into_mutable_with_lookup(mode);
+                let start = Instant::now();
+                probe.prepare_updates();
+                let prepare_us = start.elapsed().as_secs_f64() * 1e6;
+                println!(
+                    "{{\"backend\":\"{backend}\",\"shape\":\"{shape}\",\"mode\":\"{mode:?}\",\"vertices\":{n},\"pass\":{pass},\"phase\":\"prepare\",\"prepare_us\":{prepare_us},\"base_index_bytes\":{}}}",
+                    probe.memory_usage().base_register_bytes
+                );
+            }
             let context = Context {
                 backend,
                 shape,

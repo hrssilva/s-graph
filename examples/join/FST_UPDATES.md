@@ -236,3 +236,8 @@ across insertion, undo, deletion, reuse and compaction on all three modes.
 The experimental [in-place freeze](FST_FREEZE_IN_PLACE.md) seals only live edit
 states into blocked storage, retaining the packed base and releasing update
 tables. It separates becoming immutable from the full compaction described here.
+
+The explicit `UpdateLookup::Sampled(rate)` prototype retains every packed-state
+address and every `rate`th sorted fingerprint. See [sampling and depth-start
+measurements](FST_SAMPLED_INDEX.md) for usage, memory/latency tradeoffs and the
+updated scan-based lookup behavior. The default remains Indexed.
