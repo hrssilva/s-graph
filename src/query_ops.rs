@@ -2,6 +2,7 @@
 //! variable namespace. Probe hints restrict rows; they never add bindings or
 //! change the lexical context of a right-hand relation/filter.
 use crate::automata_core::TripleSource;
+use crate::execution::{Check, Execution, PreparationError, Uncontrolled};
 use crate::graph::{JoinQuery, Term, TriplePattern};
 use crate::scheduled_join::{Policy, ScheduleWorkspace, ScheduledJoin};
 use crate::{Result, TreeError};
@@ -236,14 +237,36 @@ impl<S: TripleSource> Bgp<S> {
             + self.possible.capacity() * 8
     }
     pub fn new(query: &JoinQuery<Term>, source: S, policy: Policy) -> Result<Self> {
+        Self::prepare(query, source, policy, &Uncontrolled).map_err(PreparationError::uncontrolled)
+    }
+    pub fn new_controlled(
+        query: &JoinQuery<Term>,
+        source: S,
+        policy: Policy,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self, PreparationError> {
+        control.check()?;
+        let plan = Self::prepare(query, source, policy, control)?;
+        control.check()?;
+        Ok(plan)
+    }
+    fn prepare(
+        query: &JoinQuery<Term>,
+        source: S,
+        policy: Policy,
+        control: &impl Check,
+    ) -> std::result::Result<Self, PreparationError> {
+        control.checkpoint()?;
         let mut used = vec![false; query.num_vars];
         for p in &query.patterns {
+            control.checkpoint()?;
             for t in [p.subject, p.predicate, p.object] {
                 if let Term::Var(v) = t {
                     if v >= used.len() {
                         return Err(TreeError::InvalidConfig(
                             "BGP variable outside global schema".into(),
-                        ));
+                        )
+                        .into());
                     }
                     used[v] = true;
                 }
@@ -279,7 +302,7 @@ impl<S: TripleSource> Bgp<S> {
             possible[v / 64] |= 1u64 << (v % 64);
         }
         Ok(Self {
-            machine: ScheduledJoin::with_source(&q, source, policy)?,
+            machine: ScheduledJoin::prepare(&q, source, policy, control)?,
             width: query.num_vars,
             variables,
             possible,
@@ -627,3 +650,7 @@ impl<A: Plan, B: CorrelatedPlan, const NEGATED: bool> Plan for Existence<A, B, N
 #[cfg(test)]
 #[path = "query_ops_tests.rs"]
 mod tests;
+
+#[path = "controlled_query.rs"]
+mod controlled;
+pub use controlled::{ControlledCorrelatedPlan, ControlledPlan};

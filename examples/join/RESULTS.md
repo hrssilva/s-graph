@@ -9,6 +9,9 @@ sources unless a saved before-change binary is explicitly required.
 
 | Area | Report | Aggregate evidence |
 |---|---|---|
+| Connected planning and execution limits | [Implementation and contracts](EXECUTION_CONTROL.md) | [Paired baseline/current comparison](prototype/results/query-controls/summary.json) |
+| TEP3 query investigation | [Diagnosis and interface direction](REPORT_INVESTIGATION.md) | [Controlled chain/schedule probes](prototype/results/report-investigation/summary.json) |
+| Parallel construction prototype | [Parallel build](FST_PARALLEL_BUILD.md) | [Million-triple comparison](prototype/results/fst-parallel-build/final/summary.json) |
 | Current default update index | [Compact index](FST_COMPACT_INDEX.md) | [Default-index comparison](prototype/results/fst-default-index/summary.json) |
 | Current default freeze | [Rank-free BFS](FST_RANK_FREE_COMPACTION.md) | [Rank-free comparison](prototype/results/fst-rank-free/summary.json) |
 | Update semantics/backends | [Updates](FST_UPDATES.md) | [Prepared update comparison](prototype/results/fst-updates-final/summary.json) |

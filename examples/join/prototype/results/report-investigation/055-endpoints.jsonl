@@ -1,0 +1,1 @@
+{"n":1024,"ids":"ordered","policy":"levels","finished":false,"rows":15,"expected_rows":128,"nodes":1000000,"candidates":1000015,"outer_rows":0,"terminal_checks":0,"planning_nodes":0,"order":[7, 9, 6, 5, 4, 3, 2, 0, 1, 8],"cut":4,"frontier":false,"prepare_us":null,"visit_us":null,"total_us":null,"plan_bytes":10080,"workspace_bytes":1956}

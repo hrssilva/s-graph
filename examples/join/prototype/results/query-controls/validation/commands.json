@@ -1,0 +1,279 @@
+[
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--no-default-features",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 3.42482417402789,
+    "log": "00.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 2.212128932820633,
+    "log": "01.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--no-default-features",
+      "--features",
+      "file",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 6.001819536089897,
+    "log": "02.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--no-default-features",
+      "--features",
+      "compressed",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 5.595589902019128,
+    "log": "03.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--all-features",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 6.382832337869331,
+    "log": "04.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--lib",
+      "--tests"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 53.60981364408508,
+    "log": "05.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--doc"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 1.310410745907575,
+    "log": "06.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--all-features",
+      "--lib",
+      "--tests"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 130.72222758689895,
+    "log": "07.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--all-features",
+      "--doc"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 1.6581795369274914,
+    "log": "08.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "package",
+      "--offline",
+      "--locked",
+      "--allow-dirty",
+      "--list"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 0.07429984817281365,
+    "log": "09.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "package",
+      "--offline",
+      "--locked",
+      "--allow-dirty"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 2.877431525150314,
+    "log": "10.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--no-default-features",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 0.10830157389864326,
+    "log": "11.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 2.304362495895475,
+    "log": "12.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--no-default-features",
+      "--features",
+      "file",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 2.0447270669974387,
+    "log": "13.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--no-default-features",
+      "--features",
+      "compressed",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 1.9085348430089653,
+    "log": "14.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--all-features",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 2.1361872418783605,
+    "log": "15.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "execution"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 5.157312724040821,
+    "log": "16.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--all-features",
+      "--test",
+      "execution"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 0.0411519231274724,
+    "log": "17.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--doc"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 1.2482868179213256,
+    "log": "18.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--all-features",
+      "--doc"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 1.2978613800369203,
+    "log": "19.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "package",
+      "--offline",
+      "--locked",
+      "--allow-dirty"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 2.7432048360351473,
+    "log": "20.log"
+  }
+]

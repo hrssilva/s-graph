@@ -1,0 +1,197 @@
+   Compiling s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.28s
+     Running unittests src/lib.rs (target/debug/deps/s_graph-18c03843713a0a12)
+
+running 109 tests
+test analytics::tests::output_composition_and_reduction ... ok
+test automata_core::tests::graph_acceptance_union_and_mask_step_agree ... ok
+test automata_core::tests::generic_product_checks_final_acceptance_and_complement ... ok
+test automata_core::tests::language_algebra_and_typed_mapping ... ok
+test automata_core::tests::reversible_actions_restore_in_reverse_order ... ok
+test analytics::tests::scan_full_width_coordinates_and_empty_vertex_universe ... ok
+test fst_update_index::tests::relative_addresses_round_trip_width_boundaries_and_tagged_ranges ... ok
+test fst_update_index::tests::truncated_fingerprint_collisions_keep_every_exact_candidate ... ok
+test graph::tests::star_pattern_with_bound_center ... ok
+test graph::tests::triangle_pattern ... ok
+test mutable_fst::block_compact::depths::tests::escape_references_are_fixed_up_in_edge_order ... ok
+test mutable_fst::block_compact::depths::tests::reordered_pages_reuse_storage_and_wide_tokens ... ok
+test frontier_join::tests::probe_budget_also_bounds_cached_leaf_cartesian_products ... ok
+test mutable_fst::block_compact::depths::tests::empty_full_width_and_full_fanout_records ... ok
+test mutable_fst::block_compact::tests::sparse_rank_boundaries_and_wide_relocations ... ok
+test graph::tests::two_hop_path_pattern ... ok
+test graph::tests::four_cycle_pattern ... ok
+test mutable_fst::streaming::tests::escaped_edit_identity_resolves_through_existing_arena_slot ... ok
+test mutable_fst::streaming::tests::displacement_runs_handle_holes_backward_lookups_and_wide_addresses ... ok
+test analytics::tests::fixtures_and_oscillation ... ok
+test mutable_fst::tests::in_place_freeze_handles_empty_singleton_and_full_width_domains ... ok
+test mutable_fst::tests::block_compaction_preserves_shared_suffixes_and_incremental_visit_counts ... ok
+test large_bgp_cases::tests::large_deduplication_and_repeated_variable_incidence ... ok
+test mutable_fst::tests::freezing_walks_physical_states_instead_of_exponentially_many_triples ... ok
+test mutable_fst::tests::memoized_lookups_survive_inverse_edits_and_reset_on_compaction ... ok
+test mutable_fst::tests::packed_register_collisions_require_exact_structural_equality ... ok
+test mutable_fst::tests::sampled_ranges_cover_collisions_boundaries_and_missing_hashes ... ok
+test mutable_fst::tests::zero_sample_rate_is_rejected_at_construction - should panic ... ok
+test path::tests::chain_distances_are_correct ... ok
+test path::tests::sequential_matches_naive_bfs ... ok
+test mutable_fst::tests::inverse_edits_reuse_base_identity_and_bound_the_arena ... ok
+test path_ops::tests::composed_path_products_execute_as_binding_relations ... ok
+test path_ops::tests::path_bindings_join_optional_repeated_variable_and_zero_hops ... ok
+test path_ops::tests::path_language_uses_shared_and_not_algebra_and_compile_budgets ... ok
+test path_ops::tests::path_minimum_hops_retains_revisits_before_lower_bound ... ok
+test path_ops::tests::fst_pattern_adapter_exact_bounds_and_shared_suffix_multiplicity ... ok
+test path_ops::tests::reverse_sequences_and_negated_one_edge_languages ... ok
+test query_ops::tests::compiled_bgp_subset_schemas_and_optional_filters ... ok
+test query_ops::tests::existence_short_circuits_and_union_cancellation_skips_rhs ... ok
+test path_ops::tests::regular_path_builders_match_independent_relational_closure ... ok
+test query_ops::tests::independent_minus_filters_and_explicit_correlated_filters ... ok
+test query_ops::tests::full_width_parameter_values_and_sparse_global_variable_ids ... ok
+test query_ops::tests::minus_disjoint_empty_mapping_and_optional_multiplicity ... ok
+test query_ops::tests::optional_condition_accepts_some_matches_without_fallback ... ok
+test query_ops::tests::optional_nested_composition_and_probe_fallback_scope ... ok
+test mutable_fst::tests::in_place_freeze_retains_base_bytes_and_releases_all_update_allocations ... ok
+test mutable_fst::tests::lookup_strategies_preserve_live_minimality_and_inverse_updates ... ok
+test scheduled_join::tests::independent_storage_backend_and_shared_predicates ... ok
+test mutable_fst::tests::depth_starts_find_all_physical_states_without_a_state_directory ... ok
+test query_ops::tests::parameterized_register_machine_matches_filtering_all_schedules ... ok
+test scheduled_join::tests::multi_level_partial_bindings_and_wide_ids ... ok
+test scheduled_join::tests::connected_candidate_avoids_endpoint_products_on_small_and_large_bgps ... ok
+test tree::tests::build_with_order_rejects_oversized_split ... ok
+test scheduled_join::tests::many_atoms_and_deep_asymmetric_domains ... ok
+test mutable_fst::tests::default_index_is_compact_rate_one_and_preparation_is_idempotent ... ok
+test join_oracle_tests::randomized_patterns_and_orders_match_enumeration ... ok
+test tree::tests::bounded_build_byte_identical_with_tiny_budget ... ok
+test analytics::tests::deterministic_random_graphs_and_shared_suffixes ... ok
+test query_ops::tests::randomized_bags_partial_domains_zero_and_wide_masks ... ok
+test tree::tests::contains_batch_empty_input_is_empty_output ... ok
+test tree::tests::contains_batch_into_reuses_buffer_capacity_across_calls ... ok
+test tree::tests::contains_batch_matches_contains_on_a_tree_taller_than_the_packed_path ... ok
+test tree::tests::contains_batch_matches_contains_on_degenerate_height_zero_tree ... ok
+test frontier_join::tests::large_dense_cycles_prune_before_free_bits_and_handle_digit_alignment ... ok
+test tree::tests::contains_batch_preserves_input_order_handles_duplicates_and_out_of_domain ... ok
+test tree::tests::bounded_build_unbounded_matches_dynamic_build ... ok
+test tree::tests::count_matching_after_remove_matches_naive ... ok
+test tree::tests::count_matching_matches_contains_on_degenerate_height_zero_tree ... ok
+test tree::tests::count_matching_all_wildcards_equals_total_distinct_triple_count ... ok
+test tree::tests::count_matching_out_of_domain_bound_is_zero_not_panic ... ok
+test tree::tests::count_matching_matches_naive_and_scan_across_all_bound_patterns ... ok
+test tree::tests::deserialize_rejects_bad_magic ... ok
+test tree::tests::deserialize_rejects_truncated_input ... ok
+test tree::tests::deserialize_rejects_unsupported_version ... ok
+test tree::tests::expand_run_matches_naive_reference_at_every_run_and_shift ... ok
+test tree::tests::insert_batch_rejects_out_of_domain_atomically ... ok
+test tree::tests::bulk_build_bounded_mixed_fits_and_spills_siblings ... ok
+test tree::tests::insert_rejects_out_of_domain_coordinate ... ok
+test tree::tests::insert_root_level_branch_in_a_height_two_tree_does_not_resurrect_a_stale_cache ... ok
+test tree::tests::contains_batch_matches_contains_scattered_and_clustered ... ok
+test mutable_fst::streaming::tests::arena_metadata_and_output_match_rank_based_compaction ... ok
+test tree::tests::remove_down_to_a_fully_empty_tree_leaves_root_intact ... ok
+test tree::tests::remove_last_triple_in_a_subtree_cascades_up_and_shrinks_storage ... ok
+test tree::tests::remove_absent_triple_is_noop ... ok
+test tree::tests::remove_one_of_two_triples_in_the_same_node_preserves_the_other ... ok
+test tree::tests::remove_out_of_domain_returns_false_not_err ... ok
+test tree::tests::remove_matches_naive_across_all_backends ... ok
+test tree::tests::remove_then_serialize_roundtrip ... ok
+test tree::tests::restricted_descent_multi_ranges_union_and_overlap ... ok
+test tree::tests::restricted_descent_out_of_domain_range ... ok
+test tree::tests::restricted_descent_range_matches_scan_filtered_oracle ... ok
+test tree::tests::restricted_descent_range_reaches_bulk_fast_path_once_its_dimension_is_resolved ... ok
+test tree::tests::restricted_descent_visit_breaks_early_and_the_count_proves_it ... ok
+test tree::tests::restricted_descent_visit_out_of_domain_and_degenerate_height_zero ... ok
+test tree::tests::insert_one_at_a_time_matches_naive_after_every_insert ... ok
+test tree::tests::serialize_round_trip ... ok
+test tree::tests::streaming_batch_insert_matches_per_triple_insert_and_bulk_build ... ok
+test tree::tests::bulk_build_bounded_wide_branching_many_open_buckets ... ok
+test tree::tests::streaming_insert_build_matches_bulk_build_and_naive ... ok
+test mutable_fst::block_compact::tests::block_release_across_large_sealed_segments ... ok
+test tree::tests::remove_then_contains_false_matches_naive ... ok
+test tree::tests::shrink_to_fit_changes_capacity_not_content ... ok
+test tree::tests::cross_check_uniform_and_zipfian ... ok
+test tree::tests::bulk_build_bounded_path_matches_naive_uniform ... ok
+test tree::tests::bulk_build_parallel_path_matches_naive_uniform ... ok
+test large_bgp_cases::tests::huge_connected_bgps_flat_stack_cancellation_and_reuse ... ok
+test tree::tests::bulk_build_parallel_path_matches_naive_skewed ... ok
+test tree::tests::bulk_build_bounded_path_matches_naive_skewed ... ok
+test tree::tests::interleaved_insert_remove_stress_small_capacity ... ok
+
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.53s
+
+     Running tests/algorithms.rs (target/debug/deps/algorithms-85f3c315086ba200)
+
+running 9 tests
+test regular_paths_preserve_automaton_state_and_hop_bounds ... ok
+test join_regressions_and_validation ... ok
+test native_joins_borrow_the_tree_and_are_shareable ... ok
+test sparse_ids_zero_hops_cancellation_and_backends ... ok
+test snapshots_after_block_splits_preserve_scans_and_insertability ... ok
+test scans_across_backends_and_dimension_orders ... ok
+test general_join_matches_exhaustive_assignments ... ok
+test degenerate_insertion_and_snapshot_validation ... ok
+test bounded_paths_match_independent_enumeration ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/automata.rs (target/debug/deps/automata-ff87b9730e919f40)
+
+running 3 tests
+test schema_mismatches_are_compilation_errors ... ok
+test recognizers_search_triples_and_complement_respects_final_acceptance ... ok
+test explicit_automata_fuse_compose_and_rebind_to_another_graph ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/execution.rs (target/debug/deps/execution-3a314a126b8579ad)
+
+running 8 tests
+test interrupted_rhs_is_never_an_optional_or_negation_fallback ... ok
+test cancelling_a_planning_probe_cannot_return_an_empty_certificate ... ok
+test controlled_searches_use_packed_and_editable_sources_across_storage_modes ... ok
+test preparation_limits_and_pre_cancelled_ground_queries_are_explicit ... ok
+test cancellation_inside_a_no_answer_walk_releases_the_read_session ... ok
+test user_recognizers_can_cancel_unsuccessful_language_intersections ... ok
+test controlled_composition_preserves_bags_partial_bindings_and_correlation ... ok
+test budgets_stop_before_results_under_every_schedule_and_scratch_is_reusable ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fst.rs (target/debug/deps/fst-2a8ef90860b387a4)
+
+running 7 tests
+test default_api_matches_mutable_backend_and_reuses_workspaces ... ok
+test builders_validate_domains_and_single_point_graphs ... ok
+test snapshot_streams_files_and_writer_errors ... ok
+test default_fst_plans_can_be_shared_with_separate_workspaces ... ok
+test compact_dags_cannot_overflow_logical_counts ... ok
+test snapshots_reject_corruption_truncation_and_limits_without_panicking ... ok
+test snapshots_preserve_scans_counts_joins_paths_and_storage ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.65s
+
+     Running tests/fst_parallel_build.rs (target/debug/deps/fst_parallel_build-9bb1f0d62f6e336a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fst_updates.rs (target/debug/deps/fst_updates-4f80129addae3f72)
+
+running 4 tests
+test full_width_zero_bit_dimensions_and_reused_slots ... ok
+test mutable_tree_automata ... ok
+test heap_fst_updates_and_queries ... ok
+test freeze_in_place_across_storage_modes_and_repeated_batches ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+     Running tests/native_join.rs (target/debug/deps/native_join-9eaede9304b206b7)
+
+running 7 tests
+test shared_predicates_cycles_diagonals_and_disconnected_patterns ... ok
+test empty_ground_degenerate_queries_and_validation ... ok
+test cancellation_reuse_mutation_and_serialized_tree ... ok
+test many_variables_do_not_require_exponential_masks ... ok
+test randomized_queries_match_exhaustive_assignments ... ok
+test unequal_domains_full_width_ids_and_all_coordinate_roles ... ok
+test multilevel_prefixes_match_independent_enumeration_under_skew ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.81s
+

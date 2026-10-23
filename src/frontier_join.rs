@@ -1,6 +1,9 @@
 //! Shared-bit support propagation over the live frontier of a product automaton.
 //! Cells retain packed transitions; no graph relation or query DFA is expanded.
 use crate::automata_core::{BitSupport, TripleSource};
+#[cfg(test)]
+use crate::execution::Uncontrolled;
+use crate::execution::{Check, StopReason};
 use crate::graph::Term;
 use crate::scheduled_join::{ScheduleStats, Stop};
 use std::ops::ControlFlow;
@@ -141,13 +144,23 @@ impl<C: Copy + Default> FrontierWorkspace<C> {
     }
 }
 impl FrontierPlan {
+    #[cfg(test)]
     pub(crate) fn compile<S: TripleSource>(source: &S, atoms: &[[Term; 3]], zero: &[u32]) -> Self {
+        Self::compile_checked(source, atoms, zero, &Uncontrolled).unwrap()
+    }
+    pub(crate) fn compile_checked<S: TripleSource>(
+        source: &S,
+        atoms: &[[Term; 3]],
+        zero: &[u32],
+        control: &impl Check,
+    ) -> std::result::Result<Self, StopReason> {
         let height = source.height();
         let variables = zero.len();
         let mut specs = Vec::with_capacity(atoms.len() * height);
         let mut offsets = vec![0; variables * 32 + 1];
         for atom in atoms {
             for level in 0..height {
+                control.checkpoint()?;
                 let (widths, shifts, remaining) = source.layout(level);
                 let slots = 1u32 << widths.iter().sum::<u8>();
                 let mut spec = Spec {
@@ -194,11 +207,13 @@ impl FrontierPlan {
             }
         }
         for i in 1..offsets.len() {
+            control.checkpoint()?;
             offsets[i] += offsets[i - 1];
         }
         let mut positions = offsets.clone();
         let mut incident = vec![Occurrence { atom: 0, level: 0 }; offsets[variables * 32]];
         for (i, spec) in specs.iter().enumerate() {
+            control.checkpoint()?;
             for bit in &spec.bits[..spec.count] {
                 incident[positions[bit.key]] = Occurrence {
                     atom: i / height,
@@ -207,14 +222,14 @@ impl FrontierPlan {
                 positions[bit.key] += 1;
             }
         }
-        Self {
+        Ok(Self {
             specs,
             offsets,
             incident,
             zero: zero.to_vec(),
             height,
             atoms: atoms.len(),
-        }
+        })
     }
     pub(crate) fn states(&self) -> usize {
         self.specs.len()
@@ -270,13 +285,14 @@ impl FrontierPlan {
         }
         ws.cells[atom] = next;
     }
-    fn bind<C: Copy + Default>(
+    fn bind<C: Copy + Default, T>(
         &self,
         ws: &mut FrontierWorkspace<C>,
         bit: Bit,
         one: bool,
         origin: usize,
-    ) {
+        control: &impl Check,
+    ) -> ControlFlow<Stop<T>> {
         debug_assert_eq!(ws.known[bit.variable] & bit.value, 0);
         ws.trail.push(Undo::Bit(bit));
         ws.known[bit.variable] |= bit.value;
@@ -285,14 +301,22 @@ impl FrontierPlan {
         }
         ws.ready.set(bit.key, false);
         for occurrence in &self.incident[self.offsets[bit.key]..self.offsets[bit.key + 1]] {
+            control.step()?;
             if occurrence.atom != origin && ws.cells[occurrence.atom].level == occurrence.level {
                 ws.enqueue(occurrence.atom);
             }
         }
+        ControlFlow::Continue(())
     }
-    fn restore<C: Copy + Default>(&self, ws: &mut FrontierWorkspace<C>, checkpoint: usize) {
+    fn restore<C: Copy + Default, T>(
+        &self,
+        ws: &mut FrontierWorkspace<C>,
+        checkpoint: usize,
+        control: &impl Check,
+    ) -> ControlFlow<Stop<T>> {
         ws.clear_queue();
         while ws.trail.len() > checkpoint {
+            control.step()?;
             match ws.trail.pop().unwrap() {
                 Undo::Cell(atom, old) => self.replace(ws, atom, old, false),
                 Undo::Bit(bit) => {
@@ -302,6 +326,7 @@ impl FrontierPlan {
                 }
             }
         }
+        ControlFlow::Continue(())
     }
     fn propagate<S: TripleSource, const TRACK: bool, const LIMIT: bool, T>(
         &self,
@@ -309,8 +334,10 @@ impl FrontierPlan {
         ws: &mut FrontierWorkspace<S::Cursor>,
         stats: &mut ScheduleStats,
         limit: u64,
+        control: &impl Check,
     ) -> ControlFlow<Stop<T>, bool> {
         while ws.head < ws.queue.len() {
+            control.step()?;
             // Cached frontier words can support many branches without another
             // storage read (especially a one-level source). Bound propagation
             // work as well as node reads so a planning probe cannot enumerate
@@ -351,7 +378,7 @@ impl FrontierPlan {
             for bit in &spec.bits[..spec.count] {
                 if ws.known[bit.variable] & bit.value == 0 {
                     if let Some(one) = BitSupport::from_mask(allowed, bit.ones).singleton() {
-                        self.bind(ws, *bit, one, atom);
+                        self.bind(ws, *bit, one, atom, control)?;
                     }
                 }
             }
@@ -388,6 +415,7 @@ impl FrontierPlan {
         ws.clear_queue();
         ControlFlow::Continue(true)
     }
+    #[cfg(test)]
     pub(crate) fn run<
         S: TripleSource,
         const TRACK: bool,
@@ -402,6 +430,24 @@ impl FrontierPlan {
         limit: u64,
         emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
     ) -> ControlFlow<Stop<T>> {
+        self.run_checked::<S, TRACK, LIMIT, PARAM, T>(source, ws, stats, limit, &Uncontrolled, emit)
+    }
+    pub(crate) fn run_checked<
+        S: TripleSource,
+        const TRACK: bool,
+        const LIMIT: bool,
+        const PARAM: bool,
+        T,
+    >(
+        &self,
+        source: &S,
+        ws: &mut FrontierWorkspace<S::Cursor>,
+        stats: &mut ScheduleStats,
+        limit: u64,
+        control: &impl Check,
+        emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
+    ) -> ControlFlow<Stop<T>> {
+        control.step()?;
         let variables = self.zero.len();
         ws.values.resize(variables, 0);
         ws.values.fill(0);
@@ -433,6 +479,7 @@ impl FrontierPlan {
                 return ControlFlow::Continue(());
             };
             for atom in 0..self.atoms {
+                control.step()?;
                 if LIMIT && stats.nodes >= limit {
                     return ControlFlow::Break(Stop::Budget);
                 }
@@ -451,12 +498,14 @@ impl FrontierPlan {
                 ws.enqueue(atom);
             }
         }
-        let mut consistent = self.propagate::<S, TRACK, LIMIT, T>(source, ws, stats, limit)?;
+        let mut consistent =
+            self.propagate::<S, TRACK, LIMIT, T>(source, ws, stats, limit, control)?;
         // The initial fixed point is common to every branch and need not stay
         // on the undo trail. A later run resets the workspace, including after
         // callback cancellation or an exhausted diagnostic budget.
         ws.trail.clear();
         loop {
+            control.step()?;
             if consistent {
                 if ws.completed == self.atoms {
                     if TRACK {
@@ -484,24 +533,27 @@ impl FrontierPlan {
                     if TRACK {
                         stats.candidates += 1;
                     }
-                    self.bind(ws, bit, false, usize::MAX);
-                    consistent = self.propagate::<S, TRACK, LIMIT, T>(source, ws, stats, limit)?;
+                    self.bind(ws, bit, false, usize::MAX, control)?;
+                    consistent =
+                        self.propagate::<S, TRACK, LIMIT, T>(source, ws, stats, limit, control)?;
                     continue;
                 }
             }
             loop {
+                control.step()?;
                 let Some(choice) = ws.choices.last() else {
                     return ControlFlow::Continue(());
                 };
                 let (bit, checkpoint, second) = (choice.bit, choice.checkpoint, choice.second);
-                self.restore(ws, checkpoint);
+                self.restore(ws, checkpoint, control)?;
                 if second {
                     ws.choices.last_mut().unwrap().second = false;
                     if TRACK {
                         stats.candidates += 1;
                     }
-                    self.bind(ws, bit, true, usize::MAX);
-                    consistent = self.propagate::<S, TRACK, LIMIT, T>(source, ws, stats, limit)?;
+                    self.bind(ws, bit, true, usize::MAX, control)?;
+                    consistent =
+                        self.propagate::<S, TRACK, LIMIT, T>(source, ws, stats, limit, control)?;
                     break;
                 }
                 ws.choices.pop();

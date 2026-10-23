@@ -1,0 +1,34 @@
+{
+  "binary": "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/release/examples/fst_build_perf",
+  "binary_sha256": "9e2ddf7afa9b27eaa623396158107eefab2604e0b0a72a2f57a33f5d3000e894",
+  "sources": {
+    "Cargo.toml": "bfff531ee7734213d77583d2d3abd1a99c8f3b30a521983d8adbdd3327d2d27e",
+    "src/path_fst.rs": "6195befd769bff30e4900348e8ce0c6e40c8101b2ec76c330456e978069a125c",
+    "src/fst_parallel_build.rs": "cd9588c8d9b458119e4663ba453f770f5e53a8af6f3dd6cfebf5ae6660f5f179",
+    "examples/fst_build_perf.rs": "41044cab38340196fc3a5fb7524dfef6d5d337a93e712a9de1eab202ee00b148",
+    "examples/join/prototype/fst_parallel_build.py": "1722523271e5d32984f0b581605c745966bd39d38465ee089cca8a9f18a987b1"
+  },
+  "arguments": {
+    "binary": "/home/hrssilva/Documents/project-s/s-graph/target/automata-prototype/release/examples/fst_build_perf",
+    "out": "/home/hrssilva/Documents/project-s/s-graph/examples/join/prototype/results/fst-parallel-build",
+    "triples": 1000000,
+    "trials": 3,
+    "threads": [
+      2,
+      4,
+      8
+    ],
+    "shapes": [
+      "functional",
+      "shared",
+      "irregular",
+      "skewed"
+    ],
+    "backends": [
+      "heap"
+    ],
+    "memory": "1500M"
+  },
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "machine": "Linux localhost.localdomain 7.2.2-1-default #1 SMP PREEMPT_DYNAMIC Fri Aug 28 06:56:48 UTC 2026 (93c77bd) x86_64 x86_64 x86_64 GNU/Linux\n"
+}

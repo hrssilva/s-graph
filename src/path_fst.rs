@@ -1800,23 +1800,7 @@ impl<S: BlockStorage> PackedFst<S> {
     /// Validated static build. Domains are nonzero sizes, each at most 2^32;
     /// blocks must be powers of two of at least 512 bytes.
     pub fn try_build(mut triples: Vec<Triple>, dimension_sizes: [u64; NUM_DIMS], block_capacity: usize) -> crate::Result<Self> {
-        use crate::{TreeError, OutOfDomain};
-        if !dimension_sizes.iter().all(|n| (1..=1u64 << 32).contains(n)) {
-            return Err(TreeError::InvalidConfig("FST domains must be in 1..=2^32".into()));
-        }
-        if !block_capacity.is_power_of_two() || !(512..=u32::MAX as usize).contains(&block_capacity) {
-            return Err(TreeError::InvalidConfig("FST block capacity must be a power of two in 512..=2^31".into()));
-        }
-        if triples.len() > u32::MAX as usize {
-            return Err(TreeError::InvalidConfig("FST build exceeds 32-bit node indices".into()));
-        }
-        for &(s, p, o) in &triples {
-            for (dim, value) in [s, p, o].into_iter().enumerate() {
-                if value as u64 >= dimension_sizes[dim] {
-                    return Err(TreeError::OutOfDomain(OutOfDomain { dim, value, domain_size: dimension_sizes[dim] }));
-                }
-            }
-        }
+        validate_build(&triples, dimension_sizes, block_capacity)?;
         let dim_order = [0usize, 1, 2];
         let total_bits = total_bits_needed(dimension_sizes);
         let mut level_dim_bits = dynamic_schedule(total_bits);
@@ -4288,6 +4272,27 @@ impl MatrixCell {
     }
 }
 
+fn validate_build(triples: &[Triple], dimension_sizes: [u64; 3], block_capacity: usize) -> crate::Result<()> {
+    use crate::{TreeError, OutOfDomain};
+    if !dimension_sizes.iter().all(|n| (1..=1u64 << 32).contains(n)) {
+        return Err(TreeError::InvalidConfig("FST domains must be in 1..=2^32".into()));
+    }
+    if !block_capacity.is_power_of_two() || !(512..=u32::MAX as usize).contains(&block_capacity) {
+        return Err(TreeError::InvalidConfig("FST block capacity must be a power of two in 512..=2^31".into()));
+    }
+    if triples.len() > u32::MAX as usize {
+        return Err(TreeError::InvalidConfig("FST build exceeds 32-bit node indices".into()));
+    }
+    for &(s, p, o) in triples {
+        for (dim, value) in [s, p, o].into_iter().enumerate() {
+            if value as u64 >= dimension_sizes[dim] {
+                return Err(TreeError::OutOfDomain(OutOfDomain { dim, value, domain_size: dimension_sizes[dim] }));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Phase 1 of [`PathFstDeltaPow2Bfs::build`] -- bottom-up dedup, same
 /// partitioning/dedup logic as `build_rec_pow2`, but recording each
 /// distinct node's `(existence_word, child_indices)` into `levels_nodes`
@@ -4389,3 +4394,7 @@ impl PackedFst<crate::storage_file::FileStorage> {
     /// Space occupied by the live temporary backing file (not a snapshot).
     pub fn disk_bytes(&self) -> u64 { self.storage.file_len }
 }
+
+#[cfg(all(feature = "parallel", feature = "experimental"))]
+#[path = "fst_parallel_build.rs"]
+mod parallel_build;

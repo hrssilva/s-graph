@@ -62,3 +62,6 @@ rank-free freeze and its diagnostics remain part of the default library. Raw
 records are listed in [the results index](../RESULTS.md), marked generated
 for review and excluded from Cargo packages. Run this harness from a repository
 checkout when reproducing experiments; packaged crates omit the raw lab records.
+
+The [parallel FST construction prototype](../FST_PARALLEL_BUILD.md) uses
+`fst_parallel_build.py` for isolated, memory-limited build comparisons.

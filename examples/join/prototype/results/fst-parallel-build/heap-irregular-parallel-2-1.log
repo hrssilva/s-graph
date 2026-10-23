@@ -1,0 +1,7 @@
+mode=parallel,shape=irregular,triples=1000000,threads=2,build_ms=1839.661,retained_bytes=16822080,nodes=1060277,visited=4207521
+Running as unit: sgraph-build-1792695238160057340.service
+peak_rss_kib=291472
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 2.125s
+             CPU time consumed: 2.858s

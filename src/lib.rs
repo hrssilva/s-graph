@@ -69,6 +69,8 @@ pub mod automata;
 #[cfg(feature = "heap")]
 pub mod automata_core;
 #[cfg(feature = "heap")]
+pub mod execution;
+#[cfg(feature = "heap")]
 pub mod fst;
 #[cfg(feature = "heap")]
 pub mod mutable_fst;

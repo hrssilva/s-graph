@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+   Doc-tests s_graph
+
+running 8 tests
+test src/lib.rs - guide (line 146) ... ok
+test src/lib.rs - guide (line 505) ... ok
+test src/lib.rs - guide (line 550) ... ok
+test src/lib.rs - guide (line 477) ... ok
+test src/lib.rs - guide (line 367) ... ok
+test src/lib.rs - guide (line 314) ... ok
+test src/lib.rs - guide (line 211) ... ok
+test src/lib.rs - guide (line 403) ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 1.04s; merged doctests compilation took 1.03s

@@ -157,6 +157,12 @@ on the incidence-based heuristic order, rather than recompiling six large
 permutations. The best compiled candidate is retained instead of compiled
 again. The strong anchored-lookup shortcut still avoids probing.
 
+The subsequent [report follow-up](EXECUTION_CONTROL.md) retains these candidates
+and adds one connected atom order when the heuristic order introduces a new
+unbound component. It rebuilds the full order using variable incidence, rather
+than only swapping its first atom. Already-connected heuristic orders do not
+construct another heap or add a probe. Explicit schedules retain their order.
+
 When neither cheap schedule emits a row, a bounded frontier probe is attempted
 for at most 1,024 atom/level specifications. Automatic selection requires that
 probe to finish completely; a completed zero-row run becomes an exact empty
@@ -165,8 +171,9 @@ with weak evidence. Explicit `Schedule::Frontier` has no such query-size cap.
 Carry chains keep nested traversal when it makes useful progress.
 
 `PlanningStats.node_budget` sums the hard limits of attempted probes; actual
-reads are in `nodes`. Small-query planning is bounded by 960 node reads;
-the largest automatic budget is 65,536. These limits bound node openings,
+reads are in `nodes`. With the additional connected candidate, small-query
+planning is bounded by 1,088 node reads (previously 960), and the largest
+automatic budget is 98,304 (previously 65,536). These limits bound node openings,
 not compilation time, every CPU operation or query runtime. Frontier probes
 additionally cap propagation updates plus bit decisions at eight times the
 node limit: cached leaf words must not permit an unbounded Cartesian-product

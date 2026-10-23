@@ -1,0 +1,1 @@
+{"n":256,"ids":"shuffled","policy":"frontier","finished":true,"rows":32,"expected_rows":32,"nodes":20073,"candidates":19662,"outer_rows":0,"terminal_checks":0,"planning_nodes":0,"order":[7, 9, 6, 5, 4, 3, 2, 0, 1, 8],"cut":0,"frontier":true,"prepare_us":2.567979414602766,"visit_us":3641.2995,"total_us":3643.0274999999997,"plan_bytes":13148,"workspace_bytes":17242}

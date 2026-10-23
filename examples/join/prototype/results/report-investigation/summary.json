@@ -1,0 +1,2437 @@
+[
+  {
+    "n": 256,
+    "ids": "ordered",
+    "policy": "adaptive",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 434341,
+    "candidates": 434372,
+    "outer_rows": 32,
+    "terminal_checks": 32,
+    "planning_nodes": 960,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 58.07566221374046,
+    "visit_us": 5211.974,
+    "total_us": 5244.0545,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "ordered",
+    "policy": "nested",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 434341,
+    "candidates": 434372,
+    "outer_rows": 32,
+    "terminal_checks": 32,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 3.3057332023518393,
+    "visit_us": 5180.335,
+    "total_us": 5112.7575,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "ordered",
+    "policy": "levels",
+    "finished": false,
+    "rows": 7,
+    "expected_rows": 32,
+    "nodes": 1000000,
+    "candidates": 1000007,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 4,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 10080,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "ordered",
+    "policy": "frontier",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 8278,
+    "candidates": 3870,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": true,
+    "prepare_us": 2.580669847166008,
+    "visit_us": 1436.9939166666666,
+    "total_us": 1442.3815833333333,
+    "plan_bytes": 13148,
+    "workspace_bytes": 15962,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "ordered",
+    "policy": "connected",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 2341,
+    "candidates": 2372,
+    "outer_rows": 32,
+    "terminal_checks": 32,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      6,
+      5,
+      4,
+      3,
+      2,
+      1,
+      0,
+      9,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 6.381779663991528,
+    "visit_us": 28.748079528198147,
+    "total_us": 35.09018153946594,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "shuffled",
+    "policy": "adaptive",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 919140,
+    "candidates": 919171,
+    "outer_rows": 32,
+    "terminal_checks": 32,
+    "planning_nodes": 960,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 54.74523159722223,
+    "visit_us": 10055.1145,
+    "total_us": 10269.227499999999,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "shuffled",
+    "policy": "nested",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 919140,
+    "candidates": 919171,
+    "outer_rows": 32,
+    "terminal_checks": 32,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 3.330887215408049,
+    "visit_us": 10392.754500000001,
+    "total_us": 10517.5045,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "shuffled",
+    "policy": "levels",
+    "finished": false,
+    "rows": 0,
+    "expected_rows": 32,
+    "nodes": 1000000,
+    "candidates": 1000000,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 4,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 10080,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "shuffled",
+    "policy": "frontier",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 20073,
+    "candidates": 19662,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": true,
+    "prepare_us": 2.573819050790683,
+    "visit_us": 3636.2752499999997,
+    "total_us": 3647.138,
+    "plan_bytes": 13148,
+    "workspace_bytes": 17242,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 256,
+    "ids": "shuffled",
+    "policy": "connected",
+    "finished": true,
+    "rows": 32,
+    "expected_rows": 32,
+    "nodes": 4730,
+    "candidates": 4761,
+    "outer_rows": 32,
+    "terminal_checks": 32,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      6,
+      5,
+      4,
+      3,
+      2,
+      1,
+      0,
+      9,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 6.326792423546621,
+    "visit_us": 57.6406125,
+    "total_us": 64.39424425954593,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "ordered",
+    "policy": "adaptive",
+    "finished": false,
+    "rows": 17,
+    "expected_rows": 128,
+    "nodes": 1000000,
+    "candidates": 1000017,
+    "outer_rows": 17,
+    "terminal_checks": 17,
+    "planning_nodes": 960,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "ordered",
+    "policy": "nested",
+    "finished": false,
+    "rows": 17,
+    "expected_rows": 128,
+    "nodes": 1000000,
+    "candidates": 1000017,
+    "outer_rows": 17,
+    "terminal_checks": 17,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "ordered",
+    "policy": "levels",
+    "finished": false,
+    "rows": 15,
+    "expected_rows": 128,
+    "nodes": 1000000,
+    "candidates": 1000015,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 4,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 10080,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "ordered",
+    "policy": "frontier",
+    "finished": true,
+    "rows": 128,
+    "expected_rows": 128,
+    "nodes": 37850,
+    "candidates": 21758,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": true,
+    "prepare_us": 2.743860442917144,
+    "visit_us": 7279.073,
+    "total_us": 7300.503,
+    "plan_bytes": 13724,
+    "workspace_bytes": 15962,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "ordered",
+    "policy": "connected",
+    "finished": true,
+    "rows": 128,
+    "expected_rows": 128,
+    "nodes": 10149,
+    "candidates": 10276,
+    "outer_rows": 128,
+    "terminal_checks": 128,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      6,
+      5,
+      4,
+      3,
+      2,
+      1,
+      0,
+      9,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 9.537466472051406,
+    "visit_us": 123.75539240506329,
+    "total_us": 131.27332415584414,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "shuffled",
+    "policy": "adaptive",
+    "finished": false,
+    "rows": 4,
+    "expected_rows": 128,
+    "nodes": 1000000,
+    "candidates": 1000004,
+    "outer_rows": 5,
+    "terminal_checks": 4,
+    "planning_nodes": 960,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "shuffled",
+    "policy": "nested",
+    "finished": false,
+    "rows": 4,
+    "expected_rows": 128,
+    "nodes": 1000000,
+    "candidates": 1000004,
+    "outer_rows": 5,
+    "terminal_checks": 4,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "shuffled",
+    "policy": "levels",
+    "finished": false,
+    "rows": 0,
+    "expected_rows": 128,
+    "nodes": 1000000,
+    "candidates": 1000000,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 4,
+    "frontier": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 10080,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "shuffled",
+    "policy": "frontier",
+    "finished": true,
+    "rows": 128,
+    "expected_rows": 128,
+    "nodes": 163616,
+    "candidates": 194022,
+    "outer_rows": 0,
+    "terminal_checks": 0,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      9,
+      6,
+      5,
+      4,
+      3,
+      2,
+      0,
+      1,
+      8
+    ],
+    "cut": 0,
+    "frontier": true,
+    "prepare_us": 2.8097374207945545,
+    "visit_us": 30655.8305,
+    "total_us": 30633.4385,
+    "plan_bytes": 13724,
+    "workspace_bytes": 17114,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "n": 1024,
+    "ids": "shuffled",
+    "policy": "connected",
+    "finished": true,
+    "rows": 128,
+    "expected_rows": 128,
+    "nodes": 37953,
+    "candidates": 38080,
+    "outer_rows": 128,
+    "terminal_checks": 128,
+    "planning_nodes": 0,
+    "order": [
+      7,
+      6,
+      5,
+      4,
+      3,
+      2,
+      1,
+      0,
+      9,
+      8
+    ],
+    "cut": 0,
+    "frontier": false,
+    "prepare_us": 6.50061930959622,
+    "visit_us": 485.43665,
+    "total_us": 491.77305,
+    "plan_bytes": 11712,
+    "workspace_bytes": 1956,
+    "family": "endpoints",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "atoms": 4,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 39.9955,
+    "visit_us": 7.599500000000001,
+    "nodes": 161,
+    "candidates": 176,
+    "planning_nodes": 576,
+    "cut": 0,
+    "plan_bytes": 2624,
+    "workspace_bytes": 404,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "levels",
+    "atoms": 4,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 7.609500000000001,
+    "visit_us": 13.2345,
+    "nodes": 465,
+    "candidates": 480,
+    "planning_nodes": 0,
+    "cut": 2,
+    "plan_bytes": 2048,
+    "workspace_bytes": 404,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "atoms": 8,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 77.756,
+    "visit_us": 14.7675,
+    "nodes": 353,
+    "candidates": 368,
+    "planning_nodes": 832,
+    "cut": 0,
+    "plan_bytes": 5248,
+    "workspace_bytes": 804,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "levels",
+    "atoms": 8,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 10.715,
+    "visit_us": 212.46950000000004,
+    "nodes": 8145,
+    "candidates": 8160,
+    "planning_nodes": 0,
+    "cut": 2,
+    "plan_bytes": 4096,
+    "workspace_bytes": 804,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "atoms": 12,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 153.153,
+    "visit_us": 31.9255,
+    "nodes": 545,
+    "candidates": 560,
+    "planning_nodes": 832,
+    "cut": 0,
+    "plan_bytes": 8064,
+    "workspace_bytes": 1204,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "levels",
+    "atoms": 12,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 15.363999999999999,
+    "visit_us": 3307.2110000000002,
+    "nodes": 131025,
+    "candidates": 131040,
+    "planning_nodes": 0,
+    "cut": 2,
+    "plan_bytes": 6144,
+    "workspace_bytes": 1204,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "atoms": 16,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 127.57999999999998,
+    "visit_us": 31.003499999999995,
+    "nodes": 737,
+    "candidates": 752,
+    "planning_nodes": 832,
+    "cut": 0,
+    "plan_bytes": 10496,
+    "workspace_bytes": 1604,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "levels",
+    "atoms": 16,
+    "finished": false,
+    "rows": 8,
+    "expected_rows": 16,
+    "prepare_us": 16.0,
+    "visit_us": 20356.277000000002,
+    "nodes": 1000000,
+    "candidates": 1000008,
+    "planning_nodes": 0,
+    "cut": 2,
+    "plan_bytes": 8192,
+    "workspace_bytes": 1604,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "atoms": 20,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 31.3095,
+    "visit_us": 18.755499999999998,
+    "nodes": 929,
+    "candidates": 944,
+    "planning_nodes": 320,
+    "cut": 0,
+    "plan_bytes": 13696,
+    "workspace_bytes": 2004,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "levels",
+    "atoms": 20,
+    "finished": false,
+    "rows": 0,
+    "expected_rows": 16,
+    "prepare_us": 20.97,
+    "visit_us": 14615.6835,
+    "nodes": 1000000,
+    "candidates": 1000000,
+    "planning_nodes": 0,
+    "cut": 2,
+    "plan_bytes": 10240,
+    "workspace_bytes": 2004,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "atoms": 32,
+    "finished": true,
+    "rows": 16,
+    "expected_rows": 16,
+    "prepare_us": 45.906499999999994,
+    "visit_us": 35.6975,
+    "nodes": 1505,
+    "candidates": 1520,
+    "planning_nodes": 512,
+    "cut": 0,
+    "plan_bytes": 20992,
+    "workspace_bytes": 3204,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "mode": "budget",
+    "layout": "bfs",
+    "policy": "levels",
+    "atoms": 32,
+    "finished": false,
+    "rows": 0,
+    "expected_rows": 16,
+    "prepare_us": 17.859,
+    "visit_us": 13570.061,
+    "nodes": 1000000,
+    "candidates": 1000000,
+    "planning_nodes": 0,
+    "cut": 2,
+    "plan_bytes": 16384,
+    "workspace_bytes": 3204,
+    "family": "carry",
+    "passes": 2
+  },
+  {
+    "case": "uniform-star",
+    "layout": "pow2",
+    "policy": "adaptive",
+    "rows": 4950,
+    "prepare_us": 8.648907804855938,
+    "visit_us": 20158.093999999997,
+    "visit_min_us": 20141.117,
+    "visit_max_us": 20511.839500000002,
+    "total_us": 20174.690000000002,
+    "build_us": 674583.852,
+    "graph_bytes": 6144522,
+    "blocks": 94,
+    "physical_nodes": 178613,
+    "plan_bytes": 3888,
+    "workspace_bytes": 688,
+    "nodes": 1220372,
+    "candidates": 1225321,
+    "mask_updates": 65657,
+    "planning_nodes": 320,
+    "cut": 0,
+    "order": [
+      0,
+      1
+    ],
+    "certified_empty": false,
+    "family": "star",
+    "passes": 2
+  },
+  {
+    "case": "uniform-star",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "rows": 4950,
+    "prepare_us": 7.999644891760132,
+    "visit_us": 18133.14,
+    "visit_min_us": 18063.898999999998,
+    "visit_max_us": 18169.193,
+    "total_us": 18294.057,
+    "build_us": 717502.6305,
+    "graph_bytes": 6144802,
+    "blocks": 94,
+    "physical_nodes": 178613,
+    "plan_bytes": 3888,
+    "workspace_bytes": 688,
+    "nodes": 1220372,
+    "candidates": 1225321,
+    "mask_updates": 65657,
+    "planning_nodes": 320,
+    "cut": 0,
+    "order": [
+      0,
+      1
+    ],
+    "certified_empty": false,
+    "family": "star",
+    "passes": 2
+  },
+  {
+    "case": "uniform-star",
+    "layout": "pow2",
+    "policy": "nested",
+    "rows": 4950,
+    "prepare_us": 1.2772549193681213,
+    "visit_us": 20400.7705,
+    "visit_min_us": 20182.625,
+    "visit_max_us": 21287.213000000003,
+    "total_us": 20305.841500000002,
+    "build_us": 674583.852,
+    "graph_bytes": 6144522,
+    "blocks": 94,
+    "physical_nodes": 178613,
+    "plan_bytes": 3888,
+    "workspace_bytes": 688,
+    "nodes": 1220372,
+    "candidates": 1225321,
+    "mask_updates": 65657,
+    "planning_nodes": 0,
+    "cut": 0,
+    "order": [
+      0,
+      1
+    ],
+    "certified_empty": false,
+    "family": "star",
+    "passes": 2
+  },
+  {
+    "case": "uniform-star",
+    "layout": "bfs",
+    "policy": "nested",
+    "rows": 4950,
+    "prepare_us": 1.1835182265468238,
+    "visit_us": 18178.786,
+    "visit_min_us": 18082.4645,
+    "visit_max_us": 18945.0815,
+    "total_us": 18105.8185,
+    "build_us": 717502.6305,
+    "graph_bytes": 6144802,
+    "blocks": 94,
+    "physical_nodes": 178613,
+    "plan_bytes": 3888,
+    "workspace_bytes": 688,
+    "nodes": 1220372,
+    "candidates": 1225321,
+    "mask_updates": 65657,
+    "planning_nodes": 0,
+    "cut": 0,
+    "order": [
+      0,
+      1
+    ],
+    "certified_empty": false,
+    "family": "star",
+    "passes": 2
+  },
+  {
+    "case": "uniform-star",
+    "layout": "pow2",
+    "policy": "levels",
+    "rows": 4950,
+    "prepare_us": 1.1436895895752608,
+    "visit_us": 30047.101,
+    "visit_min_us": 29984.403,
+    "visit_max_us": 30167.5575,
+    "total_us": 29671.224000000002,
+    "build_us": 674583.852,
+    "graph_bytes": 6144522,
+    "blocks": 94,
+    "physical_nodes": 178613,
+    "plan_bytes": 3504,
+    "workspace_bytes": 688,
+    "nodes": 1700957,
+    "candidates": 1705906,
+    "mask_updates": 1700957,
+    "planning_nodes": 0,
+    "cut": 7,
+    "order": [
+      0,
+      1
+    ],
+    "certified_empty": false,
+    "family": "star",
+    "passes": 2
+  },
+  {
+    "case": "uniform-star",
+    "layout": "bfs",
+    "policy": "levels",
+    "rows": 4950,
+    "prepare_us": 1.082787180151335,
+    "visit_us": 27358.3435,
+    "visit_min_us": 27084.788,
+    "visit_max_us": 27681.2655,
+    "total_us": 26955.405,
+    "build_us": 717502.6305,
+    "graph_bytes": 6144802,
+    "blocks": 94,
+    "physical_nodes": 178613,
+    "plan_bytes": 3504,
+    "workspace_bytes": 688,
+    "nodes": 1700957,
+    "candidates": 1705906,
+    "mask_updates": 1700957,
+    "planning_nodes": 0,
+    "cut": 7,
+    "order": [
+      0,
+      1
+    ],
+    "certified_empty": false,
+    "family": "star",
+    "passes": 2
+  },
+  {
+    "case": "functional-triangle",
+    "layout": "pow2",
+    "policy": "adaptive",
+    "rows": 20000,
+    "prepare_us": 25.13698884332214,
+    "visit_us": 1967.3928999999998,
+    "visit_min_us": 1957.4581,
+    "visit_max_us": 2015.7016,
+    "total_us": 1987.1590999999999,
+    "build_us": 7343.579,
+    "graph_bytes": 1524,
+    "blocks": 1,
+    "physical_nodes": 46,
+    "plan_bytes": 4512,
+    "workspace_bytes": 880,
+    "nodes": 134295,
+    "candidates": 154294,
+    "mask_updates": 134295,
+    "planning_nodes": 832,
+    "cut": 6,
+    "order": [
+      0,
+      1,
+      2
+    ],
+    "certified_empty": false,
+    "family": "functional",
+    "passes": 2
+  },
+  {
+    "case": "functional-triangle",
+    "layout": "bfs",
+    "policy": "adaptive",
+    "rows": 20000,
+    "prepare_us": 22.508767026812396,
+    "visit_us": 1739.8437999999996,
+    "visit_min_us": 1737.0775999999996,
+    "visit_max_us": 1751.0598000000002,
+    "total_us": 1767.1330000000003,
+    "build_us": 10668.503,
+    "graph_bytes": 1764,
+    "blocks": 1,
+    "physical_nodes": 46,
+    "plan_bytes": 4512,
+    "workspace_bytes": 880,
+    "nodes": 134295,
+    "candidates": 154294,
+    "mask_updates": 134295,
+    "planning_nodes": 832,
+    "cut": 6,
+    "order": [
+      0,
+      1,
+      2
+    ],
+    "certified_empty": false,
+    "family": "functional",
+    "passes": 2
+  },
+  {
+    "case": "functional-triangle",
+    "layout": "pow2",
+    "policy": "nested",
+    "rows": 20000,
+    "prepare_us": 1.5812218971281093,
+    "visit_us": 5094.422500000001,
+    "visit_min_us": 5074.821,
+    "visit_max_us": 5161.5945,
+    "total_us": 5233.0285,
+    "build_us": 7343.579,
+    "graph_bytes": 1524,
+    "blocks": 1,
+    "physical_nodes": 46,
+    "plan_bytes": 4896,
+    "workspace_bytes": 880,
+    "nodes": 342861,
+    "candidates": 362860,
+    "mask_updates": 240006,
+    "planning_nodes": 0,
+    "cut": 0,
+    "order": [
+      0,
+      1,
+      2
+    ],
+    "certified_empty": false,
+    "family": "functional",
+    "passes": 2
+  },
+  {
+    "case": "functional-triangle",
+    "layout": "bfs",
+    "policy": "nested",
+    "rows": 20000,
+    "prepare_us": 1.4654982574258424,
+    "visit_us": 4276.036,
+    "visit_min_us": 4267.7805,
+    "visit_max_us": 4421.2165,
+    "total_us": 4294.961499999999,
+    "build_us": 10668.503,
+    "graph_bytes": 1764,
+    "blocks": 1,
+    "physical_nodes": 46,
+    "plan_bytes": 4896,
+    "workspace_bytes": 880,
+    "nodes": 342861,
+    "candidates": 362860,
+    "mask_updates": 240006,
+    "planning_nodes": 0,
+    "cut": 0,
+    "order": [
+      0,
+      1,
+      2
+    ],
+    "certified_empty": false,
+    "family": "functional",
+    "passes": 2
+  },
+  {
+    "case": "functional-triangle",
+    "layout": "pow2",
+    "policy": "levels",
+    "rows": 20000,
+    "prepare_us": 1.445015341058983,
+    "visit_us": 1955.2981,
+    "visit_min_us": 1952.3004,
+    "visit_max_us": 1976.485,
+    "total_us": 1961.7111,
+    "build_us": 7343.579,
+    "graph_bytes": 1524,
+    "blocks": 1,
+    "physical_nodes": 46,
+    "plan_bytes": 4512,
+    "workspace_bytes": 880,
+    "nodes": 134295,
+    "candidates": 154294,
+    "mask_updates": 134295,
+    "planning_nodes": 0,
+    "cut": 6,
+    "order": [
+      0,
+      1,
+      2
+    ],
+    "certified_empty": false,
+    "family": "functional",
+    "passes": 2
+  },
+  {
+    "case": "functional-triangle",
+    "layout": "bfs",
+    "policy": "levels",
+    "rows": 20000,
+    "prepare_us": 1.3667594223246236,
+    "visit_us": 1750.1151999999997,
+    "visit_min_us": 1743.8502,
+    "visit_max_us": 1953.1860000000001,
+    "total_us": 1751.4726,
+    "build_us": 10668.503,
+    "graph_bytes": 1764,
+    "blocks": 1,
+    "physical_nodes": 46,
+    "plan_bytes": 4512,
+    "workspace_bytes": 880,
+    "nodes": 134295,
+    "candidates": 154294,
+    "mask_updates": 134295,
+    "planning_nodes": 0,
+    "cut": 6,
+    "order": [
+      0,
+      1,
+      2
+    ],
+    "certified_empty": false,
+    "family": "functional",
+    "passes": 2
+  },
+  {
+    "finished": true,
+    "rows": 1,
+    "expected_rows": 1,
+    "nodes": 99,
+    "candidates": 4,
+    "planning_nodes": 891,
+    "planning_budget": 1188,
+    "frontier": true,
+    "cut": 0,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32
+    ],
+    "certified_empty": false,
+    "prepare_us": 63.30453585188357,
+    "visit_us": 19.738158024959304,
+    "total_us": 84.73591533521304,
+    "plan_bytes": 39212,
+    "workspace_bytes": 31537,
+    "height": 3,
+    "triples": 32769,
+    "level_layouts": [
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          6
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          3
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "odd-planted",
+    "n": 128,
+    "atoms": 33,
+    "layout": "bfs",
+    "policy": "adaptive",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": false,
+    "rows": 0,
+    "expected_rows": 1,
+    "nodes": 1000000,
+    "candidates": 1000000,
+    "planning_nodes": 0,
+    "planning_budget": 0,
+    "frontier": false,
+    "cut": 3,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32
+    ],
+    "certified_empty": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 25080,
+    "workspace_bytes": 4884,
+    "height": 3,
+    "triples": 32769,
+    "level_layouts": [
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          6
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          3
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "odd-planted",
+    "n": 128,
+    "atoms": 33,
+    "layout": "bfs",
+    "policy": "levels",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": true,
+    "rows": 1,
+    "expected_rows": 1,
+    "nodes": 99,
+    "candidates": 4,
+    "planning_nodes": 0,
+    "planning_budget": 0,
+    "frontier": true,
+    "cut": 0,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32
+    ],
+    "certified_empty": false,
+    "prepare_us": 9.988820277451268,
+    "visit_us": 19.777387075538662,
+    "total_us": 30.66712680542032,
+    "plan_bytes": 39212,
+    "workspace_bytes": 31537,
+    "height": 3,
+    "triples": 32769,
+    "level_layouts": [
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          6
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          3
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "odd-planted",
+    "n": 128,
+    "atoms": 33,
+    "layout": "bfs",
+    "policy": "frontier",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": true,
+    "rows": 4096,
+    "expected_rows": 4096,
+    "nodes": 145665,
+    "candidates": 149760,
+    "planning_nodes": 1024,
+    "planning_budget": 1024,
+    "frontier": false,
+    "cut": 4,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "certified_empty": false,
+    "prepare_us": 34.303845673660476,
+    "visit_us": 1694.2184,
+    "total_us": 1688.3479000000002,
+    "plan_bytes": 32256,
+    "workspace_bytes": 6272,
+    "height": 4,
+    "triples": 4096,
+    "level_layouts": [
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          9,
+          0,
+          9
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          6
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          3
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "xor-ring",
+    "n": 4096,
+    "atoms": 32,
+    "layout": "bfs",
+    "policy": "adaptive",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": true,
+    "rows": 4096,
+    "expected_rows": 4096,
+    "nodes": 145665,
+    "candidates": 149760,
+    "planning_nodes": 0,
+    "planning_budget": 0,
+    "frontier": false,
+    "cut": 4,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "certified_empty": false,
+    "prepare_us": 10.395981703032906,
+    "visit_us": 1650.1248333333335,
+    "total_us": 1661.6089166666666,
+    "plan_bytes": 32256,
+    "workspace_bytes": 6272,
+    "height": 4,
+    "triples": 4096,
+    "level_layouts": [
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          9,
+          0,
+          9
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          6
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          3
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "xor-ring",
+    "n": 4096,
+    "atoms": 32,
+    "layout": "bfs",
+    "policy": "levels",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": true,
+    "rows": 4096,
+    "expected_rows": 4096,
+    "nodes": 18720,
+    "candidates": 8190,
+    "planning_nodes": 0,
+    "planning_budget": 0,
+    "frontier": true,
+    "cut": 0,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "certified_empty": false,
+    "prepare_us": 10.662815194608196,
+    "visit_us": 21471.815499999997,
+    "total_us": 21378.6845,
+    "plan_bytes": 47752,
+    "workspace_bytes": 56000,
+    "height": 4,
+    "triples": 4096,
+    "level_layouts": [
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          9,
+          0,
+          9
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          6
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          3
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "xor-ring",
+    "n": 4096,
+    "atoms": 32,
+    "layout": "bfs",
+    "policy": "frontier",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": true,
+    "rows": 4096,
+    "expected_rows": 4096,
+    "nodes": 639561,
+    "candidates": 643656,
+    "planning_nodes": 1280,
+    "planning_budget": 1280,
+    "frontier": false,
+    "cut": 0,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "certified_empty": false,
+    "prepare_us": 41.76831091820988,
+    "visit_us": 10348.802,
+    "total_us": 10472.8,
+    "plan_bytes": 44704,
+    "workspace_bytes": 7808,
+    "height": 5,
+    "triples": 4096,
+    "level_layouts": [
+      [
+        [
+          3,
+          1,
+          2
+        ],
+        [
+          3,
+          2,
+          0
+        ],
+        [
+          9,
+          0,
+          10
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          7
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          4
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      [
+        [
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "xor-padding",
+    "n": 4096,
+    "atoms": 32,
+    "layout": "bfs",
+    "policy": "adaptive",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": false,
+    "rows": 0,
+    "expected_rows": 4096,
+    "nodes": 1000000,
+    "candidates": 1000000,
+    "planning_nodes": 0,
+    "planning_budget": 0,
+    "frontier": false,
+    "cut": 5,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "certified_empty": false,
+    "prepare_us": null,
+    "visit_us": null,
+    "total_us": null,
+    "plan_bytes": 40192,
+    "workspace_bytes": 7808,
+    "height": 5,
+    "triples": 4096,
+    "level_layouts": [
+      [
+        [
+          3,
+          1,
+          2
+        ],
+        [
+          3,
+          2,
+          0
+        ],
+        [
+          9,
+          0,
+          10
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          7
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          4
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      [
+        [
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "xor-padding",
+    "n": 4096,
+    "atoms": 32,
+    "layout": "bfs",
+    "policy": "levels",
+    "family": "cycle",
+    "passes": 2
+  },
+  {
+    "finished": true,
+    "rows": 4096,
+    "expected_rows": 4096,
+    "nodes": 149792,
+    "candidates": 8190,
+    "planning_nodes": 0,
+    "planning_budget": 0,
+    "frontier": true,
+    "cut": 0,
+    "order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "certified_empty": false,
+    "prepare_us": 10.75896160267112,
+    "visit_us": 27682.6985,
+    "total_us": 27709.243000000002,
+    "plan_bytes": 54408,
+    "workspace_bytes": 56000,
+    "height": 5,
+    "triples": 4096,
+    "level_layouts": [
+      [
+        [
+          3,
+          1,
+          2
+        ],
+        [
+          3,
+          2,
+          0
+        ],
+        [
+          9,
+          0,
+          10
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          6,
+          0,
+          7
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          3,
+          0,
+          4
+        ]
+      ],
+      [
+        [
+          3,
+          0,
+          3
+        ],
+        [
+          3,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      [
+        [
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    ],
+    "case": "xor-padding",
+    "n": 4096,
+    "atoms": 32,
+    "layout": "bfs",
+    "policy": "frontier",
+    "family": "cycle",
+    "passes": 2
+  }
+]

@@ -149,3 +149,8 @@ required-features = ["heap"]
 name = "subtree_dedup_proto"
 path = "examples/subtree_dedup_proto.rs"
 required-features = ["heap"]
+
+[[example]]
+name = "fst_build_perf"
+path = "examples/fst_build_perf.rs"
+required-features = ["experimental", "parallel"]

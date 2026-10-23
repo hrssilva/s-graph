@@ -1,0 +1,7 @@
+mode=sequential,shape=irregular,triples=1000000,threads=1,build_ms=1915.146,retained_bytes=16822080,nodes=1060277,visited=4207521
+Running as unit: sgraph-build-1792695332982930611.service; invocation ID: 100c06d9900343c783fb669c1ea0dea6
+peak_rss_kib=218788
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 2.216s
+             CPU time consumed: 2.206s

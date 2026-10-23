@@ -617,8 +617,50 @@ pub fn visit_language_with_workspace<S: BitmapSource, C: ?Sized, A: BitmapAutoma
     machine: &A,
     context: &C,
     path: &mut Vec<Slot>,
-    mut emit: impl FnMut(&[Slot]) -> std::ops::ControlFlow<T>,
+    emit: impl FnMut(&[Slot]) -> std::ops::ControlFlow<T>,
 ) -> std::ops::ControlFlow<T> {
+    match visit_language_checked(
+        source,
+        machine,
+        context,
+        path,
+        &crate::execution::Uncontrolled,
+        emit,
+    ) {
+        std::ops::ControlFlow::Continue(()) => std::ops::ControlFlow::Continue(()),
+        std::ops::ControlFlow::Break(crate::execution::Stop::User(value)) => {
+            std::ops::ControlFlow::Break(value)
+        }
+        _ => unreachable!(),
+    }
+}
+/// Controlled product traversal for custom bitmap recognizers. Checks include
+/// rejected branches, not only accepting words. The source and recognizer's
+/// individual operations must return cooperatively (blocking I/O is not preempted).
+pub fn visit_language_controlled<S: BitmapSource, C: ?Sized, A: BitmapAutomaton<C>, T>(
+    source: &S,
+    machine: &A,
+    context: &C,
+    path: &mut Vec<Slot>,
+    control: &crate::execution::Execution<'_>,
+    emit: impl FnMut(&[Slot]) -> std::ops::ControlFlow<T>,
+) -> crate::execution::VisitResult<T> {
+    if let Err(reason) = control.check() {
+        return std::ops::ControlFlow::Break(crate::execution::VisitStop::Interrupted(reason));
+    }
+    crate::execution::visited(
+        control,
+        visit_language_checked(source, machine, context, path, control, emit),
+    )
+}
+fn visit_language_checked<S: BitmapSource, C: ?Sized, A: BitmapAutomaton<C>, T>(
+    source: &S,
+    machine: &A,
+    context: &C,
+    path: &mut Vec<Slot>,
+    control: &impl crate::execution::Check,
+    mut emit: impl FnMut(&[Slot]) -> std::ops::ControlFlow<T>,
+) -> std::ops::ControlFlow<crate::execution::Stop<T>> {
     use std::ops::ControlFlow;
     fn walk<S: BitmapSource, C: ?Sized, A: BitmapAutomaton<C>, T>(
         source: &S,
@@ -628,11 +670,13 @@ pub fn visit_language_with_workspace<S: BitmapSource, C: ?Sized, A: BitmapAutoma
         level: usize,
         state: A::State,
         path: &mut Vec<Slot>,
+        control: &impl crate::execution::Check,
         emit: &mut impl FnMut(&[Slot]) -> ControlFlow<T>,
-    ) -> ControlFlow<T> {
+    ) -> ControlFlow<crate::execution::Stop<T>> {
+        control.step()?;
         if level == source.height() {
             if machine.is_accepting(&state, c) {
-                emit(path)?;
+                emit(path).map_break(crate::execution::Stop::User)?;
             }
             return ControlFlow::Continue(());
         }
@@ -646,6 +690,7 @@ pub fn visit_language_with_workspace<S: BitmapSource, C: ?Sized, A: BitmapAutoma
         let word = source.word(cursor);
         let mut pending = word & allowed;
         while pending != 0 {
+            control.step()?;
             let value = pending.trailing_zeros();
             pending &= pending - 1;
             let e = Slot { level, value };
@@ -658,13 +703,24 @@ pub fn visit_language_with_workspace<S: BitmapSource, C: ?Sized, A: BitmapAutoma
             } else {
                 source.follow(cursor, word, value)
             };
-            let result = walk(source, machine, c, child, level + 1, next, path, emit);
+            let result = walk(
+                source,
+                machine,
+                c,
+                child,
+                level + 1,
+                next,
+                path,
+                control,
+                emit,
+            );
             path.pop();
             result?;
         }
         ControlFlow::Continue(())
     }
     let _read = source.begin_read();
+    control.step()?;
     path.clear();
     let Some(root) = source.root() else {
         return ControlFlow::Continue(());
@@ -677,6 +733,7 @@ pub fn visit_language_with_workspace<S: BitmapSource, C: ?Sized, A: BitmapAutoma
         0,
         machine.start(),
         path,
+        control,
         &mut emit,
     )
 }

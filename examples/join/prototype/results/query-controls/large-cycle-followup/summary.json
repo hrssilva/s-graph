@@ -1,0 +1,30 @@
+[
+  {
+    "version": "baseline",
+    "layout": "bfs",
+    "prepare_us": 7348.094833333334,
+    "visit_us": 3153.0168,
+    "total_us": 10631.9055
+  },
+  {
+    "version": "baseline",
+    "layout": "pow2",
+    "prepare_us": 7792.4158333333335,
+    "visit_us": 3410.141642857143,
+    "total_us": 11487.68825
+  },
+  {
+    "version": "current",
+    "layout": "bfs",
+    "prepare_us": 7371.949666666666,
+    "visit_us": 3150.9175333333333,
+    "total_us": 10511.12575
+  },
+  {
+    "version": "current",
+    "layout": "pow2",
+    "prepare_us": 7435.200333333334,
+    "visit_us": 3299.776785714286,
+    "total_us": 10941.973750000001
+  }
+]

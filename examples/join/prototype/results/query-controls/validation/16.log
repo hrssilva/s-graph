@@ -1,0 +1,18 @@
+   Compiling s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.12s
+     Running tests/execution.rs (target/debug/deps/execution-3a314a126b8579ad)
+
+running 10 tests
+test interrupted_rhs_is_never_an_optional_or_negation_fallback ... ok
+test reused_request_polls_before_values_and_composed_entries ... ok
+test controlled_searches_use_packed_and_editable_sources_across_storage_modes ... ok
+test preparation_limits_and_pre_cancelled_ground_queries_are_explicit ... ok
+test cancellation_during_custom_filter_construction_is_reported ... ok
+test cancelling_a_planning_probe_cannot_return_an_empty_certificate ... ok
+test user_recognizers_can_cancel_unsuccessful_language_intersections ... ok
+test cancellation_inside_a_no_answer_walk_releases_the_read_session ... ok
+test controlled_composition_preserves_bags_partial_bindings_and_correlation ... ok
+test budgets_stop_before_results_under_every_schedule_and_scratch_is_reusable ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

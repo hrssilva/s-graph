@@ -1,0 +1,11 @@
+   Compiling crossbeam-utils v0.8.22
+   Compiling crossbeam-epoch v0.9.20
+   Compiling crossbeam-deque v0.8.7
+   Compiling rayon-core v1.13.0
+   Compiling libc v0.2.189
+   Compiling twox-hash v2.1.4
+   Compiling either v1.18.0
+   Compiling s-graph v0.1.0 (/tmp/sgraph-composition-xo5ngqei)
+   Compiling lz4_flex v0.14.0
+   Compiling rayon v1.12.0
+    Finished `profiling` profile [optimized + debuginfo] target(s) in 10.75s

@@ -1,0 +1,162 @@
+[
+  {
+    "backend": "heap",
+    "shape": "functional",
+    "mode": "sequential",
+    "threads": 1,
+    "build_ms": 150.293,
+    "peak_rss_kib": 26032,
+    "nodes": 41,
+    "retained_bytes": 1642
+  },
+  {
+    "backend": "heap",
+    "shape": "functional",
+    "mode": "parallel",
+    "threads": 2,
+    "build_ms": 115.084,
+    "peak_rss_kib": 26040,
+    "nodes": 41,
+    "retained_bytes": 1642
+  },
+  {
+    "backend": "heap",
+    "shape": "functional",
+    "mode": "parallel",
+    "threads": 4,
+    "build_ms": 70.945,
+    "peak_rss_kib": 26008,
+    "nodes": 41,
+    "retained_bytes": 1642
+  },
+  {
+    "backend": "heap",
+    "shape": "functional",
+    "mode": "parallel",
+    "threads": 8,
+    "build_ms": 52.432,
+    "peak_rss_kib": 25980,
+    "nodes": 41,
+    "retained_bytes": 1642
+  },
+  {
+    "backend": "heap",
+    "shape": "shared",
+    "mode": "sequential",
+    "threads": 1,
+    "build_ms": 101.385,
+    "peak_rss_kib": 26020,
+    "nodes": 9,
+    "retained_bytes": 1620
+  },
+  {
+    "backend": "heap",
+    "shape": "shared",
+    "mode": "parallel",
+    "threads": 2,
+    "build_ms": 66.616,
+    "peak_rss_kib": 26108,
+    "nodes": 9,
+    "retained_bytes": 1620
+  },
+  {
+    "backend": "heap",
+    "shape": "shared",
+    "mode": "parallel",
+    "threads": 4,
+    "build_ms": 51.88,
+    "peak_rss_kib": 26084,
+    "nodes": 9,
+    "retained_bytes": 1620
+  },
+  {
+    "backend": "heap",
+    "shape": "shared",
+    "mode": "parallel",
+    "threads": 8,
+    "build_ms": 41.958,
+    "peak_rss_kib": 26100,
+    "nodes": 9,
+    "retained_bytes": 1620
+  },
+  {
+    "backend": "heap",
+    "shape": "irregular",
+    "mode": "sequential",
+    "threads": 1,
+    "build_ms": 1776.335,
+    "peak_rss_kib": 218788,
+    "nodes": 1060277,
+    "retained_bytes": 16822080
+  },
+  {
+    "backend": "heap",
+    "shape": "irregular",
+    "mode": "parallel",
+    "threads": 2,
+    "build_ms": 1908.741,
+    "peak_rss_kib": 288544,
+    "nodes": 1060277,
+    "retained_bytes": 16822080
+  },
+  {
+    "backend": "heap",
+    "shape": "irregular",
+    "mode": "parallel",
+    "threads": 4,
+    "build_ms": 1449.332,
+    "peak_rss_kib": 300240,
+    "nodes": 1060277,
+    "retained_bytes": 16822080
+  },
+  {
+    "backend": "heap",
+    "shape": "irregular",
+    "mode": "parallel",
+    "threads": 8,
+    "build_ms": 1482.375,
+    "peak_rss_kib": 309592,
+    "nodes": 1060277,
+    "retained_bytes": 16822080
+  },
+  {
+    "backend": "heap",
+    "shape": "skewed",
+    "mode": "sequential",
+    "threads": 1,
+    "build_ms": 187.771,
+    "peak_rss_kib": 26156,
+    "nodes": 273,
+    "retained_bytes": 34514
+  },
+  {
+    "backend": "heap",
+    "shape": "skewed",
+    "mode": "parallel",
+    "threads": 2,
+    "build_ms": 134.531,
+    "peak_rss_kib": 26640,
+    "nodes": 273,
+    "retained_bytes": 34514
+  },
+  {
+    "backend": "heap",
+    "shape": "skewed",
+    "mode": "parallel",
+    "threads": 4,
+    "build_ms": 80.41,
+    "peak_rss_kib": 26644,
+    "nodes": 273,
+    "retained_bytes": 34514
+  },
+  {
+    "backend": "heap",
+    "shape": "skewed",
+    "mode": "parallel",
+    "threads": 8,
+    "build_ms": 67.052,
+    "peak_rss_kib": 26492,
+    "nodes": 273,
+    "retained_bytes": 34514
+  }
+]

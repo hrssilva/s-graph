@@ -1,0 +1,15 @@
+{
+  "binaries": {
+    "baseline": "41c6fafc825d0785c272b78e34d51c7fbf7e4f474eb4539752763427eebe43c7",
+    "current": "1a84613bf6d5130f16c8f48126b916614883ce6a37308179fb55335ec133d675"
+  },
+  "trials": 7,
+  "target_ms": 50,
+  "process_passes": 3,
+  "policy": "adaptive",
+  "limits": {
+    "address_space_bytes": 2147483648,
+    "cpu_seconds": 30,
+    "timeout_seconds": 40
+  }
+}

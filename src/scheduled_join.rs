@@ -11,6 +11,7 @@ struct Write {
     slot_shift: u8,
     value_shift: u8,
 }
+use crate::execution::{Check, Execution, PreparationError, StopReason, Uncontrolled, VisitResult};
 use crate::graph::{JoinQuery, Term};
 use crate::path_fst::PackedFst;
 use crate::{Result, TreeError};
@@ -141,10 +142,7 @@ pub struct PlanningStats {
     pub selected_order: Vec<usize>,
     pub selected_frontier: bool,
 }
-pub(crate) enum Stop<T> {
-    User(T),
-    Budget,
-}
+pub(crate) use crate::execution::Stop;
 pub struct ScheduledJoin<S: TripleSource> {
     frontier: Option<crate::frontier_join::FrontierPlan>,
     source: S,
@@ -170,15 +168,37 @@ impl<S: TripleSource> ScheduledJoin<S> {
         source: S,
         policy: Policy,
     ) -> Result<Self> {
+        Self::prepare(query, source, policy, &Uncontrolled).map_err(PreparationError::uncontrolled)
+    }
+    /// Compile with cooperative request limits, including compiler work and
+    /// adaptive probes. Interruption never creates an empty-result certificate.
+    pub fn with_source_controlled<P: Copy + Into<Term>>(
+        query: &JoinQuery<P>,
+        source: S,
+        policy: Policy,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self, PreparationError> {
+        control.check()?;
+        let plan = Self::prepare(query, source, policy, control)?;
+        control.check()?;
+        Ok(plan)
+    }
+    pub(crate) fn prepare<P: Copy + Into<Term>>(
+        query: &JoinQuery<P>,
+        source: S,
+        policy: Policy,
+        control: &impl Check,
+    ) -> std::result::Result<Self, PreparationError> {
+        control.checkpoint()?;
         let invalid = |s: &str| TreeError::InvalidConfig(s.into());
         if query.num_vars > query.patterns.len().saturating_mul(3) {
-            return Err(invalid("unused variables"));
+            return Err(invalid("unused variables").into());
         }
         let domains = source.domains();
         if source.height() > crate::tree::MAX_HEIGHT
             || !domains.iter().all(|n| (1..=1u64 << 32).contains(n))
         {
-            return Err(invalid("invalid triple source domains or height"));
+            return Err(invalid("invalid triple source domains or height").into());
         }
         let mut used = vec![false; query.num_vars];
         let mut zero = vec![0u32; query.num_vars];
@@ -187,6 +207,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
         let mut empty = false;
         let mut scalar = false;
         for p in &query.patterns {
+            control.checkpoint()?;
             let a = [p.subject, p.predicate.into(), p.object];
             let mut local = Vec::new();
             for (d, t) in a.iter().enumerate() {
@@ -194,7 +215,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
                     Term::Const(c) => empty |= c as u64 >= domains[d],
                     Term::Var(v) => {
                         if v >= query.num_vars {
-                            return Err(invalid("variable outside domain"));
+                            return Err(invalid("variable outside domain").into());
                         }
                         used[v] = true;
                         let width = 64 - (domains[d] - 1).leading_zeros();
@@ -217,7 +238,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
             }
         }
         if used.contains(&false) {
-            return Err(invalid("unused variables"));
+            return Err(invalid("unused variables").into());
         }
         // Macro recursion is fast for small BGPs, but its depth grows with
         // atom count. Large compositions use the existing flat register
@@ -227,9 +248,10 @@ impl<S: TripleSource> ScheduledJoin<S> {
         let mut order: Vec<_> = (0..atoms.len()).collect();
         let mut bound = vec![false; query.num_vars];
         if atoms.len() > 64 {
-            order = large_order(&atoms, query.num_vars);
+            order = incidence_order(&atoms, query.num_vars, false, control)?;
         } else {
             for i in 0..order.len() {
+                control.checkpoint()?;
                 let j = (i..order.len())
                     .max_by_key(|&j| {
                         let a = &atoms[order[j]];
@@ -268,8 +290,13 @@ impl<S: TripleSource> ScheduledJoin<S> {
             Policy::Adaptive if anchored.is_none() && atoms.len() > 1 => source.height(),
             _ => 0,
         };
-        let frontier = (policy == Policy::Frontier)
-            .then(|| crate::frontier_join::FrontierPlan::compile(&source, &atoms, &zero));
+        let frontier = if policy == Policy::Frontier {
+            Some(crate::frontier_join::FrontierPlan::compile_checked(
+                &source, &atoms, &zero, control,
+            )?)
+        } else {
+            None
+        };
         let plan = if frontier.is_some() {
             Plan {
                 stages: Vec::new(),
@@ -279,7 +306,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
                 order: order.clone(),
             }
         } else {
-            compile(&source, &atoms, &order, &zero, cut)
+            compile_checked(&source, &atoms, &order, &zero, cut, control)?
         };
         let mut join = Self {
             frontier,
@@ -304,7 +331,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
                 64
             };
             let nested_limit = if large { limit } else { PROBE_NODES };
-            let (initial, finished) = join.probe(limit);
+            let (initial, finished) = join.probe_checked(limit, control)?;
             if finished && initial.rows == 0 {
                 join.empty = true;
                 join.planning.certified_empty = true;
@@ -318,14 +345,12 @@ impl<S: TripleSource> ScheduledJoin<S> {
                 // Recompiling permutations dominates preparation at thousands
                 // of atoms. The incidence heuristic already orders those in
                 // O(atoms log atoms); compare schedules on that order.
-                let candidates = if large {
-                    vec![order.clone()]
-                } else {
-                    orders(&order)
-                };
+                let candidates = candidate_orders(&atoms, query.num_vars, &order, large, control)?;
                 for candidate in candidates {
-                    join.plan = compile(&join.source, &atoms, &candidate, &zero, 0);
-                    let (stats, finished) = join.probe(nested_limit);
+                    control.checkpoint()?;
+                    join.plan =
+                        compile_checked(&join.source, &atoms, &candidate, &zero, 0, control)?;
+                    let (stats, finished) = join.probe_checked(nested_limit, control)?;
                     if finished && stats.rows == 0 {
                         join.empty = true;
                         join.planning.certified_empty = true;
@@ -361,13 +386,14 @@ impl<S: TripleSource> ScheduledJoin<S> {
                         join.plan = levels;
                     } else {
                         join.plan = if explosive {
-                            compile(
+                            compile_checked(
                                 &join.source,
                                 &atoms,
                                 &best_order,
                                 &zero,
                                 2.min(join.source.height()),
-                            )
+                                control,
+                            )?
                         } else {
                             best_plan.unwrap()
                         };
@@ -380,12 +406,14 @@ impl<S: TripleSource> ScheduledJoin<S> {
                         // Shared-bit propagation is a more expensive executor.
                         // Use it only with evidence: a completed bounded probe
                         // while neither cheap schedule has yielded a row.
-                        join.frontier = Some(crate::frontier_join::FrontierPlan::compile(
+                        join.frontier = Some(crate::frontier_join::FrontierPlan::compile_checked(
                             &join.source,
                             &atoms,
                             &zero,
-                        ));
-                        let (frontier_stats, completed) = join.probe(nested_limit);
+                            control,
+                        )?);
+                        let (frontier_stats, completed) =
+                            join.probe_checked(nested_limit, control)?;
                         if completed {
                             if frontier_stats.rows == 0 {
                                 join.empty = true;
@@ -408,17 +436,28 @@ impl<S: TripleSource> ScheduledJoin<S> {
         join.planning.selected_frontier = join.frontier.is_some();
         Ok(join)
     }
-    fn probe(&mut self, limit: u64) -> (ScheduleStats, bool) {
+    fn probe_checked(
+        &mut self,
+        limit: u64,
+        control: &impl Check,
+    ) -> std::result::Result<(ScheduleStats, bool), StopReason> {
         self.planning.node_budget += limit;
         let mut stats = ScheduleStats::default();
         let mut ws = ScheduleWorkspace::default();
-        let flow = self.run::<true, true, false, ()>(&mut ws, &mut stats, limit, &mut |_| {
-            ControlFlow::Continue(())
-        });
+        let flow = self.run_checked::<true, true, false, ()>(
+            &mut ws,
+            &mut stats,
+            limit,
+            control,
+            &mut |_| ControlFlow::Continue(()),
+        );
         self.planning.nodes += stats.nodes;
         self.planning.candidates += stats.candidates;
         self.planning.trials += 1;
-        (stats, matches!(flow, ControlFlow::Continue(())))
+        if let ControlFlow::Break(Stop::Interrupted(reason)) = flow {
+            return Err(reason);
+        }
+        Ok((stats, matches!(flow, ControlFlow::Continue(()))))
     }
     pub fn allocated_bytes(&self) -> usize {
         self.frontier.as_ref().map_or(0, |p| p.allocated_bytes())
@@ -463,23 +502,77 @@ impl<S: TripleSource> ScheduledJoin<S> {
         ws: &mut ScheduleWorkspace<S::Cursor>,
         mut emit: impl FnMut(&[u32]) -> ControlFlow<T>,
     ) -> ControlFlow<T> {
+        match self.matching_checked(values, ws, &Uncontrolled, &mut emit) {
+            ControlFlow::Continue(()) => ControlFlow::Continue(()),
+            ControlFlow::Break(Stop::User(value)) => ControlFlow::Break(value),
+            _ => unreachable!(),
+        }
+    }
+    /// Controlled full traversal. Work is charged at branch and node/propagation
+    /// checkpoints, including branches that never emit a result.
+    pub fn visit_controlled<T>(
+        &self,
+        ws: &mut ScheduleWorkspace<S::Cursor>,
+        control: &Execution<'_>,
+        mut emit: impl FnMut(&[u32]) -> ControlFlow<T>,
+    ) -> VisitResult<T> {
+        if let Err(reason) = control.check() {
+            return ControlFlow::Break(crate::execution::VisitStop::Interrupted(reason));
+        }
+        crate::execution::visited(
+            control,
+            self.run_checked::<false, false, false, T>(
+                ws,
+                &mut ScheduleStats::default(),
+                u64::MAX,
+                control,
+                &mut emit,
+            ),
+        )
+    }
+    pub fn visit_matching_controlled<T>(
+        &self,
+        values: &[Option<u32>],
+        ws: &mut ScheduleWorkspace<S::Cursor>,
+        control: &Execution<'_>,
+        mut emit: impl FnMut(&[u32]) -> ControlFlow<T>,
+    ) -> VisitResult<T> {
+        if let Err(reason) = control.check() {
+            return ControlFlow::Break(crate::execution::VisitStop::Interrupted(reason));
+        }
+        crate::execution::visited(
+            control,
+            self.matching_checked(values, ws, control, &mut emit),
+        )
+    }
+    fn matching_checked<T>(
+        &self,
+        values: &[Option<u32>],
+        ws: &mut ScheduleWorkspace<S::Cursor>,
+        control: &impl Check,
+        emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
+    ) -> ControlFlow<Stop<T>> {
+        control.step()?;
         assert_eq!(values.len(), self.variables);
         if self.frontier.is_some() {
             ws.frontier.parameters.clear();
             ws.frontier.parameters.extend_from_slice(values);
-            return match self.run::<false, false, true, T>(
+            return self.run_checked::<false, false, true, T>(
                 ws,
                 &mut ScheduleStats::default(),
                 u64::MAX,
-                &mut emit,
-            ) {
-                ControlFlow::Continue(()) => ControlFlow::Continue(()),
-                ControlFlow::Break(Stop::User(t)) => ControlFlow::Break(t),
-                _ => unreachable!(),
-            };
+                control,
+                emit,
+            );
         }
         if values.iter().all(Option::is_none) {
-            return self.visit(ws, emit);
+            return self.run_checked::<false, false, false, T>(
+                ws,
+                &mut ScheduleStats::default(),
+                u64::MAX,
+                control,
+                emit,
+            );
         }
         ws.parameters.resize(self.plan.stages.len(), u64::MAX);
         ws.parameters.fill(u64::MAX);
@@ -488,6 +581,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
         ws.represented.resize(self.variables, 0);
         ws.represented.fill(0);
         for (i, stage) in self.plan.stages.iter().enumerate() {
+            control.step()?;
             for w in &stage.writes[..stage.count as usize] {
                 ws.represented[w.variable] |= w.mask;
                 if let Some(value) = values[w.variable] {
@@ -514,16 +608,13 @@ impl<S: TripleSource> ScheduledJoin<S> {
         {
             return ControlFlow::Continue(());
         }
-        match self.run::<false, false, true, T>(
+        self.run_checked::<false, false, true, T>(
             ws,
             &mut ScheduleStats::default(),
             u64::MAX,
-            &mut emit,
-        ) {
-            ControlFlow::Continue(()) => ControlFlow::Continue(()),
-            ControlFlow::Break(Stop::User(t)) => ControlFlow::Break(t),
-            _ => unreachable!(),
-        }
+            control,
+            emit,
+        )
     }
     pub fn visit_with_stats<T>(
         &self,
@@ -545,16 +636,28 @@ impl<S: TripleSource> ScheduledJoin<S> {
         limit: u64,
         emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
     ) -> ControlFlow<Stop<T>> {
+        self.run_checked::<TRACK, LIMIT, PARAM, T>(ws, stats, limit, &Uncontrolled, emit)
+    }
+    fn run_checked<const TRACK: bool, const LIMIT: bool, const PARAM: bool, T>(
+        &self,
+        ws: &mut ScheduleWorkspace<S::Cursor>,
+        stats: &mut ScheduleStats,
+        limit: u64,
+        control: &impl Check,
+        emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
+    ) -> ControlFlow<Stop<T>> {
+        control.step()?;
         let _read = self.source.begin_read();
         if self.empty {
             return ControlFlow::Continue(());
         }
         if let Some(plan) = &self.frontier {
-            return plan.run::<S, TRACK, LIMIT, PARAM, T>(
+            return plan.run_checked::<S, TRACK, LIMIT, PARAM, T>(
                 &self.source,
                 &mut ws.frontier,
                 stats,
                 limit,
+                control,
                 emit,
             );
         }
@@ -580,11 +683,12 @@ impl<S: TripleSource> ScheduledJoin<S> {
             self.plan.prefix
         };
         if count == 0 {
-            return self.block::<TRACK, LIMIT, PARAM, T>(0, ws, stats, limit, emit);
+            return self.block::<TRACK, LIMIT, PARAM, T>(0, ws, stats, limit, control, emit);
         }
         let mut depth = 0;
-        self.open::<TRACK, LIMIT, PARAM, T>(depth, ws, stats, limit)?;
+        self.open::<TRACK, LIMIT, PARAM, T>(depth, ws, stats, limit, control)?;
         loop {
+            control.step()?;
             let stage = &self.plan.stages[depth];
             if ws.frames[depth].remaining == 0 {
                 if depth == 0 {
@@ -617,12 +721,12 @@ impl<S: TripleSource> ScheduledJoin<S> {
                     }
                     emit(&ws.bindings).map_break(Stop::User)?;
                 } else {
-                    self.block::<TRACK, LIMIT, PARAM, T>(0, ws, stats, limit, emit)?;
+                    self.block::<TRACK, LIMIT, PARAM, T>(0, ws, stats, limit, control, emit)?;
                 }
                 undo(stage, &mut ws.bindings);
             } else {
                 depth += 1;
-                self.open::<TRACK, LIMIT, PARAM, T>(depth, ws, stats, limit)?;
+                self.open::<TRACK, LIMIT, PARAM, T>(depth, ws, stats, limit, control)?;
             }
         }
     }
@@ -633,7 +737,9 @@ impl<S: TripleSource> ScheduledJoin<S> {
         ws: &mut ScheduleWorkspace<S::Cursor>,
         stats: &mut ScheduleStats,
         limit: u64,
+        control: &impl Check,
     ) -> ControlFlow<Stop<T>> {
+        control.step()?;
         if LIMIT && stats.nodes >= limit {
             return ControlFlow::Break(Stop::Budget);
         }
@@ -669,6 +775,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
         ws: &mut ScheduleWorkspace<S::Cursor>,
         stats: &mut ScheduleStats,
         limit: u64,
+        control: &impl Check,
         emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
     ) -> ControlFlow<Stop<T>> {
         let block = &self.plan.blocks[index];
@@ -698,6 +805,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
             ws,
             stats,
             limit,
+            control,
             emit,
         );
         // Complete bindings are overwritten at the next leaf. Restore only
@@ -718,8 +826,10 @@ impl<S: TripleSource> ScheduledJoin<S> {
         ws: &mut ScheduleWorkspace<S::Cursor>,
         stats: &mut ScheduleStats,
         limit: u64,
+        control: &impl Check,
         emit: &mut impl FnMut(&[u32]) -> ControlFlow<T>,
     ) -> ControlFlow<Stop<T>> {
+        control.step()?;
         if LIMIT && stats.nodes >= limit {
             return ControlFlow::Break(Stop::Budget);
         }
@@ -745,6 +855,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
             stats.nodes += 1;
         }
         while remaining != 0 {
+            control.step()?;
             if TRACK {
                 stats.candidates += 1;
             }
@@ -767,7 +878,14 @@ impl<S: TripleSource> ScheduledJoin<S> {
                     }
                     emit(&ws.bindings).map_break(Stop::User)?;
                 } else {
-                    self.block::<TRACK, LIMIT, PARAM, T>(index + 1, ws, stats, limit, emit)?;
+                    self.block::<TRACK, LIMIT, PARAM, T>(
+                        index + 1,
+                        ws,
+                        stats,
+                        limit,
+                        control,
+                        emit,
+                    )?;
                 }
             } else {
                 let child = self.source.follow(address, word, q);
@@ -780,6 +898,7 @@ impl<S: TripleSource> ScheduledJoin<S> {
                     ws,
                     stats,
                     limit,
+                    control,
                     emit,
                 )?;
             }
@@ -794,7 +913,12 @@ fn undo(s: &Stage, b: &mut [u32]) {
 /// Incremental constants/connectivity heuristic for large BGPs. Each variable
 /// becomes bound once; only incident atom priorities change. Original atom
 /// ordinal is the deterministic tie break (small plans retain the old order).
-fn large_order(atoms: &[[Term; 3]], variables: usize) -> Vec<usize> {
+fn incidence_order(
+    atoms: &[[Term; 3]],
+    variables: usize,
+    connected: bool,
+    control: &impl Check,
+) -> std::result::Result<Vec<usize>, StopReason> {
     use std::{cmp::Reverse, collections::BinaryHeap};
     let mut offsets = vec![0; variables + 1];
     let constants: Vec<_> = atoms
@@ -802,6 +926,7 @@ fn large_order(atoms: &[[Term; 3]], variables: usize) -> Vec<usize> {
         .map(|a| a.iter().filter(|t| matches!(t, Term::Const(_))).count())
         .collect();
     for a in atoms {
+        control.checkpoint()?;
         for t in a {
             if let Term::Var(v) = *t {
                 offsets[v + 1] += 1;
@@ -809,11 +934,13 @@ fn large_order(atoms: &[[Term; 3]], variables: usize) -> Vec<usize> {
         }
     }
     for v in 0..variables {
+        control.checkpoint()?;
         offsets[v + 1] += offsets[v];
     }
     let mut cursor = offsets.clone();
     let mut incident = vec![0; offsets[variables]];
     for (i, a) in atoms.iter().enumerate() {
+        control.checkpoint()?;
         for t in a {
             if let Term::Var(v) = *t {
                 incident[cursor[v]] = i;
@@ -822,13 +949,14 @@ fn large_order(atoms: &[[Term; 3]], variables: usize) -> Vec<usize> {
         }
     }
     let mut heap: BinaryHeap<_> = (0..atoms.len())
-        .map(|i| (constants[i], 0, Reverse(i)))
+        .map(|i| (false, constants[i], 0, Reverse(i)))
         .collect();
     let mut bound = vec![false; variables];
     let mut chosen = vec![false; atoms.len()];
     let mut shared = vec![0; atoms.len()];
     let mut order = Vec::with_capacity(atoms.len());
-    while let Some((_, score, Reverse(i))) = heap.pop() {
+    while let Some((_, _, score, Reverse(i))) = heap.pop() {
+        control.checkpoint()?;
         if chosen[i] || shared[i] != score {
             continue;
         }
@@ -839,17 +967,60 @@ fn large_order(atoms: &[[Term; 3]], variables: usize) -> Vec<usize> {
                 if !bound[v] {
                     bound[v] = true;
                     for &a in &incident[offsets[v]..offsets[v + 1]] {
+                        control.checkpoint()?;
                         if !chosen[a] {
                             shared[a] += 1;
-                            heap.push((constants[a], shared[a], Reverse(a)));
+                            heap.push((connected, constants[a], shared[a], Reverse(a)));
                         }
                     }
                 }
             }
         }
     }
-    order
+    Ok(order)
 }
+fn candidate_orders(
+    atoms: &[[Term; 3]],
+    variables: usize,
+    first: &[usize],
+    large: bool,
+    control: &impl Check,
+) -> std::result::Result<Vec<Vec<usize>>, StopReason> {
+    let mut result = if large {
+        vec![first.to_vec()]
+    } else {
+        orders(first)
+    };
+    // Constants alone can put disconnected endpoint constraints ahead of the
+    // chain linking them. Rebuild the entire suffix, rather than only swapping
+    // the first atom. Retain every legacy candidate; add at most one probe.
+    let mut bound = vec![false; variables];
+    let mut started = false;
+    let mut disconnected = false;
+    for &i in first {
+        control.checkpoint()?;
+        let has_variables = atoms[i].iter().any(|t| matches!(t, Term::Var(_)));
+        let shared = atoms[i]
+            .iter()
+            .any(|t| matches!(t, Term::Var(v) if bound[*v]));
+        disconnected |= started && has_variables && !shared;
+        for t in atoms[i] {
+            if let Term::Var(v) = t {
+                bound[v] = true;
+            }
+        }
+        started |= has_variables;
+    }
+    if !disconnected {
+        return Ok(result);
+    }
+    let connected = incidence_order(atoms, variables, true, control)?;
+    if !result.contains(&connected) {
+        result.push(connected);
+    }
+    Ok(result)
+}
+
 fn orders(first: &[usize]) -> Vec<Vec<usize>> {
     let mut result = vec![first.to_vec()];
     // At most six orders; compilation/probing work stays bounded for large BGPs.
@@ -877,23 +1048,26 @@ fn orders(first: &[usize]) -> Vec<Vec<usize>> {
     }
     result
 }
-fn compile<S: TripleSource>(
+fn compile_checked<S: TripleSource>(
     source: &S,
     atoms: &[[Term; 3]],
     order: &[usize],
     zero: &[u32],
     cut: usize,
-) -> Plan {
+    control: &impl Check,
+) -> std::result::Result<Plan, StopReason> {
     let height = source.height();
     let mut events = Vec::new();
     for l in 0..cut {
         for &a in order {
+            control.checkpoint()?;
             events.push((l, a));
         }
     }
     let prefix = events.len();
     for &a in order {
         for l in cut..height {
+            control.checkpoint()?;
             events.push((l, a));
         }
     }
@@ -901,6 +1075,7 @@ fn compile<S: TripleSource>(
     let mut known = zero.to_vec();
     let mut prev = vec![ROOT; atoms.len()];
     for (level, a) in events {
+        control.checkpoint()?;
         let (bits, shifts, remaining) = source.layout(level);
         let slots = 1u32 << bits.iter().sum::<u8>();
         let mut mask = if slots == 64 {
@@ -977,6 +1152,7 @@ fn compile<S: TripleSource>(
     let mut blocks = Vec::new();
     if cut < height {
         for (i, &a) in order.iter().enumerate() {
+            control.checkpoint()?;
             let first = prefix + i * (height - cut);
             let end = first + height - cut;
             let mut owned = [0u32; 3];
@@ -1006,13 +1182,13 @@ fn compile<S: TripleSource>(
             });
         }
     }
-    Plan {
+    Ok(Plan {
         stages,
         blocks,
         prefix,
         cut,
         order: order.to_vec(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1020,6 +1196,72 @@ pub(crate) mod tests {
     use super::*;
     use crate::fst_join::{FstJoin, FstJoinStats, FstJoinWorkspace};
     use crate::path_fst::PathFstDeltaPow2Bfs;
+    #[test]
+    fn connected_candidate_avoids_endpoint_products_on_small_and_large_bgps() {
+        use crate::graph::TriplePattern;
+        use Term::{Const as C, Var as V};
+        for (n, hops) in [(256u32, 7usize), (64, 67)] {
+            for shuffled in [false, true] {
+                // An odd affine permutation is a bijection modulo this domain.
+                let id = |x: u32| if shuffled { (x * 37 + 13) % n } else { x % n };
+                let mut triples = Vec::new();
+                let mut expected = Vec::new();
+                for x in 0..n {
+                    triples.extend([(id(x), 0, id(x + 1)), (id(x), 2, n + 1), (id(x), 3, n + 2)]);
+                    if x % 8 == 0 {
+                        triples.push((id(x), 1, n));
+                        let start = (x + n - (hops as u32 % n)) % n;
+                        let mut row: Vec<_> = (0..=hops).map(|i| id(start + i as u32)).collect();
+                        row.push(n + 1);
+                        expected.push(row);
+                    }
+                }
+                expected.sort_unstable();
+                let mut atoms: Vec<_> = (0..hops).map(|i| [V(i), C(0), V(i + 1)]).collect();
+                atoms.extend([
+                    [V(hops), C(1), C(n)],
+                    [V(hops), C(2), V(hops + 1)],
+                    [V(0), C(3), C(n + 2)],
+                ]);
+                let query = JoinQuery {
+                    num_vars: hops + 2,
+                    patterns: atoms
+                        .into_iter()
+                        .map(|a| TriplePattern {
+                            subject: a[0],
+                            predicate: a[1],
+                            object: a[2],
+                        })
+                        .collect(),
+                };
+                let graph = PathFstDeltaPow2Bfs::build(
+                    triples,
+                    [n as u64, 4, n as u64 + 3],
+                    crate::DEFAULT_BLOCK_CAPACITY,
+                );
+                let plan = HybridJoin::new(&query, &graph, Policy::Adaptive).unwrap();
+                let mut actual = Vec::new();
+                let mut stats = ScheduleStats::default();
+                let _: ControlFlow<()> =
+                    plan.visit_with_stats(&mut Default::default(), &mut stats, |r| {
+                        actual.push(r.to_vec());
+                        ControlFlow::Continue(())
+                    });
+                actual.sort_unstable();
+                assert_eq!(actual, expected);
+                assert!(
+                    stats.nodes < 100_000,
+                    "n={n}, hops={hops}, shuffled={shuffled}: {stats:?}"
+                );
+                assert!(plan.planning.nodes <= plan.planning.node_budget);
+                if hops == 7 {
+                    assert!(plan.planning.node_budget <= 960);
+                    assert_eq!(plan.planning.selected_order[0], 7);
+                    assert_eq!(plan.planning.selected_order[1], 6);
+                }
+            }
+        }
+    }
     pub(crate) fn check(tree: &PathFstDeltaPow2Bfs, q: &JoinQuery<Term>, oracle: &[Vec<u32>]) {
         for policy in [
             Policy::Nested,

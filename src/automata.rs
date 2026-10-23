@@ -6,12 +6,14 @@ pub use crate::automata_core::{
     Mask, Not, Or, Project, Reducer, ReversibleAction, Slot, Transducer, TripleSource, Unfiltered,
 };
 pub use crate::automaton::PathAutomaton;
+pub use crate::execution::{Execution, PreparationError, StopReason, VisitResult, VisitStop};
 pub use crate::graph::Term;
 use crate::graph::{JoinQuery, TriplePattern};
 pub use crate::mutable_fst::MutableFstSource;
 pub use crate::path_ops::{Composed, PathBindings, PathEvent, PathExpr, PathRunner};
 use crate::query_ops::{self as ops, Condition, Plan};
 pub use crate::query_ops::{Binding, Plan as Search, Row, Values};
+pub use crate::query_ops::{ControlledCorrelatedPlan, ControlledPlan as ControlledSearch};
 pub use crate::scheduled_join::{Policy as Schedule, ScheduleStats, ScheduleWorkspace};
 pub use crate::tree_source::{TreeCursor, TreeSource};
 use crate::{Result, TreeError};
@@ -22,6 +24,25 @@ use std::ops::ControlFlow;
 pub trait Compile<S: TripleSource> {
     type Compiled: Search;
     fn compile(&self, source: S) -> Result<Self::Compiled>;
+}
+/// Opt-in compilation with request checkpoints, including adaptive probes.
+/// Custom builders can implement this without changing their ordinary Compile
+/// implementation. Check inside long construction loops, not only on return.
+pub trait ControlledCompile<S: TripleSource>: Compile<S> {
+    fn compile_controlled(
+        &self,
+        source: S,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self::Compiled, PreparationError>;
+}
+impl<S: TripleSource, Q: ControlledCompile<S> + ?Sized> ControlledCompile<S> for &Q {
+    fn compile_controlled(
+        &self,
+        source: S,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self::Compiled, PreparationError> {
+        (**self).compile_controlled(source, control)
+    }
 }
 impl<S: TripleSource, Q: Compile<S> + ?Sized> Compile<S> for &Q {
     type Compiled = Q::Compiled;
@@ -86,6 +107,32 @@ impl<S: TripleSource> Compile<S> for Bgp {
             },
             source,
             self.schedule,
+        )
+    }
+}
+impl<S: TripleSource> ControlledCompile<S> for Bgp {
+    fn compile_controlled(
+        &self,
+        source: S,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self::Compiled, PreparationError> {
+        control.check()?;
+        if !self.compatible {
+            return Err(TreeError::InvalidConfig("automata binding widths differ".into()).into());
+        }
+        let mut patterns = Vec::with_capacity(self.patterns.len());
+        for pattern in &self.patterns {
+            control.checkpoint()?;
+            patterns.push(pattern.clone());
+        }
+        ops::Bgp::new_controlled(
+            &JoinQuery {
+                num_vars: self.width,
+                patterns,
+            },
+            source,
+            self.schedule,
+            control,
         )
     }
 }
@@ -178,6 +225,28 @@ macro_rules! binary {
                 })
             }
         }
+        impl<
+            S: TripleSource + Copy,
+            A: Query + ControlledCompile<S>,
+            B: Query + ControlledCompile<S>,
+        > ControlledCompile<S> for ops::$name<A, B>
+        {
+            fn compile_controlled(
+                &self,
+                source: S,
+                control: &Execution<'_>,
+            ) -> std::result::Result<Self::Compiled, PreparationError> {
+                control.check()?;
+                control.checkpoint()?;
+                same_width(&self.left, &self.right)?;
+                let compiled = ops::$name {
+                    left: self.left.compile_controlled(source, control)?,
+                    right: self.right.compile_controlled(source, control)?,
+                };
+                control.check()?;
+                Ok(compiled)
+            }
+        }
     };
 }
 binary!(Join);
@@ -201,6 +270,30 @@ impl<S: TripleSource + Copy, A: Query + Compile<S>, B: Query + Compile<S>, F: Co
         })
     }
 }
+impl<
+    S: TripleSource + Copy,
+    A: Query + ControlledCompile<S>,
+    B: Query + ControlledCompile<S>,
+    F: Condition + Clone,
+> ControlledCompile<S> for ops::LeftJoin<A, B, F>
+{
+    fn compile_controlled(
+        &self,
+        source: S,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self::Compiled, PreparationError> {
+        control.check()?;
+        control.checkpoint()?;
+        same_width(&self.left, &self.right)?;
+        let compiled = ops::LeftJoin {
+            left: self.left.compile_controlled(source, control)?,
+            right: self.right.compile_controlled(source, control)?,
+            condition: self.condition.clone(),
+        };
+        control.check()?;
+        Ok(compiled)
+    }
+}
 impl<A: Query, B: Query, const N: bool> Query for ops::Existence<A, B, N> {
     fn binding_width(&self) -> usize {
         self.left.binding_width()
@@ -218,6 +311,29 @@ impl<S: TripleSource + Copy, A: Query + Compile<S>, B: Query + Compile<S>, const
         })
     }
 }
+impl<
+    S: TripleSource + Copy,
+    A: Query + ControlledCompile<S>,
+    B: Query + ControlledCompile<S>,
+    const N: bool,
+> ControlledCompile<S> for ops::Existence<A, B, N>
+{
+    fn compile_controlled(
+        &self,
+        source: S,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self::Compiled, PreparationError> {
+        control.check()?;
+        control.checkpoint()?;
+        same_width(&self.left, &self.right)?;
+        let compiled = ops::Existence {
+            left: self.left.compile_controlled(source, control)?,
+            right: self.right.compile_controlled(source, control)?,
+        };
+        control.check()?;
+        Ok(compiled)
+    }
+}
 impl<P: Query, F> Query for ops::Filter<P, F> {
     fn binding_width(&self) -> usize {
         self.input.binding_width()
@@ -230,6 +346,24 @@ impl<S: TripleSource, P: Compile<S>, F: Condition + Clone> Compile<S> for ops::F
             input: self.input.compile(source)?,
             condition: self.condition.clone(),
         })
+    }
+}
+impl<S: TripleSource, P: ControlledCompile<S>, F: Condition + Clone> ControlledCompile<S>
+    for ops::Filter<P, F>
+{
+    fn compile_controlled(
+        &self,
+        source: S,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self::Compiled, PreparationError> {
+        control.check()?;
+        control.checkpoint()?;
+        let compiled = ops::Filter {
+            input: self.input.compile_controlled(source, control)?,
+            condition: self.condition.clone(),
+        };
+        control.check()?;
+        Ok(compiled)
     }
 }
 
@@ -261,6 +395,19 @@ impl<S: TripleSource, A: BitmapAutomaton + Clone> Compile<S> for Language<A> {
         })
     }
 }
+impl<S: TripleSource, A: BitmapAutomaton + Clone> ControlledCompile<S> for Language<A> {
+    fn compile_controlled(
+        &self,
+        source: S,
+        control: &Execution<'_>,
+    ) -> std::result::Result<Self::Compiled, PreparationError> {
+        control.check()?;
+        control.checkpoint()?;
+        let search = self.compile(source)?;
+        control.check()?;
+        Ok(search)
+    }
+}
 impl<S: TripleSource, A: BitmapAutomaton> Plan for LanguageSearch<S, A> {
     type Workspace = Vec<Slot>;
     fn width(&self) -> usize {
@@ -279,6 +426,36 @@ impl<S: TripleSource, A: BitmapAutomaton> Plan for LanguageSearch<S, A> {
             &self.machine,
             &(),
             ws,
+            |path| {
+                let mut values = [0u32; 3];
+                for slot in path {
+                    let (bits, shifts, remaining) = self.source.layout(slot.level);
+                    for d in 0..3 {
+                        values[d] |=
+                            ((slot.value >> shifts[d]) & ((1u32 << bits[d]) - 1)) << remaining[d];
+                    }
+                }
+                emit(Binding {
+                    values: &values,
+                    bound: &[7],
+                })
+            },
+        )
+    }
+}
+impl<S: TripleSource, A: BitmapAutomaton> ControlledSearch for LanguageSearch<S, A> {
+    fn visit_controlled<T>(
+        &self,
+        ws: &mut Self::Workspace,
+        control: &Execution<'_>,
+        mut emit: impl FnMut(Binding<'_>) -> ControlFlow<T>,
+    ) -> VisitResult<T> {
+        crate::automata_core::visit_language_controlled(
+            &self.source,
+            &self.machine,
+            &(),
+            ws,
+            control,
             |path| {
                 let mut values = [0u32; 3];
                 for slot in path {

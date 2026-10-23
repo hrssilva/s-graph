@@ -1,0 +1,8 @@
+warning: manifest has no documentation, homepage or repository
+  |
+  = note: see https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info
+   Packaging s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph)
+    Packaged 189 files, 3.7MiB (964.0KiB compressed)
+   Verifying s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph)
+   Compiling s-graph v0.1.0 (/home/hrssilva/Documents/project-s/s-graph/target/package/s-graph-0.1.0)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.71s

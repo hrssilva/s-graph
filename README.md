@@ -58,6 +58,10 @@ a power of two of at least 512 bytes; use `DEFAULT_BLOCK_CAPACITY` normally.
 the `try_` forms return errors, including unrepresentable 32-bit child deltas.
 Build input is currently limited to `u32::MAX` triples.
 
+An opt-in [parallel construction prototype](examples/join/FST_PARALLEL_BUILD.md)
+provides `Fst::try_build_parallel` with `parallel` and `experimental` enabled.
+It preserves global suffix sharing and uses the current Rayon pool.
+
 `scan` accepts exact values or `None` wildcards and allocates no heap memory.
 `select([DimRestriction; 3], output_dimension)` projects sorted, distinct values
 with exact, inclusive range, union-of-ranges or free restrictions (`tree::DimRestriction`).
@@ -237,6 +241,43 @@ or another `automata::Schedule` on a BGP for explicit execution control.
 for callers using `JoinQuery`. They use the same engine. Low-level
 `scheduled_join::ScheduledJoin` also exposes traversal counters and memory
 diagnostics.
+
+## Cooperative query limits
+
+`ControlledCompile` and `ControlledSearch` add cancellation, deadlines and a
+shared work budget to BGPs, slot recognizers, VALUES and their binding operators.
+Checks run inside unsuccessful searches as well as when results are produced.
+Ordinary `search`/`visit` keep their existing statically specialized fast path.
+
+```rust
+use s_graph::{Fst, DEFAULT_BLOCK_CAPACITY};
+use s_graph::automata::{Bgp, ControlledCompile, ControlledSearch, Execution,
+    PreparationError, StopReason, VisitResult, VisitStop, Term::{Const as C, Var as V}};
+use std::{ops::ControlFlow, sync::atomic::{AtomicBool, Ordering}};
+
+let graph = Fst::build_dynamic(vec![(0, 0, 1), (1, 1, 2)], DEFAULT_BLOCK_CAPACITY);
+let cancelled = AtomicBool::new(false); // may also live inside an Arc
+let request = Execution::new().with_budget(50_000).with_cancellation(&cancelled);
+let machine = Bgp::new(2).triple([C(0), C(0), V(0)]).triple([V(0), C(1), V(1)]);
+let search = machine.compile_controlled(graph.source(), &request)?;
+let mut workspace = Default::default();
+let outcome: VisitResult<()> = search.visit_controlled(&mut workspace, &request, |row| {
+    assert_eq!(row.get(1), Some(2));
+    ControlFlow::Continue(())
+});
+assert_eq!(outcome, ControlFlow::Continue(()));
+cancelled.store(true, Ordering::Relaxed);
+assert_eq!(search.visit_controlled(&mut workspace, &request, |_| ControlFlow::Break(())),
+           ControlFlow::Break(VisitStop::Interrupted(StopReason::Cancelled)));
+# Ok::<(), PreparationError>(())
+```
+
+`VisitStop::User(value)` preserves a callback break; `Interrupted(reason)` means
+incomplete output. Work units are executor checkpoints, including compiler and
+propagation work, rather than node reads. Use a fresh `Execution` per request;
+work is cumulative and stops are sticky. Custom searches opt in by implementing
+`ControlledSearch` and checking their own loops. Paths and analytics retain
+their existing callback control. See [contracts and integration](examples/join/EXECUTION_CONTROL.md).
 
 ## Compose queries: OPTIONAL, MINUS and more
 

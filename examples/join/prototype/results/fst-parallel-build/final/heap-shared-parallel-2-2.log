@@ -1,0 +1,7 @@
+mode=parallel,shape=shared,triples=1000000,threads=2,build_ms=66.616,retained_bytes=1620,nodes=9,visited=254149
+Running as unit: sgraph-build-1792695352537136343.service; invocation ID: 8bce30207e1c45eeb011f907a1bbea69
+peak_rss_kib=26188
+          Finished with result: success
+Main processes terminated with: code=exited, status=0/SUCCESS
+               Service runtime: 109ms
+             CPU time consumed: 150ms
